@@ -1,5 +1,5 @@
 """
-[INPUT]: 依赖 pytest 的 monkeypatch，依赖 app.llm 的 AnthropicClient / OpenAICompatClient / factory.build_llm，依赖 app.errors 的 LLMError
+[INPUT]: 依赖 pytest 的 monkeypatch，依赖 app.llm 的 GeminiClient / AnthropicClient / OpenAICompatClient / factory.build_llm，依赖 app.errors 的 LLMError
 [OUTPUT]: 厂商客户端的报文形状与配置校验单测（替换 post_json，不触网）
 [POS]: tests 中守护 llm 包对外协议的用例集，确保换厂商不必改 director
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -11,7 +11,7 @@ import pytest
 
 from app.config import Settings
 from app.errors import LLMError
-from app.llm import anthropic, openai_compat
+from app.llm import anthropic, gemini, openai_compat
 from app.llm.factory import build_llm
 
 
@@ -47,6 +47,40 @@ def test_openai_compat_payload_and_text_extraction(monkeypatch):
     assert sent["url"] == "https://api.deepseek.com/v1/chat/completions"
     assert sent["payload"]["response_format"] == {"type": "json_object"}
     assert sent["payload"]["temperature"] == 0.9
+
+
+def _gemini(**overrides) -> gemini.GeminiClient:
+    kwargs = dict(
+        api_key="k", model="gemini-flash-latest", base_url="https://generativelanguage.googleapis.com/v1beta",
+        temperature=None, timeout=5, max_tokens=99, thinking_level="low",
+    )
+    return gemini.GeminiClient(**(kwargs | overrides))
+
+
+def test_gemini_payload_schema_and_thought_filtering(monkeypatch):
+    reply = {"candidates": [{"content": {"parts": [{"text": "想想", "thought": True}, {"text": "{}"}]}}]}
+    sent = _capture(monkeypatch, gemini, reply)
+    assert asyncio.run(_gemini().complete("SYS", "USER", {"type": "object"})) == "{}"
+    assert sent["url"].endswith("/v1beta/models/gemini-flash-latest:generateContent")
+    assert sent["headers"] == {"x-goog-api-key": "k"}
+    config = sent["payload"]["generationConfig"]
+    assert config["responseJsonSchema"] == {"type": "object"}
+    assert config["responseMimeType"] == "application/json"
+    assert config["thinkingConfig"] == {"thinkingLevel": "low"}
+    assert sent["payload"]["systemInstruction"]["parts"][0]["text"] == "SYS"
+
+
+def test_gemini_omits_unset_knobs(monkeypatch):
+    sent = _capture(monkeypatch, gemini, {"candidates": [{"content": {"parts": [{"text": "{}"}]}}]})
+    asyncio.run(_gemini(thinking_level=None).complete("SYS", "USER"))
+    config = sent["payload"]["generationConfig"]
+    assert "thinkingConfig" not in config and "responseJsonSchema" not in config and "temperature" not in config
+
+
+def test_gemini_blocked_prompt_raises_llm_error(monkeypatch):
+    _capture(monkeypatch, gemini, {"promptFeedback": {"blockReason": "SAFETY"}})
+    with pytest.raises(LLMError, match="SAFETY"):
+        asyncio.run(_gemini().complete("SYS", "USER"))
 
 
 def test_malformed_vendor_response_raises_llm_error(monkeypatch):

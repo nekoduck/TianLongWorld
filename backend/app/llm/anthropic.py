@@ -9,6 +9,7 @@ from typing import Any
 
 from app.errors import LLMError
 from app.llm._http import post_json
+from app.llm.base import JsonSchema
 
 _API_VERSION = "2023-06-01"
 
@@ -24,7 +25,7 @@ class AnthropicClient:
         self._timeout = timeout
         self._max_tokens = max_tokens
 
-    async def complete(self, system: str, user: str) -> str:
+    async def complete(self, system: str, user: str, schema: JsonSchema | None = None) -> str:
         payload: dict[str, Any] = {
             "model": self._model,
             "max_tokens": self._max_tokens,

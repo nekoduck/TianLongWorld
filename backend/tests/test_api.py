@@ -1,6 +1,6 @@
 """
 [INPUT]: 依赖 conftest 的 client / store / world 夹具与 ScriptedLLM，依赖 app.director.Director
-[OUTPUT]: /api 端到端用例：开局、推演、必死封印、永久死亡、冷启动恢复、重试、协议校验
+[OUTPUT]: /api 端到端用例：开局、推演、必死封印、结构化在场判定、永久死亡、冷启动恢复、重试、协议校验
 [POS]: tests 中守护前后端协议与核心管线的集成用例集
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -59,6 +59,23 @@ def test_rule_layer_overrides_merciful_llm(store, world):
     out = asyncio.run(director.interact(req))
     assert out.game_over and out.options is None
     assert 'kind="lethal"' in llm.prompts[0]
+
+
+def test_structured_presence_catches_unnamed_grandmaster(store):
+    # 真实大模型常只写"那魁梧大汉"：在场判定必须靠导演的结构化名单，而非场景原文
+    llm = ScriptedLLM(alive_reply("邻桌一条魁梧大汉独据一桌，空碗叠了半人高。", present=["萧峰"]), alive_reply())
+    director = Director(llm, store, rng=random.Random(0))
+    opening = asyncio.run(director.open())
+    assert "present" not in opening.model_dump()  # 内部字段不外泄到前端协议
+    req = InteractRequest(
+        session_id=opening.session_id,
+        current_state=opening.next_state,
+        action_type="custom",
+        action_text="掀翻乔峰的酒桌",
+    )
+    out = asyncio.run(director.interact(req))
+    assert out.game_over
+    assert "<present>\n萧峰\n</present>" in llm.prompts[1]
 
 
 def test_unknown_session_rehydrates_from_client_snapshot(client, world):

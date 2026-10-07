@@ -51,9 +51,9 @@ def _is_hostile(action: str) -> bool:
     return any(word in action for word in _HOSTILE)
 
 
-def judge(action: str, state: WorldState, memory: str) -> Verdict:
+def judge(action: str, state: WorldState, presence: str) -> Verdict:
     """
-    必死 = 玩家无绝学 ∧ 动作带敌意 ∧ 动作点名某绝顶高手 ∧ 此人在近期场景中在场。
+    必死 = 玩家无绝学 ∧ 动作带敌意 ∧ 动作点名某绝顶高手 ∧ 此人在场（presence 含其任一称呼）。
     在场条件防止"我要去少林挑战扫地僧"这种远在天边的狠话被当场处决。
     """
     if any(mark in state.physical_state for mark in _MASTERY):
@@ -61,6 +61,6 @@ def judge(action: str, state: WorldState, memory: str) -> Verdict:
     if not _is_hostile(action):
         return SAFE
     for master in GRANDMASTERS:
-        if master.mentioned_in(action) and master.mentioned_in(memory):
+        if master.mentioned_in(action) and master.mentioned_in(presence):
             return Verdict(killer=master)
     return SAFE

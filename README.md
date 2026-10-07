@@ -31,15 +31,20 @@ cd frontend && npm run build
 
 ## 接入真实大模型
 
-复制 `backend/.env.example` 为 `backend/.env`，任选其一：
+复制 `backend/.env.example` 为 `backend/.env`（已 gitignore，密钥不会入库），任选其一：
 
 ```ini
+# Gemini（推荐：原生结构化输出，思考档位 low，实测约 5s/回合）
+LLM_PROVIDER=gemini
+LLM_API_KEY=...
+LLM_MODEL=gemini-flash-latest
+
 # Anthropic
 LLM_PROVIDER=anthropic
 LLM_API_KEY=sk-ant-...
 LLM_MODEL=claude-sonnet-5-5
 
-# OpenAI 兼容协议（OpenAI / DeepSeek / 通义 / Gemini / Ollama）
+# OpenAI 兼容协议（OpenAI / DeepSeek / 通义 / Ollama）
 LLM_PROVIDER=openai
 LLM_API_KEY=sk-...
 LLM_MODEL=deepseek-chat
@@ -62,6 +67,10 @@ LLM_BASE_URL=https://api.deepseek.com/v1
 
 ## 试试作死
 
-开局若见乔峰、扫地老僧或丁春秋在场，输入「掀翻乔峰的酒桌」「一脚踢翻扫地老僧的扫帚」「朝丁春秋吐口水」之类——规则层会在大模型之前判你死刑。
+开局若在松鹤楼、少林寺山门或星宿海，乔峰、扫地僧或丁春秋就在你眼前（叙述可能只写"那魁梧大汉""那扫地老僧"）。
+
+- 点名挑衅，如「一拳打在乔峰脸上」：规则层在大模型之前判你死刑。
+- 不点名挑衅，如「抄起板凳朝那人砸去」：System Prompt 中的高手名录让导演同样一招毙命。
+- 恭敬求教、顺手牵羊之类不冒犯高手的举动，则交由导演按常识推演。
 
 项目地图见 [`CLAUDE.md`](./CLAUDE.md)。

@@ -9,6 +9,7 @@ from typing import Any
 
 from app.errors import LLMError
 from app.llm._http import post_json
+from app.llm.base import JsonSchema
 
 
 class OpenAICompatClient:
@@ -19,11 +20,12 @@ class OpenAICompatClient:
         self._temperature = temperature
         self._timeout = timeout
 
-    async def complete(self, system: str, user: str) -> str:
+    async def complete(self, system: str, user: str, schema: JsonSchema | None = None) -> str:
         payload: dict[str, Any] = {
             "model": self._model,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            # JSON 模式：主流兼容端点均支持，从采样层面杜绝散文输出
+            # JSON 模式：主流兼容端点均支持，从采样层面杜绝散文输出。
+            # 不用 json_schema 严格模式：它要求 additionalProperties=false 且全字段必填，与 Pydantic 默认 schema 不兼容
             "response_format": {"type": "json_object"},
         }
         # 不下发 max_tokens：各家对 max_tokens / max_completion_tokens 的取舍不一，篇幅由 Prompt 约束

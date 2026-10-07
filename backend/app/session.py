@@ -1,6 +1,6 @@
 """
 [INPUT]: 依赖 app.schemas 的 WorldState / DirectorOutput，依赖 app.errors 的 SessionDeadError / SessionBusyError
-[OUTPUT]: 对外提供 Turn、Session（含 acting 守卫与 advance 推进）、SessionStore（LRU 内存仓库）
+[OUTPUT]: 对外提供 Turn、Session（含 acting 守卫、presence 在场判定素材、advance 推进）、SessionStore（LRU 内存仓库）
 [POS]: app 的会话状态层，是世界状态的唯一权威；被 director/pipeline.py 读写，不感知 HTTP 与大模型
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -8,7 +8,7 @@
 from collections import OrderedDict, deque
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 from app.errors import SessionBusyError, SessionDeadError
@@ -28,12 +28,15 @@ class Session:
     id: UUID
     state: WorldState
     history: deque[Turn]
+    present: tuple[str, ...] = ()  # 导演给出的在场人物真实姓名
     dead: bool = False
     busy: bool = False
 
-    def memory_text(self) -> str:
-        """近几回合的场景原文，供致死预判检查"某高手是否在场"。"""
-        return "\n".join(t.scene for t in self.history)
+    def presence(self) -> str:
+        """致死预判的"在场"素材：优先用导演的结构化名单；名单缺席（Mock / 冷启动）时退回上一幕原文。"""
+        if self.present:
+            return "、".join(self.present)
+        return self.history[-1].scene if self.history else ""
 
     @contextmanager
     def acting(self) -> Iterator[None]:
@@ -51,6 +54,7 @@ class Session:
     def advance(self, action: str, out: DirectorOutput) -> None:
         self.state = out.next_state
         self.history.append(Turn(action, out.scene_description))
+        self.present = tuple(out.present)
         self.dead = out.game_over
 
 
@@ -62,8 +66,8 @@ class SessionStore:
         self._capacity = capacity
         self._history_turns = history_turns
 
-    def create(self, state: WorldState, opening_scene: str) -> Session:
-        return self._put(uuid4(), state, Turn("", opening_scene))
+    def create(self, state: WorldState, opening_scene: str, present: tuple[str, ...] = ()) -> Session:
+        return self._put(uuid4(), state, (Turn("", opening_scene),), present)
 
     def get_or_rehydrate(self, session_id: UUID, client_state: WorldState) -> Session:
         """服务端会话优先；丢失时以客户端快照冷启动（开发期热重载、进程重启后无缝续玩）。"""
@@ -73,8 +77,10 @@ class SessionStore:
         self._sessions.move_to_end(session_id)
         return session
 
-    def _put(self, session_id: UUID, state: WorldState, *turns: Turn) -> Session:
-        session = Session(session_id, state, deque(turns, maxlen=self._history_turns))
+    def _put(
+        self, session_id: UUID, state: WorldState, turns: tuple[Turn, ...] = (), present: tuple[str, ...] = ()
+    ) -> Session:
+        session = Session(session_id, state, deque(turns, maxlen=self._history_turns), present)
         self._sessions[session_id] = session
         while len(self._sessions) > self._capacity:
             self._sessions.popitem(last=False)

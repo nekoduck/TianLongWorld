@@ -26,18 +26,19 @@ class ScriptedLLM:
         self.replies = list(replies)
         self.prompts: list[str] = []
 
-    async def complete(self, system: str, user: str) -> str:
+    async def complete(self, system: str, user: str, schema=None) -> str:
         self.prompts.append(user)
         return self.replies.pop(0)
 
 
-def alive_reply(**state_overrides: str) -> str:
+def alive_reply(scene: str = "雾气漫上芦苇荡，你屏住呼吸。", present: list[str] | None = None) -> str:
     state = {"location": "太湖畔", "time": "丑时", "weather": "大雾", "physical_state": "手无寸铁、隐蔽"}
     return json.dumps({
-        "scene_description": "雾气漫上芦苇荡，你屏住呼吸。",
+        "scene_description": scene,
         "game_over": False,
         "options": {"A": "静观其变", "B": "低声询问", "C": "夺船而走"},
-        "next_state": state | state_overrides,
+        "next_state": state,
+        "present": present or [],
     }, ensure_ascii=False)
 
 

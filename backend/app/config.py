@@ -21,13 +21,14 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     #  大模型 —— mock 为默认值，保证零密钥可跑
     # ------------------------------------------------------------------
-    llm_provider: Literal["mock", "openai", "anthropic"] = "mock"
+    llm_provider: Literal["mock", "gemini", "openai", "anthropic"] = "mock"
     llm_api_key: str = ""
     llm_model: str = ""
     llm_base_url: str = ""  # 留空则取 provider 官方地址
     llm_temperature: float | None = None  # None = 不下发，交给 provider 默认值
     llm_timeout: float = 60.0
     llm_max_tokens: int = 2048
+    llm_thinking_level: str = "low"  # 仅 gemini：思考档位，low 把回合延迟压到约 5s；留空则用模型默认
 
     # ------------------------------------------------------------------
     #  会话 —— 纯内存，容量封顶防止长跑进程无界增长

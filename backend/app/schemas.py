@@ -1,6 +1,6 @@
 """
 [INPUT]: 依赖 pydantic 的 BaseModel / StringConstraints / model_validator
-[OUTPUT]: 对外提供 WorldState、Options、InteractRequest、DirectorOutput、InteractResponse、NewSessionResponse
+[OUTPUT]: 对外提供 WorldState、Options、InteractRequest、DirectorOutput（含 DIRECTOR_SCHEMA）、InteractResponse、NewSessionResponse
 [POS]: app 的前后端协议与大模型输出契约，是全系统唯一的数据形状来源（前端 types.ts 与之镜像）
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, StringConstraints, model_validator
 # 语义标签：去空白、非空、封顶长度 —— 既挡住客户端塞入超长 Prompt，也约束大模型的输出漂移
 Tag = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
 OptionText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)]
+Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20)]
 
 
 # ============================================================
@@ -61,12 +62,22 @@ class DirectorOutput(BaseModel):
     game_over: bool
     options: Options | None = None
     next_state: WorldState
+    # 服务端内部字段，不进前端协议：叙事可以只写"那魁梧大汉"，此处必须写"乔峰"，致死预判据此判定在场
+    present: list[Name] = Field(
+        default_factory=list,
+        max_length=12,
+        description="此刻在场、有名有姓的人物真实姓名，即使叙述中未点破身份也要写出；无人则为空数组",
+    )
 
     @model_validator(mode="after")
     def _alive_needs_options(self) -> "DirectorOutput":
         if not self.game_over and self.options is None:
             raise ValueError("玩家存活时必须给出 A/B/C 三个选项")
         return self
+
+
+# 导演契约的 JSON Schema：支持结构化输出的大模型据此从采样层面约束格式
+DIRECTOR_SCHEMA = DirectorOutput.model_json_schema()
 
 
 # ============================================================

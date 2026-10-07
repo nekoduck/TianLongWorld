@@ -13,7 +13,7 @@ from app.director.lore import OPENING_SEEDS
 from app.director.parser import parse_director_output
 from app.errors import DirectorError
 from app.llm.base import LLMClient
-from app.schemas import DirectorOutput, InteractRequest, InteractResponse, NewSessionResponse
+from app.schemas import DIRECTOR_SCHEMA, DirectorOutput, InteractRequest, InteractResponse, NewSessionResponse
 from app.session import SessionStore
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ class Director:
     async def open(self) -> NewSessionResponse:
         seed = self._rng.choice(OPENING_SEEDS)
         out = await self._direct(prompts.build_opening(seed))
-        session = self._store.create(out.next_state, out.scene_description)
+        session = self._store.create(out.next_state, out.scene_description, tuple(out.present))
         return NewSessionResponse(session_id=session.id, **InteractResponse.from_director(out).model_dump())
 
     # ------------------------------------------------------------------
@@ -41,8 +41,8 @@ class Director:
     async def interact(self, req: InteractRequest) -> InteractResponse:
         session = self._store.get_or_rehydrate(req.session_id, req.current_state)
         with session.acting():
-            verdict = lethal.judge(req.action_text, session.state, session.memory_text())
-            prompt = prompts.build_turn(session.state, session.history, req.action_type, req.action_text, verdict)
+            verdict = lethal.judge(req.action_text, session.state, session.presence())
+            prompt = prompts.build_turn(session, req.action_type, req.action_text, verdict)
             out = await self._direct(prompt)
             if verdict.lethal:
                 # 规则层的死刑不容大模型赦免：无论它写了什么，都封印为死亡
@@ -54,7 +54,7 @@ class Director:
         """大模型输出有随机性：解析失败就重新采样，耗尽次数才认输。"""
         attempt = 1
         while True:
-            raw = await self._llm.complete(prompts.SYSTEM_PROMPT, user_prompt)
+            raw = await self._llm.complete(prompts.SYSTEM_PROMPT, user_prompt, DIRECTOR_SCHEMA)
             try:
                 return parse_director_output(raw)
             except DirectorError as exc:
