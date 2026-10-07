@@ -1,5 +1,5 @@
 """
-[INPUT]: 依赖 app.session 的 reconcile / chronicle，依赖 app.schemas 的 TagDelta / WorldEvent / GameState / WorldState / LEDGERS，
+[INPUT]: 依赖 app.session 的 reconcile / chronicle，依赖 app.schemas 的 TagDelta / WorldEvent / GameState / WorldState / InteractRequest / LEDGERS，
          依赖 app.director 的 Director、app.lore 的 OPENING_SEEDS，依赖 conftest 的 ScriptedLLM / alive_reply 与 store / game / client 夹具
 [OUTPUT]: 记账用例：四本玩家标签账（遗漏≠失去、点名才移除、模糊匹配、快照走私拦截）、世界台账（只追加、复述去重、不设上限、
           大模型无法借 next_state 改写或删除旧事）、状态栏格式与缺省值、开局与冷启动的整树延续、Mock 走同一本账

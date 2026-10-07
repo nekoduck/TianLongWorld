@@ -7,6 +7,7 @@
 """
 
 import asyncio
+import json
 import random
 from uuid import uuid4
 
@@ -78,7 +79,9 @@ def test_structured_presence_catches_unnamed_grandmaster(store):
     )
     out = asyncio.run(director.interact(req))
     assert out.game_over
-    assert '"present_npcs": ["萧峰"]' in read_section(llm.prompts[1], "local_environment")
+    present = json.loads(read_section(llm.prompts[1], "local_environment"))["present_npcs"]
+    # 大模型写破的萧峰登记在场；Random(0) 抽中的少林寺种子点名的扫地僧也照样在场——开局地点写成别处也清不掉他
+    assert present == ["扫地僧", "萧峰"]
 
 
 def test_unknown_session_rehydrates_from_client_snapshot(client, game):

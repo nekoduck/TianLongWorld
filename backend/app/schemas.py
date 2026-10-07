@@ -1,6 +1,6 @@
 """
-[INPUT]: 依赖 pydantic 的 BaseModel / StringConstraints / model_validator
-[OUTPUT]: 对外提供 PlayerSnapshot、PlayerState、LEDGERS、WorldEvent、WorldState、GameState、MAX_TAGS、
+[INPUT]: 依赖 pydantic 的 BaseModel / Field / StringConstraints / field_validator / model_validator，依赖标准库 logging
+[OUTPUT]: 对外提供 PlayerSnapshot、PlayerState、LEDGERS、WorldEvent、WorldState、GameState、MAX_TAGS、MAX_NEW_EVENTS、
           Options、InteractRequest、TagDelta / PlayerDelta / LocalDelta / NextState、DirectorOutput（含 DIRECTOR_SCHEMA）、
           InteractResponse、NewSessionResponse
 [POS]: app 的前后端协议与大模型输出契约，是全系统唯一的数据形状来源（前端 types.ts 与之镜像）
@@ -10,7 +10,11 @@
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, StringConstraints, model_validator
+import logging
+
+from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
+
+logger = logging.getLogger(__name__)
 
 # 语义标签：去空白、非空、封顶长度 —— 既挡住客户端塞入超长 Prompt，也约束大模型的输出漂移
 Tag = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
@@ -19,6 +23,7 @@ Label = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, ma
 EventDesc = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
 
 MAX_TAGS = 16  # 每本玩家标签账的上限
+MAX_NEW_EVENTS = 3  # 每回合至多新增的世界大事：同一场变故应合为一条
 
 TagList = Annotated[list[Label], Field(max_length=MAX_TAGS)]
 
@@ -124,7 +129,10 @@ class LocalDelta(BaseModel):
     arrived: list[Label] = Field(
         default=[],
         max_length=12,
-        description="本回合进入视野、有名有姓者的真实姓名（叙事含蓄也要写破，如 乔峰）；换了地图则写出新地点的全部在场者",
+        description=(
+            "本回合进入视野者：有名有姓者写真实姓名（叙事含蓄也要写破，如 乔峰），无名者写可辨识门派身份的群体（如 丐帮弟子）；"
+            "换了地图则写出新地点的全部在场者"
+        ),
     )
     departed: list[Label] = Field(default=[], max_length=12, description="本回合离开视野者，名字照抄 local_environment")
 
@@ -134,9 +142,21 @@ class NextState(PlayerSnapshot):
 
     major_events: list[WorldEvent] = Field(
         default=[],
-        max_length=3,
-        description="仅本回合新发生的重大变故（NPC 死亡、地标被毁、剧情节点）；没有则为空数组，绝不抄写已有的历史",
+        max_length=MAX_NEW_EVENTS,
+        description=(
+            f"仅本回合新发生的重大变故（NPC 死亡、地标被毁、剧情节点），至多 {MAX_NEW_EVENTS} 条，同一场变故合为一条；"
+            "没有则为空数组，绝不抄写已有的历史"
+        ),
     )
+
+    @field_validator("major_events", mode="before")
+    @classmethod
+    def _keep_first_events(cls, value: object) -> object:
+        # 大战一回合可能写出四五条：截取前几条并记下，而不是让整回合被判非法、重采样耗尽后 502
+        if isinstance(value, list) and len(value) > MAX_NEW_EVENTS:
+            logger.warning("本回合新增大事超过 %d 条，舍弃：%s", MAX_NEW_EVENTS, value[MAX_NEW_EVENTS:])
+            return value[:MAX_NEW_EVENTS]
+        return value
 
 
 class DirectorOutput(BaseModel):

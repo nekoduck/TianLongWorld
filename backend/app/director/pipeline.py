@@ -1,6 +1,7 @@
 """
 [INPUT]: 依赖 app.llm.base 的 LLMClient 协议，依赖 app.session 的 SessionStore / LocalEnvironment / evolve / observe，
-         依赖 director 内 lethal / memory / prompts / parser，依赖 app.lore 的 OPENING_SEEDS
+         依赖 director 内 lethal / memory / prompts / parser，依赖 app.lore 的 OPENING_SEEDS，
+         依赖 app.schemas 的 DIRECTOR_SCHEMA / DirectorOutput / InteractRequest / InteractResponse / NewSessionResponse，依赖 app.errors 的 DirectorError
 [OUTPUT]: 对外提供 Director 类 —— open() 开局、interact() 推演一回合
 [POS]: director 的编排核心，串起 守卫 → 致死预判 → 记忆过滤（JIT）→ Prompt 组装 → 大模型 → 解析 → 生死封印 → 状态推进；被 app/api.py 调用
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -43,9 +44,9 @@ class Director:
     async def open(self) -> NewSessionResponse:
         seed = self._rng.choice(OPENING_SEEDS)
         out = await self._direct(prompts.build_opening(seed))
-        # 种子点名的高手恒先登记在场；大模型只补写其余到场者
-        here = LocalEnvironment(location=seed.state.player_state.location, present_npcs=seed.present)
-        local = observe(here, out.next_state.location, out.local_delta)
+        # 种子点名的高手恒先登记在场；开局不是移动，按大模型写出的开局地点登记，措辞漂移（"无锡松鹤楼"→"松鹤楼"）也清不掉他们
+        here = LocalEnvironment(location=out.next_state.location, present_npcs=seed.present)
+        local = observe(here, here.location, out.local_delta)
         session = self._store.create(evolve(seed.state, out), out.scene_description, local)
         return NewSessionResponse(session_id=session.id, **InteractResponse.of(session.state, out).model_dump())
 
@@ -63,6 +64,7 @@ class Director:
                 location=player.location,
                 present_npcs=session.local.present_npcs,
                 traits=player.social_traits,
+                mentioned=req.action_text,  # 规格外的第四路：动作点名的目的地与人物，抵达那一回合就要看见那里的过往
                 limit=self._memory_limit,
             )
             prompt = prompts.build_turn(session, memories, req.action_type, req.action_text, verdict)

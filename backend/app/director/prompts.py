@@ -1,5 +1,5 @@
 """
-[INPUT]: 依赖 app.schemas 的 PlayerState / WorldEvent，依赖 app.session 的 Session / Turn / LocalEnvironment，
+[INPUT]: 依赖 app.schemas 的 PlayerState / WorldEvent / MAX_NEW_EVENTS，依赖 app.session 的 Session / Turn / LocalEnvironment，
          依赖 director/lethal.py 的 Verdict，依赖 app.lore 的 GRANDMASTERS / Grandmaster / OpeningSeed
 [OUTPUT]: 对外提供 SYSTEM_PROMPT、HISTORY_PREAMBLE、build_opening()、build_turn()，以及提示词协议读取器 read_section() / read_directive()
 [POS]: director 的提示词协议层：System Prompt 是静态的世界法则（可被厂商缓存），每回合的动态上下文以 XML 标签组织进 User Message。
@@ -14,7 +14,7 @@ from collections.abc import Iterable, Sequence
 
 from app.director.lethal import Verdict
 from app.lore import GRANDMASTERS, Grandmaster, OpeningSeed
-from app.schemas import PlayerState, WorldEvent
+from app.schemas import MAX_NEW_EVENTS, PlayerState, WorldEvent
 from app.session import LocalEnvironment, Session, Turn
 
 # ============================================================
@@ -57,22 +57,27 @@ buffs_debuffs、social_traits、inventory、martial_arts 是四本标签账，�
 - remove 的名称照抄当前清单，add 不要重复清单里已有的；叙事与选项都要与这四本账一致。
 
 【局部视野】（硬性规则）
-- <local_environment> 是此刻的地点与在场的有名有姓者（present_npcs）。
-- local_delta.arrived 写本回合进入视野者的真实姓名：叙述可以含蓄（"那魁梧大汉"），这里必须写破（"乔峰"）；\
+- <local_environment> 是此刻的地点与在场者（present_npcs）：有名有姓者，以及可辨识门派身份的群体（如 "丐帮弟子"、"星宿派门人"）。
+- local_delta.arrived 写本回合进入视野者：有名有姓者写真实姓名，叙述可以含蓄（"那魁梧大汉"），这里必须写破（"乔峰"）；\
+无名者写其门派身份群体（"丐帮弟子"），不写"路人""酒客"这类泛称；\
 local_delta.departed 照抄 present_npcs 中离开视野者的名字。没写进 departed 的人一律视作仍在场。
 - 同一地图的唯一判据：新的 next_state.location 包含原 location 的全称——留在原地就照抄原 location，\
 深入其中的子地点就在原名后追加（"无锡松鹤楼" → "无锡松鹤楼二楼"）。除此之外的任何 location 都算切换地图，\
 系统会强制清空旧地点的在场者，此时 arrived 必须写出新地点的全部在场者（包括随玩家同行的人）。
 
 【世界台账】（硬性规则）
-- <relevant_history> 是系统按当前地点、在场人物与玩家身份检索出的世界历史记录，都是已发生、不可逆转的事实：\
+- <relevant_history> 是系统按当前地点、在场人物、玩家身份与这一招点名的地点人物检索出的世界历史记录，\
+每行一个 {"tags", "event_desc"}，都是已发生、不可逆转的事实：\
 推演必须与之一致，死去的人不会复活，烧毁的庄园不会复原。未列出的历史并非没有发生，只是与此刻无关。
 - 本回合若发生重大变故（关键 NPC 死亡、地标被毁或易主、门派大战、改写原著走向的剧情节点），\
 必须追加到 next_state.major_events，每条严格写作 {"tags": [...], "event_desc": "..."}：\
 tags 只写精准的实体名词（地点、人物、门派、物品，如 "聚贤庄"、"游氏双雄"、"丐帮"），1 到 6 个；\
-event_desc 一句话写清谁、在哪、做了什么，不超过 30 字。
+event_desc 一句话写清谁、在哪、做了什么，不超过 30 字。每回合至多 {max_new_events} 条，同一场变故合为一条\
+（"游氏双雄战死"而非两条）。
+- 对原著有名有姓人物造成的不可逆影响同样是大事（如 {"tags": ["大理", "段誉"], "event_desc": "玩家在大理城抢走了段誉的折扇"}）；\
+与无名路人之间的小偷小摸、口角只记在标签账里。绝大多数回合 major_events 为空数组。
 - next_state.major_events 只写本回合新发生的大事，系统会把它们追加进世界台账；\
-绝不抄写 <relevant_history> 里已有的条目，也无权修改或删除它们。偷窃、斗嘴、结怨之类记在标签账里，绝大多数回合为空数组。
+绝不抄写 <relevant_history> 里已有的条目，也无权修改或删除它们。
 
 【叙事要求】
 - scene_description：100-200 字，第二人称"你"，白描为主，有画面、有声音、有危机或悬念；不替玩家做决定。
@@ -101,7 +106,11 @@ def _render(template: str, **values: str) -> str:
     return template
 
 
-SYSTEM_PROMPT = _render(_SYSTEM_TEMPLATE, roster="、".join(m.name for m in GRANDMASTERS))
+SYSTEM_PROMPT = _render(
+    _SYSTEM_TEMPLATE,
+    roster="、".join(m.name for m in GRANDMASTERS),
+    max_new_events=str(MAX_NEW_EVENTS),
+)
 
 # <relevant_history> 的开场白：明确告诉大模型这批记录是什么、为何只有这几条
 HISTORY_PREAMBLE = "这是与当前场景/人物相关的世界历史记录："
@@ -149,7 +158,8 @@ def _history(turns: Iterable[Turn]) -> str:
 
 
 def _relevant(events: Sequence[WorldEvent]) -> str:
-    lines = [f"- [{_clean('、'.join(e.tags))}] {_clean(e.event_desc)}" for e in events]
+    """逐行 JSON，与大模型输出 major_events 的形状一致：换行、方括号、引号都被 JSON 语法转义，既伪造不出条目，抄回时也原文不变、去重生效。"""
+    lines = [_json(event.model_dump_json()) for event in events]
     return _tag("relevant_history", "\n".join((HISTORY_PREAMBLE, *lines)) if lines else "（无）")
 
 

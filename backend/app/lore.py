@@ -1,8 +1,9 @@
 """
 [INPUT]: 依赖 app.schemas 的 GameState / PlayerState
-[OUTPUT]: 对外提供 Grandmaster、GRANDMASTERS（绝顶高手名录）、kin()（同一人物的全部称呼）、OpeningSeed、OPENING_SEEDS（开局种子）、SHICHEN（十二时辰）
-[POS]: app 的静态世界设定库（置于 app 顶层而非 director 内：session 也要用它认人，放在 director 里会与 pipeline 形成导入环），只有数据与查表；被 lethal.py（谁能秒杀你）、memory.py（别名检索）、pipeline.py（从哪开局、谁在场）、
-       app/session.py（局部环境按身份认人）与 llm/mock.py 消费
+[OUTPUT]: 对外提供 Grandmaster、GRANDMASTERS（绝顶高手名录）、is_grandmaster()、kin()（同一人物的全部称呼）、OpeningSeed、OPENING_SEEDS（开局种子）、SHICHEN（十二时辰）
+[POS]: app 的静态世界设定库（置于 app 顶层而非 director 内：session 也要用它认人，放在 director 里会与 pipeline 形成导入环），只有数据与查表；
+       被 lethal.py（谁能秒杀你）、memory.py（别名检索）、prompts.py（高手名录插值、开局种子组装）、pipeline.py（从哪开局、谁在场）、
+       app/session.py（局部环境按身份认人、满员时高手优先）与 llm/mock.py 消费
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -42,6 +43,11 @@ GRANDMASTERS: tuple[Grandmaster, ...] = (
     Grandmaster("南海鳄神", ("南海鳄神", "岳老三", "岳老二", "凶神恶煞"), "鳄嘴剪"),
     Grandmaster("云中鹤", ("云中鹤", "穷凶极恶"), "钢抓"),
 )
+
+
+def is_grandmaster(name: str) -> bool:
+    """此名（含"丐帮帮主乔峰"之类的修饰称呼）是否指向名录中的绝顶高手：局部环境满员时他们优先留在场上。"""
+    return any(master.mentioned_in(name) for master in GRANDMASTERS)
 
 
 def kin(name: str) -> tuple[str, ...]:

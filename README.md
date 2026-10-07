@@ -67,7 +67,7 @@ LLM_BASE_URL=https://api.deepseek.com/v1
 - `current_state` / `next_state` 是一棵树：`player_state`（`location` / `time` / `weather` / `health_status` + `buffs_debuffs` / `social_traits` / `inventory` / `martial_arts` 四个标签清单）与 `world_state.major_events`（世界大事记）。前端每次请求必须整树回传。
 - 四个标签清单由服务端记账：导演只上报增减（`player_delta`），叙事中没提到的标签不会凭空消失。
 - 世界大事记 `major_events` 是 `[{"tags": ["聚贤庄", "游氏双雄", "丐帮"], "event_desc": "..."}]`：只追加、不合并、不删除、不设上限。导演只能在 `next_state.major_events` 里写本回合新发生的大事。
-- JIT 动态记忆：每回合调用大模型前，后端只挑出 `tags` 命中当前地点、在场人物或玩家身份的最近几条大事注入 Prompt；连同滑动窗口（最近 3~5 回合）与局部环境（切换地点即清空），Prompt 长度是与游戏进度无关的常数。
+- JIT 动态记忆：每回合调用大模型前，后端只挑出 `tags` 命中当前地点、在场人物（含"丐帮弟子"这类门派群体）、玩家身份或这一招点名的地点人物的最近几条大事注入 Prompt；连同滑动窗口（最近 3~5 回合）与局部环境（切换地点即清空），Prompt 长度是与游戏进度无关的常数。
 - `ui_status_bar` 由服务端渲染：`【位置】 | 【时辰】 | 【身份】 | 【状态】 | 【武学】 | 【行囊】`，空缺时依次显示 无名小卒 / 健康 / 不会武功 / 空无一物。
 
 ## 试试作死

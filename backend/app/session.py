@@ -1,6 +1,6 @@
 """
-[INPUT]: 依赖 app.schemas 的 GameState / PlayerState / WorldState / WorldEvent / TagDelta / LocalDelta / DirectorOutput / LEDGERS / MAX_TAGS，
-         依赖 app.lore 的 kin（在场者按身份认人），依赖 app.errors 的 SessionDeadError / SessionBusyError
+[INPUT]: 依赖 app.schemas 的 GameState / PlayerSnapshot / PlayerState / WorldState / WorldEvent / TagDelta / LocalDelta / DirectorOutput / LEDGERS / MAX_TAGS，
+         依赖 app.lore 的 kin / is_grandmaster（在场者按身份认人、满员时高手优先），依赖 app.errors 的 SessionDeadError / SessionBusyError
 [OUTPUT]: 对外提供 evolve（状态推进）、reconcile（标签账）、chronicle（世界台账）、LocalEnvironment / observe（局部环境）、Turn、
           Session（含 acting 守卫、presence 在场判定素材、advance 推进）、SessionStore（LRU 内存仓库）
 [POS]: app 的会话状态层，是世界状态的唯一权威；被 director/pipeline.py 读写，不感知 HTTP 与大模型。
@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from uuid import UUID, uuid4
 
 from app.errors import SessionBusyError, SessionDeadError
-from app.lore import kin
+from app.lore import is_grandmaster, kin
 from app.schemas import (
     LEDGERS,
     MAX_TAGS,
@@ -32,7 +32,7 @@ from app.schemas import (
 
 logger = logging.getLogger(__name__)
 
-MAX_PRESENT = 12  # 局部环境在场者上限：封顶时舍弃新到场者，已在场者（致死预判读的正是他们）不被挤出
+MAX_PRESENT = 12  # 局部环境在场者上限：满员时绝顶高手一律留下（致死预判读的正是他们），其余人里先请走最早到场的
 
 
 # ============================================================
@@ -106,7 +106,7 @@ def observe(local: LocalEnvironment, location: str, delta: LocalDelta) -> LocalE
     - 同一地图（新地点包含原地点全称：原地不动，或深入子地点 "无锡松鹤楼" → "无锡松鹤楼二楼"）只认到场与离场，遗漏不等于离场
     - 其余一律视作切换地图，强制清空旧地点的在场者，只留大模型写出的新地点到场者——
       宁可让高手暂时离开名单（大模型仍受高手名录约束），也不让不在场的人凭旧名单处决玩家
-    - 在场者按身份认人：「乔峰」与「萧峰」只登记一次，写「乔帮主」离场也能对上
+    - 在场者按身份认人：「乔峰」与「萧峰」只登记一次，写「乔帮主」「丐帮帮主乔峰」离场也能对上
     """
     same_map = local.location in location
     base = local.present_npcs if same_map else ()
@@ -115,12 +115,26 @@ def observe(local: LocalEnvironment, location: str, delta: LocalDelta) -> LocalE
     for name in delta.arrived:
         if not any(_same_person(npc, name) for npc in kept):
             kept.append(name)
-    return LocalEnvironment(location=location, present_npcs=tuple(kept[:MAX_PRESENT]))
+    return LocalEnvironment(location=location, present_npcs=_cap(kept))
+
+
+def _cap(present: list[str]) -> tuple[str, ...]:
+    """满员时高手一个不少；其余人按到场先后只留最近的几位——同图里"遗漏不等于离场"会让早到的路人越积越多。"""
+    if len(present) <= MAX_PRESENT:
+        return tuple(present)
+    masters = [npc for npc in present if is_grandmaster(npc)][:MAX_PRESENT]
+    others = [npc for npc in present if not is_grandmaster(npc)]
+    recent = others[len(others) - (MAX_PRESENT - len(masters)) :] if len(masters) < MAX_PRESENT else []
+    return tuple(npc for npc in present if npc in masters or npc in recent)
 
 
 def _whom(present: Sequence[str], name: str) -> str | None:
-    """离场认人：先按名字（精确或唯一包含，宽容"丐帮帮主乔峰"之类的修饰），再按身份。"""
-    return _match(present, name) or next((npc for npc in present if _same_person(npc, name)), None)
+    """离场认人：先按名字（精确或唯一包含），再按身份，最后看修饰称呼里是否含某人的任一别名（"丐帮帮主乔峰" → 萧峰）。"""
+    return (
+        _match(present, name)
+        or next((npc for npc in present if _same_person(npc, name)), None)
+        or next((npc for npc in present if any(len(alias) >= 2 and alias in name for alias in kin(npc))), None)
+    )
 
 
 def _same_person(a: str, b: str) -> bool:

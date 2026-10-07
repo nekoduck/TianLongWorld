@@ -5,10 +5,10 @@
 
 成员清单
 __init__.py: 包门面，只导出 Director
-pipeline.py: 编排核心 Director(llm, store, memory_limit, attempts)，open() 抽开局种子生成第一幕（evolve(种子状态, 裁决) 继承种子物品；种子点名的高手先登记在场，再 observe 大模型补写的到场者），interact() 串联 守卫 → judge(presence) → recall 记忆过滤 → build_turn → LLM(附 DIRECTOR_SCHEMA) → parse（失败重采样，默认 2 次）→ 必死封印 → advance
+pipeline.py: 编排核心 Director(llm, store, memory_limit, attempts)，open() 抽开局种子生成第一幕（evolve(种子状态, 裁决) 继承种子物品；种子点名的高手按大模型写出的开局地点先登记在场，地点措辞漂移也清不掉，再 observe 大模型补写的到场者），interact() 串联 守卫 → judge(presence) → recall 记忆过滤（含动作点名）→ build_turn → LLM(附 DIRECTOR_SCHEMA) → parse（失败重采样，默认 2 次）→ 必死封印 → advance
 lethal.py: 确定性致死预判，judge(action, player, presence) 判定 无绝学（读 martial_arts 与 buffs_debuffs）∧ 敌意（先剔除"打听/打量"等无害复合词）∧ 点名 ∧ 在场（Session.presence()：局部环境 present_npcs 优先，为空时退回上一幕原文）；Verdict 以单字段 killer 表达裁决
-memory.py: 记忆拦截与过滤器（Memory Filter Layer），recall(events, location, present_npcs, traits, limit) 只放行 tags 与当前地点、在场 NPC（经 lore.kin 展开别名）或 social_traits 相互包含的世界大事（双方均 ≥2 字："聚贤庄废墟"↔「聚贤庄」、"丐帮弟子"↔「丐帮」），保序取最近 limit 条；纯函数，全量台账永不进 Prompt
-prompts.py: 提示词协议，SYSTEM_PROMPT 是静态世界法则（可被厂商缓存）：高手名录 / 【标签化演算】/ 【江湖声望】/ 【状态记账】四本账只报 player_delta 增减 / 【局部视野】local_delta 到场离场与换图判据 / 【世界台账】<relevant_history> 是相关历史、重大变故以 {"tags","event_desc"} 追加进 next_state.major_events、tags 只写实体名词、不抄旧事 / 叙事要求 / JSON 契约；build_opening(seed) / build_turn(session, memories, ...) 以 XML 标签组装 User Message，HISTORY_PREAMBLE"这是与当前场景/人物相关的世界历史记录："领起相关大事；插值转义尖括号与引号、窗口逐行 JSON 防伪造；read_section / read_directive 供 Mock 读取
+memory.py: 记忆拦截与过滤器（Memory Filter Layer），recall(events, location, present_npcs, traits, mentioned, limit) 只放行 tags 与当前地点、在场 NPC（经 lore.kin 展开别名）或 social_traits 相互包含的世界大事（双方均 ≥2 字："聚贤庄废墟"↔「聚贤庄」、"丐帮弟子"↔「丐帮」），外加规格之外的第四路：tag（含别名）原样出现在这一招的动作文本里（单向，"潜回聚贤庄"抵达当回合即见那里的过往）；保序取最近 limit 条；纯函数，全量台账永不进 Prompt
+prompts.py: 提示词协议，SYSTEM_PROMPT 是静态世界法则（可被厂商缓存）：高手名录 / 【标签化演算】/ 【江湖声望】/ 【状态记账】四本账只报 player_delta 增减 / 【局部视野】local_delta 到场离场（真名或门派身份群体）与换图判据 / 【世界台账】<relevant_history> 是相关历史、重大变故以 {"tags","event_desc"} 追加进 next_state.major_events、每回合至多 3 条、tags 只写实体名词、对原著人物的不可逆影响也算、不抄旧事 / 叙事要求 / JSON 契约；build_opening(seed) / build_turn(session, memories, ...) 以 XML 标签组装 User Message，HISTORY_PREAMBLE"这是与当前场景/人物相关的世界历史记录："领起相关大事；插值转义尖括号与引号，窗口与相关历史都逐行 JSON（伪造不出条目，抄回原文不变、去重生效）；read_section / read_directive 供 Mock 读取
 parser.py: 解析闸门，截取首 "{" 至末 "}" 剥离围栏与寒暄，交 Pydantic 校验 DirectorOutput，失败抛 DirectorError
 
 提示词协议（User Message 结构，每一项都有上限：Prompt 长度与游戏进度、台账长度无关）
@@ -16,9 +16,9 @@ parser.py: 解析闸门，截取首 "{" 至末 "}" 剥离围栏与寒暄，交 P
   <local_environment>{"location","present_npcs"}</local_environment> 服务端记账的局部环境
   <recent_history>{"action","scene"} 每行一个</recent_history>      仅回合：滑动窗口，至多 HISTORY_TURNS（3~5）回合
   <relevant_history>这是与当前场景/人物相关的世界历史记录：
-  - [聚贤庄、游氏双雄] 玩家在聚贤庄大战中烧毁了正厅……</relevant_history>  仅回合：memory.recall 放行的至多 MEMORY_LIMIT 条，无则"（无）"
+  {"tags":["聚贤庄","游氏双雄"],"event_desc":"玩家在聚贤庄大战中烧毁了正厅……"}</relevant_history>  仅回合：memory.recall 放行的至多 MEMORY_LIMIT 条，逐行 JSON，无则"（无）"
   <opening_seed>情境</opening_seed>                                 仅开局
-  <player_action type="choice|custom">动作</player_action>
+  <player_action type="choice|custom">动作</player_action>                仅回合
   <directive kind="opening|normal|lethal" [killer= signature=]>指令</directive>
 
 扩展点

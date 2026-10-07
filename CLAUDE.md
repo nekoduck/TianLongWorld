@@ -18,7 +18,8 @@ frontend/vite.config.ts - Vite 插件与 /api → :8000 开发代理
   ActionPanel → useGame.act → POST /api/interact → Director.interact
     → Session.acting()   守卫：死者不得行动、上一招未落定不得出下一招
     → lethal.judge()     规则层裁定生死（无绝学 ∧ 敌意 ∧ 点名 ∧ 在场 → 必死；绝学读 martial_arts，在场读局部环境 present_npcs）
-    → memory.recall()    记忆拦截：全量 major_events 止步于此，只放行 tags 命中当前地点 / 在场 NPC（含别名）/ social_traits 的最近 N 条
+    → memory.recall()    记忆拦截：全量 major_events 止步于此，只放行 tags 命中当前地点 / 在场 NPC（含别名、门派群体）/ social_traits /
+                         这一招点名的地点人物（规格外扩展）的最近 N 条
     → prompts.build_*()  XML 标签组装 User Message（玩家状态 + 局部环境 + 滑动窗口 + 相关大事 + 动作 + 指令），必死时重写为处决指令
     → LLMClient          纯文本进出 + 契约 schema（gemini 结构化输出 / openai 兼容 / anthropic / mock）
     → parser             截取 JSON + Pydantic 校验，失败重采样
@@ -37,7 +38,8 @@ frontend/vite.config.ts - Vite 插件与 /api → :8000 开发代理
 - 世界台账 major_events = [{tags, event_desc}]：只追加、不合并、不删除、不设上限；大模型只能在 next_state.major_events 写本回合新增，
   复述旧事被去重。台账可以无限增长，喂给大模型的永远只是 JIT 筛出的至多 MEMORY_LIMIT 条
 - Prompt 载荷恒定：玩家状态 + 局部环境 + 滑动窗口（3~5 回合）+ 相关大事（封顶）——每一项都有上限，长度与游戏进度、台账长度无关
-- 局部环境：同一地图（新地点包含原地点全称）只认到场 / 离场增减；切换地图强制清空旧在场者；在场者经 lore.kin 按身份认人
+- 局部环境：同一地图（新地点包含原地点全称）只认到场 / 离场增减；切换地图强制清空旧在场者；在场者经 lore.kin 按身份认人；
+  满员时绝顶高手优先留下；开局种子点名的高手按开局地点登记，规则层的生死判定不依赖大模型记得写出他们
 - 协议单一来源：backend/app/schemas.py 定义形状，frontend/src/types.ts 逐字段镜像
 </architecture>
 

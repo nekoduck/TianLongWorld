@@ -10,9 +10,9 @@ pytest.ini: 测试配置，pythonpath=. 使 `import app` 生效，testpaths=test
 .env.example: 配置模板，列出 LLM_PROVIDER / LLM_API_KEY / LLM_MODEL / LLM_THINKING_LEVEL / HISTORY_TURNS / MEMORY_LIMIT 等全部可调项及 gemini / anthropic / openai 兼容示例；真实密钥写入同目录 .env（已 gitignore）
 app/: 应用包（协议、会话、路由、组合根），地图见 app/CLAUDE.md
 tests/conftest.py: 公共装置，ScriptedLLM 剧本替身 + alive_reply(scene, arrived, departed, player_delta, major_events, **快照字段) 报文工厂 + game 状态树 / store / director / client 夹具，经 create_app(director=...) 注入
-tests/test_api.py: 集成用例，覆盖开局、推演、必死封印、叙述隐名时靠局部环境 present_npcs 判在场、永久死亡 409、整树冷启动（含带标签的世界台账）、伪造武学被服务端否决、重试与 502、422 校验（含旧版扁平状态与旧版字符串台账被拒）
+tests/test_api.py: 集成用例，覆盖开局、推演、必死封印、叙述隐名时靠局部环境 present_npcs 判在场（种子点名的高手同样在场）、永久死亡 409、整树冷启动（含带标签的世界台账）、伪造武学被服务端否决、重试与 502、422 校验（含旧版扁平状态与旧版字符串台账被拒）
 tests/test_ledger.py: 记账用例，reconcile 标签账（遗漏≠失去、先减后加、模糊匹配多义不动、去重）+ chronicle 世界台账（只追加、复述去重、不设上限不合并、大模型无法借 next_state 抹掉旧事）+ 管线集成（四本账多回合不提仍在、快照走私被忽略、解毒/拜帮/烧楼一回合三账、状态栏格式、开局与整树冷启动、Mock 写出带地点标签的大事）
-tests/test_memory.py: JIT 动态记忆用例，记忆过滤层（地点 / 在场 NPC 含别名 / 身份三路相互包含、单字不命中、保序、条数封顶）+ 局部环境（同图只认增减、深入子地点同图、切换地图强制清空、按身份认人）+ 载荷恒定（台账 0→500 条 Prompt 一字不变、全量台账不进 Prompt、滑动窗口封顶、窗口不可伪造、配置钉死范围）
+tests/test_memory.py: JIT 动态记忆用例，记忆过滤层（三路相互包含双向命中、动作点名单向第四路、单字不命中、保序、条数封顶）+ 管线接线（经 Director 只注入召回事件、"丐帮弟子"端到端召回、抵达回合即见目的地历史）+ 局部环境（同图只认增减、切换地图强制清空、按身份与修饰称呼认人、满员高手优先、开局种子高手不惧地点漂移）+ 载荷恒定与注入防护（台账 0→500 条 Prompt 一字不变、窗口封顶且成对保留动作与场景、任何段落无法从内部闭合、历史逐行 JSON 往返去重）+ 契约边界（单条大事上限、每回合超额截断而非 502、配置钉死范围）
 tests/test_lethal.py: 致死预判单测，守护"敌意 ∧ 点名 ∧ 在场 ∧ 无绝学（读 martial_arts）"四要素与无害复合词剔除
 tests/test_parser.py: 解析闸门单测，围栏/寒暄剥离、存活必有选项、死亡可无选项、散文拒收
 tests/test_llm_clients.py: 厂商客户端单测，替换 post_json 断言报文形状（Gemini 的 schema/思考档位/思考片段过滤/拒答），以及缺凭证启动即失败
