@@ -1,8 +1,11 @@
 """
 [INPUT]: 依赖 pytest 的 MonkeyPatch / raises，依赖 app.llm 的 gemini / openai_compat / anthropic 模块与 schema.strict_json_schema，
          依赖 app.schemas 的 DIRECTOR_SCHEMA，依赖 app.errors 的 LLMError；缺凭证用例惰性导入 app.config / app.llm.factory
-[OUTPUT]: 厂商层结构化输出单测：三家请求报文形状（API 层 schema 约束）、响应封套解析与截断/拒答/拦截的 LLMError 收敛、
-          严格模式 schema 整形的递归性质，以及缺凭证启动即失败
+[OUTPUT]: 厂商层结构化输出单测：三家请求报文形状（API 层 schema 约束：Gemini responseJsonSchema、OpenAI json_schema strict、
+          Anthropic output_config.format）、响应封套解析与截断/拒答/拦截/一切非正常结束的 LLMError 收敛、
+          严格模式 schema 整形的递归性质（组合分支与 $defs 内的对象、无 type 仅带 properties 的节点一律闭合，
+          不支持的关键字逐层删除，开放映射——true、子 schema 与等价于 true 的空子 schema {}——一律拒绝），
+          以及缺凭证启动即失败
 [POS]: tests 中守护 llm 包对外协议的用例集：替换各客户端模块内的 post_json 捕获请求、返回伪造响应，从不触网；
        factory 惰性导入，使其传递依赖（mock → director）的改造不影响厂商层用例的收集
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -138,6 +141,15 @@ def test_gemini_blocked_prompt_raises_with_block_reason(monkeypatch: pytest.Monk
         asyncio.run(_gemini().complete("SYS", "USER", DIRECTOR_SCHEMA))
 
 
+@pytest.mark.parametrize("finish_reason", ["SAFETY", "RECITATION", "PROHIBITED_CONTENT", "OTHER"])
+def test_gemini_abnormal_finish_with_partial_text_raises(monkeypatch: pytest.MonkeyPatch, finish_reason: str) -> None:
+    # 被截停的候选可能带着半截正文：只有 STOP 才交给解析闸门
+    reply = {"candidates": [{"content": {"parts": [{"text": '{"scene'}]}, "finishReason": finish_reason}]}
+    _capture(monkeypatch, gemini, reply)
+    with pytest.raises(LLMError, match=f"finishReason={finish_reason}"):
+        asyncio.run(_gemini().complete("SYS", "USER", DIRECTOR_SCHEMA))
+
+
 def test_gemini_blocked_candidate_without_text_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     _capture(monkeypatch, gemini, {"candidates": [{"finishReason": "SAFETY"}]})
     with pytest.raises(LLMError, match="finishReason=SAFETY"):
@@ -191,6 +203,15 @@ def test_openai_length_finish_raises_truncation(monkeypatch: pytest.MonkeyPatch)
         asyncio.run(_openai().complete("SYS", "USER", DIRECTOR_SCHEMA))
 
 
+@pytest.mark.parametrize("finish_reason", ["content_filter", "tool_calls", "function_call"])
+def test_openai_abnormal_finish_raises(monkeypatch: pytest.MonkeyPatch, finish_reason: str) -> None:
+    # 半截正文不是幻觉：不能交给解析闸门被当作格式错误重采样
+    reply = {"choices": [{"message": {"content": '{"scene'}, "finish_reason": finish_reason}]}
+    _capture(monkeypatch, openai_compat, reply)
+    with pytest.raises(LLMError, match="非正常结束"):
+        asyncio.run(_openai().complete("SYS", "USER", DIRECTOR_SCHEMA))
+
+
 @pytest.mark.parametrize("response", [{"error": "boom"}, {"choices": []}, {"choices": "x"}, [], "oops", None])
 def test_openai_malformed_envelope_raises(monkeypatch: pytest.MonkeyPatch, response: object) -> None:
     _capture(monkeypatch, openai_compat, response)
@@ -199,52 +220,49 @@ def test_openai_malformed_envelope_raises(monkeypatch: pytest.MonkeyPatch, respo
 
 
 # ============================================================
-#  Anthropic —— 强制工具调用
+#  Anthropic —— 原生结构化输出（output_config.format）
 # ============================================================
-def test_anthropic_forces_tool_and_returns_its_input(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_anthropic_constrains_output_with_strict_schema(monkeypatch: pytest.MonkeyPatch) -> None:
     reply = {
         "content": [
-            {"type": "text", "text": "好的，以下是裁决："},
-            {"type": "tool_use", "id": "toolu_1", "name": "submit_director_output", "input": _REPLY},
+            {"type": "thinking", "thinking": "先想一想", "signature": "s"},
+            {"type": "text", "text": json.dumps(_REPLY, ensure_ascii=False)},
         ],
-        "stop_reason": "tool_use",
+        "stop_reason": "end_turn",
     }
     sent = _capture(monkeypatch, anthropic, reply)
     text = asyncio.run(_anthropic().complete("SYS", "USER", DIRECTOR_SCHEMA))
-    assert json.loads(text) == _REPLY
-    assert "雁门关" in text  # ensure_ascii=False：中文原样回传
+    assert json.loads(text) == _REPLY  # 思考块被丢弃，只取 text 正文
 
     assert sent.url == "https://api.anthropic.com/v1/messages"
     assert sent.headers == {"x-api-key": "k", "anthropic-version": "2023-06-01"}
     assert sent.payload["system"] == "SYS" and sent.payload["max_tokens"] == 99
     assert "temperature" not in sent.payload
-    (tool,) = sent.payload["tools"]
-    assert tool["name"] == "submit_director_output" and tool["description"]
-    assert tool["input_schema"] == DIRECTOR_SCHEMA
-    assert sent.payload["tool_choice"] == {"type": "tool", "name": "submit_director_output"}
+    assert "tools" not in sent.payload and "tool_choice" not in sent.payload  # Opus/Sonnet 5.5 对强制工具调用报 400
+    fmt = sent.payload["output_config"]["format"]
+    assert fmt["type"] == "json_schema"
+    assert fmt["schema"] == strict_json_schema(DIRECTOR_SCHEMA)
+    _assert_strict(fmt["schema"])
 
 
-def test_anthropic_max_tokens_raises_truncation(monkeypatch: pytest.MonkeyPatch) -> None:
-    reply = {
-        "content": [{"type": "tool_use", "id": "t", "name": "submit_director_output", "input": {}}],
-        "stop_reason": "max_tokens",
-    }
-    _capture(monkeypatch, anthropic, reply)
-    with pytest.raises(LLMError, match="截断"):
+@pytest.mark.parametrize(
+    ("stop_reason", "message"),
+    [("max_tokens", "截断"), ("refusal", "非正常结束"), ("pause_turn", "非正常结束")],
+)
+def test_anthropic_abnormal_stop_raises(monkeypatch: pytest.MonkeyPatch, stop_reason: str, message: str) -> None:
+    # 拒答或截断时正文不受 schema 保证：哪怕带着半截 JSON 也必须收敛为 LLMError
+    _capture(monkeypatch, anthropic, {"content": [{"type": "text", "text": '{"scene'}], "stop_reason": stop_reason})
+    with pytest.raises(LLMError, match=message):
         asyncio.run(_anthropic().complete("SYS", "USER", DIRECTOR_SCHEMA))
 
 
 @pytest.mark.parametrize(
     "content",
-    [
-        [{"type": "text", "text": "{}"}],
-        [{"type": "tool_use", "id": "t", "name": "other_tool", "input": {}}],
-        [],
-    ],
+    [[], [{"type": "thinking", "thinking": "……", "signature": "s"}], [{"type": "text", "text": ""}]],
 )
-def test_anthropic_without_matching_tool_use_raises(monkeypatch: pytest.MonkeyPatch, content: list[object]) -> None:
+def test_anthropic_without_text_raises(monkeypatch: pytest.MonkeyPatch, content: list[object]) -> None:
     _capture(monkeypatch, anthropic, {"content": content, "stop_reason": "end_turn"})
-    with pytest.raises(LLMError, match="未提交裁决"):
+    with pytest.raises(LLMError, match="未返回正文"):
         asyncio.run(_anthropic().complete("SYS", "USER", DIRECTOR_SCHEMA))
 
 
@@ -288,6 +306,15 @@ def test_strict_schema_keeps_field_names_that_collide_with_keywords() -> None:
     }
 
 
+def test_strict_schema_closes_untyped_node_with_properties() -> None:
+    # 手写 schema 常省略 type：只要带 properties 就是对象节点，同样闭合、全部必填
+    assert strict_json_schema({"properties": {"a": {"type": "string"}}}) == {
+        "properties": {"a": {"type": "string"}},
+        "additionalProperties": False,
+        "required": ["a"],
+    }
+
+
 class _Node(BaseModel):
     label: str
     parent: "_Node" = Field(description="自引用且带 description：展开必须在环上止步")
@@ -301,9 +328,93 @@ def test_strict_schema_terminates_on_self_reference() -> None:
     assert strict["$defs"]["_Node"]["properties"]["parent"] == {"$ref": "#/$defs/_Node"}
 
 
-def test_strict_schema_rejects_open_mapping() -> None:
+@pytest.mark.parametrize("combinator", ["anyOf", "allOf", "oneOf"])
+def test_strict_schema_closes_inline_objects_inside_combinator_branches(combinator: str) -> None:
+    # 内联对象（无 $ref）只有经组合关键字递归才会被闭合：一旦不递归，分支里的 required 与 additionalProperties 原样漏出
+    branch = {"type": "object", "properties": {"name": {"type": "string"}, "count": {"type": "integer"}}, "required": ["name"]}
+    schema = {"type": "object", "properties": {"loot": {combinator: [branch, {"type": "null"}]}}}
+    assert strict_json_schema(schema)["properties"]["loot"] == {
+        combinator: [
+            {
+                "type": "object",
+                "properties": {"name": {"type": "string"}, "count": {"type": "integer"}},
+                "required": ["name", "count"],
+                "additionalProperties": False,
+            },
+            {"type": "null"},
+        ]
+    }
+
+
+class _Relic(BaseModel):
+    name: str
+    origin: str = "无名"
+
+
+class _Satchel(BaseModel):
+    relic: _Relic
+
+
+def test_strict_schema_closes_objects_under_defs() -> None:
+    # Pydantic 默认 extra=ignore：$defs 中的定义既不封闭、也只把无默认值的字段列为必填
+    strict = strict_json_schema(_Satchel.model_json_schema())
+    assert strict["properties"]["relic"] == {"$ref": "#/$defs/_Relic"}
+    assert strict["$defs"]["_Relic"] == {
+        "type": "object",
+        "properties": {"name": {"type": "string"}, "origin": {"type": "string"}},
+        "required": ["name", "origin"],
+        "additionalProperties": False,
+    }
+
+
+@pytest.mark.parametrize(("keyword", "value"), [("default", "甲"), ("pattern", "^[甲乙丙]$"), ("format", "date-time")])
+def test_strict_schema_drops_unsupported_keyword_at_every_depth(keyword: str, value: str) -> None:
+    # 关键字埋在属性、数组元素、组合分支与 $defs 四个深度：漏删任何一层，或任何一层不递归，都会留下它
+    def leaf() -> dict[str, Any]:
+        return {"type": "string", "description": "印记", keyword: value}
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "flat": leaf(),
+            "many": {"type": "array", "items": leaf()},
+            "maybe": {"anyOf": [leaf(), {"type": "null"}]},
+            "nested": {"$ref": "#/$defs/Seal"},
+        },
+        "$defs": {"Seal": {"type": "object", "properties": {"deep": leaf()}}},
+    }
+    bare = {"type": "string", "description": "印记"}
+    strict = strict_json_schema(schema)
+    assert strict["properties"] == {
+        "flat": bare,
+        "many": {"type": "array", "items": bare},
+        "maybe": {"anyOf": [bare, {"type": "null"}]},
+        "nested": {"$ref": "#/$defs/Seal"},
+    }
+    assert strict["$defs"]["Seal"]["properties"] == {"deep": bare}
+
+
+class _LooseMap(BaseModel):
+    notes: dict[str, Any]  # 裸 dict：additionalProperties 为 true
+
+
+class _TypedMap(BaseModel):
+    counts: dict[str, int]  # 有类型的映射：additionalProperties 为子 schema
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        _LooseMap.model_json_schema(),
+        _TypedMap.model_json_schema(),
+        {"type": "object", "additionalProperties": {}},  # 空子 schema 在 JSON Schema 里与 true 等价，且是假值
+    ],
+    ids=["additional_true", "additional_schema", "additional_empty_schema"],
+)
+def test_strict_schema_rejects_open_mapping(schema: dict[str, Any]) -> None:
+    # 三种开放映射同样无从表达：静默改成 false 会让受限解码只允许输出 {}，必须在下发前显式失败
     with pytest.raises(ValueError, match="开放映射"):
-        strict_json_schema({"type": "object", "additionalProperties": {"type": "string"}})
+        strict_json_schema(schema)
 
 
 # ============================================================

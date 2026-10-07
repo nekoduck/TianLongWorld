@@ -1,114 +1,175 @@
 """
-[INPUT]: 依赖 conftest 的 client / store / game 夹具与 ScriptedLLM，依赖 app.director.Director
-[OUTPUT]: /api 端到端用例：开局、推演、必死封印、结构化在场判定、永久死亡、嵌套状态树冷启动、服务端权威、重试、协议校验
-[POS]: tests 中守护前后端协议与核心管线的集成用例集
+[INPUT]: 依赖标准库 random / re / typing / uuid，依赖 pytest 的 parametrize，依赖 fastapi.testclient 的 TestClient 与 httpx2 的 Response，
+         依赖 app.main 的 create_app、app.config 的 Settings、app.errors 的 LLMError、app.llm.mock 的 MockLLM、app.lore 的 OPENING_SEEDS、
+         app.schemas 的 GameState / PlayerState，依赖 conftest 的 ScriptedLLM / alive / dead / reply / PLAYER 与 settings / client 夹具
+[OUTPUT]: /api 的 HTTP 集成用例：开局报文（无 body 与 world_id=null 皆可、UUID、六段状态栏、A/B/C）、出招返回 {player_state, world_state} 树、
+          关闭重开 app 后会话延续、投胎保留世界大事而此身全新、未知世界 / 未知会话 404、死者 409、大模型持续失败 502、
+          错误体恒为 {detail, code}、客户端篡改无效、旧版扁平状态与空动作 422、健康检查
+[POS]: tests 中守护前后端协议与组合根（create_app + lifespan + GameError 处理器）的端到端用例集：一律经 TestClient 走真实路由，
+       需要特定剧情时以 ScriptedLLM 注入 create_app，事件库落在 pytest 临时目录
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
-import asyncio
 import random
-from uuid import uuid4
+import re
+from typing import Any
+from uuid import UUID, uuid4
 
+import pytest
 from fastapi.testclient import TestClient
+from httpx2 import Response
 
 from app.config import Settings
-from app.director import Director
+from app.errors import LLMError
+from app.llm.mock import MockLLM
+from app.lore import OPENING_SEEDS
 from app.main import create_app
-from app.schemas import InteractRequest
-from conftest import ScriptedLLM, alive_reply
+from app.schemas import GameState, PlayerState
+from conftest import PLAYER, ScriptedLLM, alive, dead, reply
+
+# 六段状态栏：顺序与标签固定，每段内容非空
+STATUS_BAR = re.compile(" \\| ".join(f"【{label}：[^】]+】" for label in ("位置", "时辰", "身份", "状态", "武学", "行囊")))
+
+UNKNOWN_SESSION_TURN = {
+    "session_id": str(uuid4()),
+    "current_state": GameState(player_state=PLAYER).model_dump(mode="json"),
+    "action_type": "custom",
+    "action_text": "四处张望",
+}
 
 
-def _act(client: TestClient, session_id, state: dict, text: str, kind: str = "custom"):
-    body = {"session_id": str(session_id), "current_state": state, "action_type": kind, "action_text": text}
-    return client.post("/api/interact", json=body)
+# ============================================================
+#  驱动
+# ============================================================
+def _open(http: TestClient, world_id: str | None = None) -> dict[str, Any]:
+    res = http.post("/api/session", json={"world_id": world_id})
+    assert res.status_code == 200, res.text
+    body: dict[str, Any] = res.json()
+    return body
 
 
-def test_new_session_returns_playable_opening(client):
-    res = client.post("/api/session")
-    assert res.status_code == 200
+def _turn(session: dict[str, Any], action: str, *, state: dict[str, Any] | None = None) -> dict[str, Any]:
+    """出招请求体：current_state 缺省回显服务端上次给出的状态树。"""
+    return {
+        "session_id": session["session_id"],
+        "current_state": state or session["next_state"],
+        "action_type": "custom",
+        "action_text": action,
+    }
+
+
+def _act(http: TestClient, session: dict[str, Any], action: str, *, state: dict[str, Any] | None = None) -> Response:
+    return http.post("/api/interact", json=_turn(session, action, state=state))
+
+
+def _assert_error(res: Response, status: int, code: str) -> None:
+    """GameError 统一错误体：恰好 {detail: 给玩家看的文字, code: 机器可读语义}。"""
+    assert res.status_code == status, res.text
+    body = res.json()
+    assert set(body) == {"detail", "code"} and body["code"] == code
+    assert isinstance(body["detail"], str) and body["detail"]
+
+
+# ============================================================
+#  开局与出招
+# ============================================================
+@pytest.mark.parametrize("body", [None, {"world_id": None}], ids=["no_body", "null_world"])
+def test_new_session_opens_a_playable_life(client: TestClient, body: dict[str, None] | None) -> None:
+    res = client.post("/api/session", json=body)
+
+    assert res.status_code == 200, res.text
     data = res.json()
-    assert data["session_id"] and not data["game_over"]
-    assert set(data["options"]) == {"A", "B", "C"}
-    assert f"【位置：{data['next_state']['player_state']['location']}】" in data["ui_status_bar"]
+    assert str(UUID(data["session_id"])) == data["session_id"] and str(UUID(data["world_id"])) == data["world_id"]
+    assert STATUS_BAR.fullmatch(data["ui_status_bar"]), data["ui_status_bar"]
+    assert data["game_over"] is False and set(data["options"]) == {"A", "B", "C"}
 
 
-def test_interact_advances_world(client):
-    opening = client.post("/api/session").json()
-    res = _act(client, opening["session_id"], opening["next_state"], opening["options"]["A"], "choice")
-    assert res.status_code == 200
+def test_interact_returns_state_tree_and_renders_status_bar_from_it(client: TestClient) -> None:
+    session = _open(client)
+    res = _act(client, session, session["options"]["A"])
+
+    assert res.status_code == 200, res.text
     data = res.json()
-    assert not data["game_over"]
-    assert data["next_state"]["player_state"]["time"] != opening["next_state"]["player_state"]["time"]
+    assert set(data["next_state"]) == {"player_state", "world_state"}
+    assert data["ui_status_bar"] == GameState.model_validate(data["next_state"]).status_bar()
 
 
-def test_provoking_grandmaster_kills_and_locks_forever(client, store, game):
-    session = store.create(game, "邻桌一条魁梧大汉独据一桌——那便是丐帮帮主乔峰。")
-    death = _act(client, session.id, game.model_dump(), "掀翻乔峰的酒桌")
-    assert death.status_code == 200
-    data = death.json()
-    assert data["game_over"] is True and data["options"] is None
-    # 永久死亡：服务端拒绝死者的一切后续动作
-    assert _act(client, session.id, game.model_dump(), "爬起来逃跑").status_code == 409
+def test_session_survives_app_restart(settings: Settings) -> None:
+    # 同一 settings 即同一事件库文件：第一个 app 的 lifespan 结束（连接关闭）后，第二个 app 只凭事件日志复原此局
+    with TestClient(create_app(settings, MockLLM(rng=random.Random(7)))) as first:
+        session = _open(first)
+    with TestClient(create_app(settings, MockLLM(rng=random.Random(7)))) as second:
+        res = _act(second, session, "静观其变")
+
+    assert res.status_code == 200, res.text
+    assert res.json()["game_over"] is False
 
 
-def test_rule_layer_overrides_merciful_llm(store, game):
-    llm = ScriptedLLM(alive_reply())  # 大模型试图手下留情
-    director = Director(llm, store)
-    session = store.create(game, "丐帮帮主乔峰正在饮酒。")
-    req = InteractRequest(session_id=session.id, current_state=game, action_type="custom", action_text="刺杀乔峰")
-    out = asyncio.run(director.interact(req))
-    assert out.game_over and out.options is None
-    assert 'kind="lethal"' in llm.prompts[0]
+def test_reincarnation_keeps_world_events_but_starts_a_fresh_life(client: TestClient) -> None:
+    first = _open(client)
+    razed = _act(client, first, "捡起火折子，一把火烧了此地")  # Mock：「捡」入行囊、「烧」成世界大事
+    assert razed.status_code == 200, razed.text
+    world = razed.json()["next_state"]["world_state"]
+    assert world["major_events"]
+
+    reborn = _open(client, first["world_id"])
+
+    assert reborn["session_id"] != first["session_id"] and reborn["world_id"] == first["world_id"]
+    assert reborn["next_state"]["world_state"] == world
+    assert PlayerState.model_validate(reborn["next_state"]["player_state"]) in [seed.player for seed in OPENING_SEEDS]
 
 
-def test_structured_presence_catches_unnamed_grandmaster(store):
-    # 真实大模型常只写"那魁梧大汉"：在场判定必须靠导演的结构化名单，而非场景原文
-    llm = ScriptedLLM(alive_reply("邻桌一条魁梧大汉独据一桌，空碗叠了半人高。", present=["萧峰"]), alive_reply())
-    director = Director(llm, store, rng=random.Random(0))
-    opening = asyncio.run(director.open())
-    assert "present" not in opening.model_dump()  # 内部字段不外泄到前端协议
-    req = InteractRequest(
-        session_id=opening.session_id,
-        current_state=opening.next_state,
-        action_type="custom",
-        action_text="掀翻乔峰的酒桌",
-    )
-    out = asyncio.run(director.interact(req))
-    assert out.game_over
-    assert "<present>\n萧峰\n</present>" in llm.prompts[1]
+# ============================================================
+#  错误谱系 —— 状态码 + {detail, code}
+# ============================================================
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [("/api/session", {"world_id": str(uuid4())}), ("/api/interact", UNKNOWN_SESSION_TURN)],
+    ids=["unknown_world", "unknown_session"],
+)
+def test_unknown_world_or_session_is_not_found(client: TestClient, path: str, body: dict[str, Any]) -> None:
+    _assert_error(client.post(path, json=body), 404, "not_found")
 
 
-def test_unknown_session_rehydrates_from_client_snapshot(client, game):
-    # 完整树状态（含世界台账）冷启动：嵌套 JSON 被逐层解析，台账原样延续
-    tree = game.model_dump() | {"world_state": {"major_events": ["聚贤庄已被玩家烧毁"]}}
-    res = _act(client, uuid4(), tree, "四处张望")
-    assert res.status_code == 200
-    state = res.json()["next_state"]
-    assert state["player_state"]["location"] == game.player_state.location
-    assert state["world_state"]["major_events"] == ["聚贤庄已被玩家烧毁"]
+def test_dead_player_cannot_act_again(settings: Settings) -> None:
+    with TestClient(create_app(settings, ScriptedLLM(reply(alive()), reply(dead())))) as http:
+        session = _open(http)
+        death = _act(http, session, "静观其变")
+        assert death.status_code == 200 and death.json()["game_over"] is True
+
+        # 剧本已耗尽：若死者的动作再触达大模型，ScriptedLLM 会直接让用例失败
+        _assert_error(_act(http, session, "爬起来逃跑", state=death.json()["next_state"]), 409, "dead")
 
 
-def test_server_state_wins_over_tampered_client_state(client, store, game):
-    session = store.create(game, "松鹤楼人声鼎沸。")
-    # 伪造武学以逃避致死规则：会话存在时以服务端为准
-    forged = game.model_dump()
-    forged["player_state"]["martial_arts"] = ["北冥神功"]
-    res = _act(client, session.id, forged, "四处张望")
-    assert res.json()["next_state"]["player_state"]["martial_arts"] == []
+def test_persistent_llm_failure_is_bad_gateway(settings: Settings) -> None:
+    with TestClient(create_app(settings, ScriptedLLM(*(LLMError("上游限流") for _ in range(5))))) as http:
+        _assert_error(http.post("/api/session"), 502, "llm_unavailable")
 
 
-def test_unparseable_output_is_retried_then_surfaces_502(store, game):
-    flaky = Director(ScriptedLLM("胡言乱语", alive_reply()), store)
-    session = store.create(game, "松鹤楼人声鼎沸。")
-    req = InteractRequest(session_id=session.id, current_state=game, action_type="choice", action_text="静观其变")
-    assert not asyncio.run(flaky.interact(req)).game_over
+# ============================================================
+#  协议边界 —— 服务端权威与请求校验
+# ============================================================
+def test_tampered_client_state_is_ignored(client: TestClient) -> None:
+    session = _open(client)
+    tree = session["next_state"]
+    forged = tree | {"player_state": tree["player_state"] | {"martial_arts": ["北冥神功"]}}
 
-    broken = Director(ScriptedLLM("胡言乱语", "依旧胡言乱语"), store, rng=random.Random(0))
-    client = TestClient(create_app(Settings(_env_file=None), director=broken))
-    assert client.post("/api/session").status_code == 502
+    res = _act(client, session, "静观其变", state=forged)
+
+    assert res.status_code == 200, res.text
+    assert "北冥神功" not in res.json()["next_state"]["player_state"]["martial_arts"]
 
 
-def test_rejects_malformed_request(client, game):
-    assert _act(client, uuid4(), game.model_dump(), "出招", kind="cheat").status_code == 422
-    # 旧版扁平 current_state 不再被接受：协议是 player_state + world_state 的树
-    assert _act(client, uuid4(), game.player_state.model_dump(), "出招").status_code == 422
+@pytest.mark.parametrize(
+    "patch",
+    [{"current_state": PLAYER.model_dump(mode="json")}, {"action_text": ""}, {"action_text": "   "}],
+    ids=["legacy_flat_state", "empty_action", "blank_action"],
+)
+def test_malformed_interact_request_is_unprocessable(client: TestClient, patch: dict[str, Any]) -> None:
+    session = _open(client)
+    assert client.post("/api/interact", json=_turn(session, "静观其变") | patch).status_code == 422
+
+
+def test_health(client: TestClient) -> None:
+    res = client.get("/api/health")
+    assert res.status_code == 200 and res.json() == {"status": "ok"}

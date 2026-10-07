@@ -82,8 +82,14 @@ function reducer(state: GameView, event: Event): GameView {
       }
     }
     case 'reject':
-      // 推演失败不吞掉这一回合：退回出招前的局面，原场景与选项原样保留
-      return { ...state, phase: state.sessionId ? 'playing' : 'idle', pendingAction: null, error: event.error }
+      // 推演失败不吞掉这一回合：退回出招前的局面，原场景与选项原样保留；
+      // 投胎失败（已无此身、仍有世界）退回投胎之门而非入世页——入世页只会开辟新世界，前世所在的世界就此失联
+      return {
+        ...state,
+        phase: state.sessionId ? 'playing' : state.worldId ? 'dead' : 'idle',
+        pendingAction: null,
+        error: event.error,
+      }
     case 'perish':
       // 死讯迟到：服务端早已封印此身，只是死亡响应没送到。停在最后所见的场景、交出投胎之门，
       // 不再让玩家对着 409 反复出招

@@ -1,34 +1,32 @@
 """
-[INPUT]: 依赖 json 的 dumps，依赖 pydantic 的 JsonValue，依赖 llm/_http.py 的 post_json / VendorEnvelope / parse_envelope，
+[INPUT]: 依赖 llm/_http.py 的 post_json / VendorEnvelope / parse_envelope，依赖 llm/schema.py 的 strict_json_schema，
          依赖 llm/base.py 的 JsonSchema，依赖 app.errors 的 LLMError
 [OUTPUT]: 对外提供 AnthropicClient —— 实现 LLMClient 协议
 [POS]: llm 包的 Anthropic Messages API 客户端，与 gemini.py / openai_compat.py 并列，由 factory.py 按配置择一。
-       以强制工具调用实现结构化输出：唯一工具的 input_schema 即导演契约，tool_choice 钉死该工具，
-       模型只能以 JSON 参数作答；取回的 tool_use.input 再序列化为文本，回到 LLMClient 的纯文本契约
+       以原生结构化输出（output_config.format = json_schema，GA、无 beta 头）在 API 层约束采样：
+       schema 先经 schema.py 整形为严格子集（删 min/max 长度、对象全闭合），正文以 text 块返回。
+       不用强制工具调用——Opus 5.5 / Sonnet 5.5 对 tool_choice=tool 直接 400，且非 strict 的工具参数并不受 schema 约束。
+       refusal / max_tokens 等非正常结束的输出不保证合法度，在此收敛为 LLMError，不让它们伪装成解析失败
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
-import json
 from typing import Any
-
-from pydantic import JsonValue
 
 from app.errors import LLMError
 from app.llm._http import VendorEnvelope, parse_envelope, post_json
 from app.llm.base import JsonSchema
+from app.llm.schema import strict_json_schema
 
 _API_VERSION = "2023-06-01"
-_TOOL_NAME = "submit_director_output"
-_TOOL_DESCRIPTION = "提交本回合的导演裁决（场景叙事、生死、选项、快照与增减）。这是作答的唯一方式，必须且只调用一次。"
+_COMPLETE = (None, "end_turn")  # 只有正常结束的正文才交给解析闸门
 
 
 # ============================================================
-#  厂商响应封套 —— content 是异构块列表：text / tool_use / thinking……只认 tool_use
+#  厂商响应封套 —— content 是异构块列表：text / thinking……只认 text
 # ============================================================
 class _Block(VendorEnvelope):
     type: str
-    name: str | None = None
-    input: dict[str, JsonValue] | None = None  # tool_use 块的参数：天然是 JSON 对象
+    text: str = ""
 
 
 class _MessageResponse(VendorEnvelope):
@@ -53,23 +51,24 @@ class AnthropicClient:
             "max_tokens": self._max_tokens,
             "system": system,
             "messages": [{"role": "user", "content": user}],
-            # 强制工具调用即结构化输出：Pydantic 原生 schema（含 $defs/$ref）直接作 input_schema，无需整形
-            "tools": [{"name": _TOOL_NAME, "description": _TOOL_DESCRIPTION, "input_schema": schema}],
-            "tool_choice": {"type": "tool", "name": _TOOL_NAME},
+            # 原生结构化输出：受限解码只认严格子集，长度等校验型约束交还 director 的解析闸门
+            "output_config": {"format": {"type": "json_schema", "schema": strict_json_schema(schema)}},
         }
         if self._temperature is not None:
             payload["temperature"] = self._temperature
 
         data = await post_json(self._url, headers=self._headers, payload=payload, timeout=self._timeout)
-        return _extract_tool_input(parse_envelope(_MessageResponse, data))
+        return _extract_text(parse_envelope(_MessageResponse, data))
 
 
-def _extract_tool_input(resp: _MessageResponse) -> str:
+def _extract_text(resp: _MessageResponse) -> str:
     if resp.stop_reason == "max_tokens":
-        # 触顶时工具参数可能残缺：在此点名真因，而不是让残缺 JSON 伪装成格式错误
+        # 触顶时 JSON 必然残缺：在此点名真因，而不是让它伪装成格式错误
         raise LLMError("天机中断：大模型输出被截断（stop_reason=max_tokens）")
-    for block in resp.content:
-        if block.type == "tool_use" and block.name == _TOOL_NAME and block.input is not None:
-            # ensure_ascii=False：中文原样回传，日志与解析闸门所见即模型所写
-            return json.dumps(block.input, ensure_ascii=False)
-    raise LLMError(f"天机紊乱：大模型未提交裁决（stop_reason={resp.stop_reason}）")
+    if resp.stop_reason not in _COMPLETE:
+        # refusal 时正文可能为空或半截，且不受 schema 约束
+        raise LLMError(f"天机遮蔽：大模型非正常结束（stop_reason={resp.stop_reason}）")
+    text = "".join(block.text for block in resp.content if block.type == "text")
+    if not text:
+        raise LLMError(f"天机遮蔽：大模型未返回正文（stop_reason={resp.stop_reason}）")
+    return text

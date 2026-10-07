@@ -1,9 +1,10 @@
 """
 [INPUT]: 依赖 copy 的 deepcopy，依赖 llm/base.py 的 JsonSchema
-[OUTPUT]: 对外提供 strict_json_schema() —— 把 Pydantic 生成的 JSON Schema 整形为 OpenAI Structured Outputs 严格模式兼容的形状
-[POS]: llm 包的契约整形器（纯函数、无 I/O、不改入参），被 openai_compat.py 在下发 response_format 前调用。
-       Gemini 的 responseJsonSchema 与 Anthropic 的工具 input_schema 都直收 Pydantic 原生 schema，无需整形；
-       只有严格模式的受限解码对 schema 子集有硬性要求，整形的复杂度因此被隔离在这一个文件里
+[OUTPUT]: 对外提供 strict_json_schema() —— 把 Pydantic 生成的 JSON Schema 整形为严格模式受限解码兼容的子集（OpenAI / Anthropic 通用）；
+          开放映射（additionalProperties 为 true 的裸 dict，或为子 schema 的 dict[str, X]）一律抛 ValueError，绝不静默封闭
+[POS]: llm 包的契约整形器（纯函数、无 I/O、不改入参），被 openai_compat.py（response_format）与 anthropic.py（output_config.format）
+       在下发前调用——两家的受限解码都只认严格子集：不支持长度约束、对象必须闭合；Gemini 的 responseJsonSchema 直收 Pydantic 原生 schema。
+       整形的复杂度因此被隔离在这一个文件里
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -23,6 +24,8 @@ def strict_json_schema(schema: JsonSchema) -> JsonSchema:
     """
     整形规则：
     - 每个 object 节点 additionalProperties=false，required 等于全部 properties 键（严格模式要求字段全部必填）；
+    - additionalProperties 只接受缺省或 false：true（裸 dict）与子 schema（dict[str, X]，含与 true 等价的空子 schema {}）
+      都是开放映射，一律抛 ValueError——判据是 `is not False` 而非真值，空 dict 是假值却同样开放；
     - 递归删除 _DROPPED 中的关键字，保留 description / type / properties / items / required / anyOf / $ref / $defs / enum / const；
     - 带兄弟关键字的 $ref（Pydantic 把字段 description 挂在 $ref 旁）就地展开为被引用的定义，兄弟关键字优先 ——
       严格模式拒收这种形状，而直接丢弃 description 又会让模型失去字段语义。
@@ -57,9 +60,14 @@ def _strict(node: JsonSchema, root: JsonSchema, expanding: frozenset[str]) -> Js
             out[key] = value
 
     if out.get("type") == "object" or "properties" in out:
-        if isinstance(out.get("additionalProperties"), dict):
-            # 开放映射（dict[str, X] 字段）在严格模式下无从表达：强行封闭会让模型永远输出 {}，宁可显式失败
-            raise ValueError("严格模式无法表达开放映射：请把 dict 字段改为显式字段的模型")
+        extra = out.get("additionalProperties", False)
+        if extra is not False:
+            # 开放映射在严格模式下无从表达：true（裸 dict）与子 schema（dict[str, X]）同理，
+            # 强行改成 false 会让受限解码只允许输出 {}，字段形同作废——宁可在下发前显式失败
+            raise ValueError(
+                f"严格模式无法表达开放映射（additionalProperties={extra!r}）：封闭后模型只能输出 {{}}，"
+                "请把 dict 字段改为显式字段的模型"
+            )
         out["additionalProperties"] = False
         out["required"] = list(out.get("properties", {}))
     return out

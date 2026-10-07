@@ -4,7 +4,7 @@
 [OUTPUT]: 对外提供 GeminiClient —— 实现 LLMClient 协议
 [POS]: llm 包的 Gemini 原生 generateContent 客户端（默认推荐）：以 responseJsonSchema 在 API 层强制导演契约
        （Gemini 直收 Pydantic 原生 schema，无需 schema.py 整形），以 thinkingLevel 换取回合延迟；
-       响应经 Pydantic 封套收窄，思考片段、截断、拦截在此处各自点名，不让它们伪装成解析失败
+       响应经 Pydantic 封套收窄，思考片段、截断、拦截与一切非 STOP 结束在此处各自点名，不让它们伪装成解析失败
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -18,6 +18,8 @@ from app.llm._http import VendorEnvelope, parse_envelope, post_json
 from app.llm.base import JsonSchema
 
 logger = logging.getLogger(__name__)
+
+_COMPLETE = (None, "STOP")  # 只有正常结束的正文才交给解析闸门
 
 
 # ============================================================
@@ -95,6 +97,9 @@ def _extract_text(resp: _GenerateContentResponse) -> str:
         # 思考 token 同样计入 maxOutputTokens：截断的 JSON 注定通不过解析闸门，在此点名真因
         logger.warning("Gemini 输出触顶 maxOutputTokens：请调高 LLM_MAX_TOKENS 或调低 LLM_THINKING_LEVEL")
         raise LLMError("天机中断：大模型输出被截断（finishReason=MAX_TOKENS）")
+    if candidate.finish_reason not in _COMPLETE:
+        # SAFETY / RECITATION / PROHIBITED_CONTENT……：残缺正文不是幻觉，不该被当作格式错误重采样后悄悄停顿
+        raise LLMError(f"天机遮蔽：大模型非正常结束（finishReason={candidate.finish_reason}）")
     text = "".join(part.text for part in candidate.content.parts if not part.thought)
     if not text:
         raise LLMError(f"天机遮蔽：大模型未返回正文（finishReason={candidate.finish_reason}）")

@@ -64,7 +64,7 @@ class WorldEvent(Frozen):
         tuple[Label, ...],
         Field(min_length=1, max_length=6, description="实体标签：发生地点与涉及的人物、门派，供检索路由"),
     ]
-    event_desc: Annotated[EventDesc, Field(description="一句话原子事实，如：玩家抢走了段誉的折扇")]
+    event_desc: Annotated[EventDesc, Field(description="一句话不可逆的原子事实，如：聚贤庄被玩家付之一炬")]
 
 
 class WorldState(Frozen):

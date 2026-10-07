@@ -48,7 +48,7 @@ export default function App() {
 
       <footer className="px-4 pb-8 sm:px-8">
         {dead ? (
-          mourning && <DeathScreen onRebirth={game.rebirth} />
+          mourning && <DeathScreen onRebirth={game.rebirth} error={game.error} />
         ) : (
           <ActionPanel
             key={game.turn}

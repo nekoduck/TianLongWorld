@@ -1,6 +1,6 @@
 """
 [INPUT]: 依赖 app.schemas 的契约模型与常量，依赖 app.events 的 LifeBegan / TurnResolved / WorldEventRecorded / LifeEvent，
-         依赖 app.lore 的 SHICHEN / MASTER_ARTS / OpeningSeed
+         依赖 app.lore 的 SHICHEN / MASTER_ARTS / OpeningSeed / kin（在场者按身份认人）
 [OUTPUT]: 对外提供视图模型 Turn、LocalEnvironment、LifeView、Decision；
           投影 begin / apply / project_life / project_world / game_state / snapshot_of；
           裁决 decide_opening / decide_turn；记账原语 resolve / apply_tags / observe / match
@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from uuid import UUID
 
 from app.events import LifeBegan, LifeEvent, TurnResolved, WorldEventRecorded
-from app.lore import MASTER_ARTS, SHICHEN, OpeningSeed
+from app.lore import MASTER_ARTS, SHICHEN, OpeningSeed, kin
 from app.schemas import (
     MAX_TAGS,
     NO_PLAYER_CHANGE,
@@ -145,25 +145,39 @@ def _evolve(player: PlayerState, snapshot: PlayerSnapshot, changes: PlayerDelta)
 #  裁决 —— 已校验的意图 -> 事件
 # ============================================================
 def decide_opening(world_id: UUID, seed: OpeningSeed, out: DirectorOutput) -> LifeBegan:
-    """开局：状态完全取自种子。大模型只贡献开场叙事、选项与在场者；开局判死、开局授予标签一律不予采纳。"""
+    """
+    开局：状态完全取自种子。大模型只贡献开场叙事、选项与在场者的增减；开局判死、开局授予标签一律不予采纳。
+    种子点名的高手恒先登记在场——规则层的生死判定不依赖大模型是否记得写 arrived；
+    只有大模型依世界大事显式写进 departed（如此人在这个世界已死），才把他移出视野。
+    """
     if out.options is None:
         raise ValueError("开局裁决必须带选项（编排器应在采纳前拒绝 game_over 的开局）")
+    here = LocalEnvironment(location=seed.player.location, entities=seed.present)
     return LifeBegan(
         world_id=world_id,
         player=seed.player,
         scene=out.scene_description,
         options=out.options,
-        entities=_unique(out.local_delta.arrived)[:MAX_ENTITIES],
+        entities=observe(here, seed.player.location, out.local_delta),
     )
 
 
-def decide_turn(view: LifeView, action_type: ActionType, action: str, out: DirectorOutput, *, condemned: bool) -> Decision:
+def decide_turn(
+    view: LifeView,
+    action_type: ActionType,
+    action: str,
+    out: DirectorOutput,
+    *,
+    condemned: bool,
+    known: Sequence[WorldEvent] = (),
+) -> Decision:
     """
     一回合的决定论裁决：
     - 规则层判死（condemned）：死亡封印，大模型的一切增减与世界大事作废——死刑不容借叙事赦免，也不得污染世界线
     - 快照：时辰须属十二时辰且只能前进；死者的生命体征必须写明死状
     - 四本账：移除项解析为清单原名，绝学不得由大模型授予
     - 局部环境：同地只认到场/离场，换地图强制清空
+    - 世界大事：只追加新的事实，复述 known（世界里已有的大事）一律驳回——只追加的台账容不下重复
     """
     died = condemned or out.game_over
     snapshot, snapshot_notes = _validate_snapshot(view.player, out.next_state, died)
@@ -173,7 +187,8 @@ def decide_turn(view: LifeView, action_type: ActionType, action: str, out: Direc
         changes = NO_PLAYER_CHANGE
     else:
         changes, change_notes = _resolve_player(view.player, out.player_delta)
-        world = _unique_events(out.world_events)
+        world, world_notes = _fresh_events(known, out.world_events)
+        change_notes = (*change_notes, *world_notes)
     turn = TurnResolved(
         action_type=action_type,
         action=action,
@@ -260,14 +275,28 @@ def apply_tags(tags: tuple[str, ...], change: TagDelta) -> tuple[str, ...]:
 def observe(local: LocalEnvironment, location: str, delta: LocalDelta) -> tuple[Label, ...]:
     """
     局部环境实体账：同一地图内只认到场与离场的增减（遗漏不等于离场）；换地图时强制清空，只留新地点的到场者。
-    子地点（"无锡松鹤楼" → "无锡松鹤楼二楼"）视作同一地图，以免措辞变化误清在场的高手。
+    同图的唯一判据：新地点包含原地点全称（原地不动，或深入子地点 "无锡松鹤楼" → "无锡松鹤楼二楼"）。
+    其余一律视作换图——宁可让高手暂时离开实体账（大模型仍受高手名录约束），也不让不在场的人凭旧账处决玩家；
+    System Prompt 规则 6 向大模型讲明同一判据，换图时由它在 arrived 里重新写出全部在场者。
     """
-    same_map = location in local.location or local.location in location
+    same_map = local.location in location
     base = local.entities if same_map else ()
-    departed = {held for name in delta.departed if (held := match(list(base), name)) is not None}
+    departed = {held for name in delta.departed if (held := _whom(base, name)) is not None}
     kept = [entity for entity in base if entity not in departed]
-    kept += [name for name in _unique(delta.arrived) if name not in kept]
+    for name in delta.arrived:
+        if not any(_same_person(held, name) for held in kept):  # 同一人的不同称呼（乔峰 / 萧峰）只登记一次
+            kept.append(name)
     return tuple(kept[:MAX_ENTITIES])
+
+
+def _whom(present: Sequence[str], name: str) -> str | None:
+    """离场认人：先按名字（精确或唯一包含，宽容大模型的称呼修饰），再按身份（lore 别名表里的同一人）。"""
+    return match(list(present), name) or next((held for held in present if _same_person(held, name)), None)
+
+
+def _same_person(a: str, b: str) -> bool:
+    # 到场只认精确同名或同一身份：包含关系在这里会把「看客1」与「看客10」误认作一人
+    return a == b or bool(set(kin(a)) & set(kin(b)))
 
 
 def match(tags: list[str], name: str) -> str | None:
@@ -282,11 +311,16 @@ def _unique(names: Sequence[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(names))
 
 
-def _unique_events(events: Sequence[WorldEvent]) -> tuple[WorldEvent, ...]:
+def _fresh_events(known: Sequence[WorldEvent], proposed: Sequence[WorldEvent]) -> tuple[tuple[WorldEvent, ...], tuple[str, ...]]:
+    """按 event_desc 去重：复述世界里已有的大事一条驳回并记录，本回合内的重复静默合一。"""
+    told = {event.event_desc for event in known}
     seen: set[str] = set()
     kept: list[WorldEvent] = []
-    for event in events:
-        if event.event_desc not in seen:
+    notes: list[str] = []
+    for event in proposed:
+        if event.event_desc in told:
+            notes.append(f"驳回复述的世界大事：{event.event_desc}")
+        elif event.event_desc not in seen:
             seen.add(event.event_desc)
             kept.append(event)
-    return tuple(kept)
+    return tuple(kept), tuple(notes)

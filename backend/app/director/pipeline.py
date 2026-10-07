@@ -3,7 +3,7 @@
          依赖 director 内 lethal / memory / prompts / parser / fallback，依赖 app.lore 的 OPENING_SEEDS，依赖 app.errors 的错误谱系
 [OUTPUT]: 对外提供 Director —— open(world_id) 开局 / 投胎，interact(req) 推演一回合
 [POS]: director 的编排器，ESAA 的单一同步主循环：
-         读事件 → 投影状态 → 规则判生死 → JIT 召回记忆 → 组装 Prompt → 大模型产出意图 → 解析校验（带错重采样）
+         读事件 → 投影状态 → 规则判生死 → JIT 召回记忆（地点 / 在场者 / 身份 / 动作点名）→ 组装 Prompt → 大模型产出意图 → 解析校验（带错重采样）
          → 纯函数裁决为事件 → 原子追加 → 投影出响应
        它是唯一触碰 I/O（大模型、事件库、日志）的地方；engine 只算不写，大模型只提议不写
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -78,7 +78,12 @@ class Director:
         world = project_world(self._store.load_world(world_id))
         seed = self._rng.choice(OPENING_SEEDS)
         memories = recall(
-            world.major_events, location=seed.player.location, entities=seed.present, traits=(), limit=self._memory_limit
+            world.major_events,
+            location=seed.player.location,
+            entities=seed.present,
+            traits=(),
+            mentioned=seed.premise,
+            limit=self._memory_limit,
         )
         out = await self._attempt(prompts.build_opening(seed, memories), _alive)
         if out is None:
@@ -108,6 +113,7 @@ class Director:
                 location=view.player.location,
                 entities=view.local.entities,
                 traits=view.player.social_traits,
+                mentioned=req.action_text,
                 limit=self._memory_limit,
             )
             prompt = prompts.build_turn(view, memories, req.action_type, req.action_text, verdict)
@@ -116,7 +122,9 @@ class Director:
                 logger.warning("回合裁决持续不合法度，世界原地停顿：%s", req.session_id)
                 return InteractResponse.render(game_state(view, world), fallback.STALLED_SCENE, view.options, False)
 
-            decision = decide_turn(view, req.action_type, req.action_text, out, condemned=verdict.lethal)
+            decision = decide_turn(
+                view, req.action_type, req.action_text, out, condemned=verdict.lethal, known=world.major_events
+            )
             for note in decision.rejections:
                 logger.info("驳回导演意图（%s）：%s", req.session_id, note)
             self._store.append(

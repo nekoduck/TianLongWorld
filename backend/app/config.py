@@ -30,7 +30,8 @@ class Settings(BaseSettings):
     llm_temperature: float | None = None  # None = 不下发，交给 provider 默认值
     llm_timeout: float = 60.0
     llm_max_tokens: int = 4096  # Gemini 的思考 token 也计入此上限，留足余量以免截断
-    llm_thinking_level: str = "low"  # 仅 gemini：思考档位，low 把回合延迟压到约 5s；留空则用模型默认
+    # 仅 gemini 3 及以后：思考档位，low 把回合延迟压到约 5s；早期模型（gemini-2.5-*）不支持该参数，须设为空串
+    llm_thinking_level: Literal["", "minimal", "low", "medium", "high"] = "low"
     llm_strict_schema: bool = True  # 仅 openai 兼容：json_schema 严格模式；端点不支持（如 DeepSeek）时设 false 退回 json_object
 
     # ------------------------------------------------------------------

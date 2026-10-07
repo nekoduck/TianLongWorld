@@ -19,6 +19,7 @@ from app.llm.schema import strict_json_schema
 logger = logging.getLogger(__name__)
 
 _SCHEMA_NAME = "director_output"  # 严格模式要求为 schema 命名（^[a-zA-Z0-9_-]+$）
+_COMPLETE = (None, "stop")  # 只有正常结束的正文才交给解析闸门
 
 
 # ============================================================
@@ -84,6 +85,9 @@ def _extract_content(resp: _ChatCompletion) -> str:
         # 拒答原文可能复述敏感内容：只进日志，玩家只看到定性
         logger.warning("大模型拒答：%.200s", choice.message.refusal)
         raise LLMError("天机遮蔽：大模型拒答")
+    if choice.finish_reason not in _COMPLETE:
+        # content_filter 等：残缺正文不是幻觉，不该被当作格式错误重采样后悄悄停顿
+        raise LLMError(f"天机遮蔽：大模型非正常结束（finish_reason={choice.finish_reason}）")
     if not choice.message.content:
         raise LLMError(f"天机遮蔽：大模型拒答（未返回正文，finish_reason={choice.finish_reason}）")
     return choice.message.content
