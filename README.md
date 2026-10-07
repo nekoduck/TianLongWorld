@@ -19,14 +19,13 @@ python -m venv .venv
 cd frontend
 npm install
 npm run dev        # 打开 http://localhost:5173 ，/api 自动代理到 :8000
+npm run dev:mock   # 或：完全脱离后端，用静态数据跑通 UI
 ```
-
-前端没有 Mock 模式：离线体验由后端默认的 `LLM_PROVIDER=mock` 提供，前端永远只渲染服务端裁决的状态。
 
 **测试**
 
 ```bash
-cd backend && .venv/bin/pytest -q    # 含 mypy --strict 类型闸门（tests/test_typing.py）
+cd backend && .venv/bin/pytest -q
 cd frontend && npm run build
 ```
 
@@ -56,22 +55,18 @@ LLM_BASE_URL=https://api.deepseek.com/v1
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| POST | `/api/session` | 入世 / 投胎：body 可选 `{"world_id": null \| "<uuid>"}`，缺省开辟新世界，携带则在该世界重新投胎；返回 `session_id`、`world_id` 与第一幕 |
+| POST | `/api/session` | 投胎：返回 `session_id` 与第一幕 |
 | POST | `/api/interact` | 出招：推演一个动作（`action_type: choice \| custom`） |
 | GET | `/api/health` | 健康检查 |
 
 请求/响应结构见 `backend/app/schemas.py`（前端镜像于 `frontend/src/types.ts`）。补充约定：
 
-- 事件溯源：每一回合都作为不可变事件追加进 SQLite（`backend/data/tianlong.db`，只追加），状态是事件的纯投影；进程重启后会话照常延续。
-- 服务端是唯一权威：请求中的 `current_state` 只是客户端回显，服务端从不采信；未知会话返回 **404**。
-- `current_state` / `next_state` 是一棵树：`player_state`（`location` / `time` / `weather` / `health_status` + `buffs_debuffs` / `social_traits` / `inventory` / `martial_arts` 四本标签账）与 `world_state.major_events`。
-- 四本标签账由服务端记账：导演只上报增减，叙事中没提到的标签不会凭空消失；绝学无法由导演凭空授予。
-- 世界大事 `major_events` 是 `{"tags": [...], "event_desc": "..."}` 的只追加列表，无上限、不合并、不删除；每回合只按地点、在场人物与江湖身份检索出相关的几条喂给导演。
-- 投胎：此身状态清空，世界大事延续——前世烧掉的庄园，今生依旧是一片焦土。
-- `game_over: true` 时 `options` 为 `null`——死者没有选择；死后继续出招返回 **409**。
-- 错误统一为 `{"detail": "...", "code": "..."}`：`dead`（409）、`busy`（409）、`not_found`（404）、`llm_unavailable` / `director`（502）；FastAPI 的 422 校验错误只有 `detail`。
-- `ui_status_bar` 由服务端渲染：`【位置】 | 【时辰】 | 【身份】 | 【状态】 | 【武学】 | 【行囊】`；状态段是 `health_status` 加上 `buffs_debuffs`，身份 / 武学 / 行囊空缺时依次显示 无名小卒 / 不会武功 / 空无一物。
-- 导演输出失败的容错链：厂商层严格 schema → 宽容解析 → 带错重采样 → 确定性兜底（开局退回种子、必死回合确定性处决、普通回合原地停顿且不写入任何事件）。
+- `game_over: true` 时 `options` 为 `null`——死者没有选择。
+- 死后继续调用 `/api/interact` 返回 **409**；推演失败返回 **502**；所有错误统一为 `{"detail": "..."}`。
+- 服务端状态是唯一权威，请求中的 `current_state` 只在服务端丢失会话（如重启）时用于恢复。
+- `current_state` / `next_state` 是一棵树：`player_state`（`location` / `time` / `weather` / `health_status` + `buffs_debuffs` / `social_traits` / `inventory` / `martial_arts` 四个标签清单）与 `world_state.major_events`（世界大事记）。前端每次请求必须整树回传。
+- 四个标签清单与世界大事记由服务端记账：导演只上报增减（`player_delta` / `world_delta`），叙事中没提到的标签不会凭空消失；大事记只增不删、至多 10 条，满额时才合并最旧的两三条。
+- `ui_status_bar` 由服务端渲染：`【位置】 | 【时辰】 | 【身份】 | 【状态】 | 【武学】 | 【行囊】`，空缺时依次显示 无名小卒 / 健康 / 不会武功 / 空无一物。
 
 ## 试试作死
 
