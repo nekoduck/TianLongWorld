@@ -1,7 +1,8 @@
 """
-[INPUT]: 依赖 director/prompts.py 的 read_section / read_directive，依赖 director/lore.py 的 SHICHEN / GRANDMASTERS，依赖 llm/base.py 的 JsonSchema，依赖 app.schemas 的 GameState / PlayerSnapshot / DirectorOutput / PlayerDelta / TagDelta / WorldDelta / Options
+[INPUT]: 依赖 director/prompts.py 的 read_section / read_directive，依赖 app.lore 的 SHICHEN / GRANDMASTERS，依赖 llm/base.py 的 JsonSchema，
+         依赖 app.schemas 的 PlayerState / NextState / DirectorOutput / PlayerDelta / TagDelta / LocalDelta / WorldEvent / Options
 [OUTPUT]: 对外提供 MockLLM —— 实现 LLMClient 协议的离线导演
-[POS]: llm 包的零密钥替身：像真实大模型一样"阅读"提示词协议标签并产出合规 JSON，让整条管线无需 API Key 即可端到端运行
+[POS]: llm 包的零密钥替身：像真实大模型一样只"阅读"提示词协议标签（player_state / opening_seed / player_action / directive）并产出合规 JSON，让整条管线无需 API Key 即可端到端运行；"烧/毁"上报一条以当前地点为标签的世界大事，走通 JIT 记忆
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -9,9 +10,9 @@ import asyncio
 import random
 
 from app.director import prompts
-from app.director.lore import GRANDMASTERS, SHICHEN
+from app.lore import GRANDMASTERS, SHICHEN
 from app.llm.base import JsonSchema
-from app.schemas import DirectorOutput, GameState, Options, PlayerDelta, PlayerSnapshot, TagDelta, WorldDelta
+from app.schemas import DirectorOutput, LocalDelta, NextState, Options, PlayerDelta, PlayerState, TagDelta, WorldEvent
 
 # ============================================================
 #  素材库
@@ -56,9 +57,11 @@ class MockLLM:
         if self._latency:
             await asyncio.sleep(self._latency)
         directive = prompts.read_directive(user)
-        # 只取玩家快照：标签账与世界台账由服务端记账，导演（含 Mock）只上报增减
-        game = GameState.model_validate_json(prompts.read_section(user, "current_state"))
-        state = PlayerSnapshot.model_validate(game.player_state.model_dump())
+        # 只取玩家快照：标签账与世界台账由服务端记账，导演（含 Mock）只上报增减与新增大事
+        player = PlayerState.model_validate_json(prompts.read_section(user, "player_state"))
+        state = NextState(
+            location=player.location, time=player.time, weather=player.weather, health_status=player.health_status
+        )
 
         match directive.get("kind"):
             case "opening":
@@ -66,46 +69,44 @@ class MockLLM:
             case "lethal":
                 out = self._execution(state, directive["killer"], directive["signature"])
             case _:
-                out = self._wander(state, _read_present(user), prompts.read_section(user, "player_action"))
+                out = self._wander(state, prompts.read_section(user, "player_action"))
         return out.model_dump_json()
 
     # ------------------------------------------------------------------
-    def _opening(self, state: PlayerSnapshot, premise: str) -> DirectorOutput:
-        # 像真实导演一样写出在场名单：开局种子里点到的绝顶高手即在场
-        present = [m.name for m in GRANDMASTERS if m.mentioned_in(premise)]
+    def _opening(self, state: NextState, premise: str) -> DirectorOutput:
+        # 像真实导演一样写破在场者：开局种子里点到的绝顶高手即进入视野（系统已登记，重复写出也只记一次）
+        arrived = [m.name for m in GRANDMASTERS if m.mentioned_in(premise)]
         return DirectorOutput(
             scene_description=premise,
             game_over=False,
             options=self._rng.choice(_OPTIONS),
             next_state=state,
-            present=present,
+            local_delta=LocalDelta(arrived=arrived),
         )
 
-    def _execution(self, state: PlayerSnapshot, killer: str, signature: str) -> DirectorOutput:
+    def _execution(self, state: NextState, killer: str, signature: str) -> DirectorOutput:
         scene = _EXECUTION.format(killer=killer, signature=signature)
         dead = state.model_copy(update={"health_status": f"中{signature}，气绝身亡"})
         return DirectorOutput(scene_description=scene, game_over=True, options=None, next_state=dead)
 
-    def _wander(self, state: PlayerSnapshot, present: list[str], action: str) -> DirectorOutput:
+    def _wander(self, state: NextState, action: str) -> DirectorOutput:
         found = any(word in action for word in _FOUND_WORDS)
         razed = any(word in action for word in _RAZE_WORDS)
         weather = self._rng.choice(_WEATHERS)
         scene = self._rng.choice(_SCENES).format(location=state.location, weather=weather)
-        next_state = state.model_copy(update={"time": _next_shichen(state.time), "weather": weather})
+        place = state.location[:20]  # 标签是 Label（≤20 字）
+        events = [WorldEvent(tags=[place], event_desc=f"{place}毁于玩家之手")] if razed else []
+        next_state = state.model_copy(
+            update={"time": _next_shichen(state.time), "weather": weather, "major_events": events}
+        )
         return DirectorOutput(
             scene_description=scene,
             game_over=False,
             options=self._rng.choice(_OPTIONS),
             next_state=next_state,
             player_delta=PlayerDelta(inventory=TagDelta(add=[_FOUND_ITEM] if found else [])),
-            world_delta=WorldDelta(events_added=[f"{state.location}毁于玩家之手"] if razed else []),
-            present=present,  # Mock 世界里无人离场
+            # local_delta 缺省为空：Mock 世界里无人进出，在场者由服务端照旧记着
         )
-
-
-def _read_present(prompt: str) -> list[str]:
-    names = prompts.read_section(prompt, "present")
-    return [] if names in ("", "（无）") else names.split("、")
 
 
 def _next_shichen(time: str) -> str:

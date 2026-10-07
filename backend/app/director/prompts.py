@@ -1,28 +1,32 @@
 """
-[INPUT]: 依赖 app.schemas 的 GameState / MAX_EVENTS，依赖 app.session 的 Session / Turn，依赖 director/lethal.py 的 Verdict，依赖 director/lore.py 的 GRANDMASTERS / Grandmaster / OpeningSeed
-[OUTPUT]: 对外提供 SYSTEM_PROMPT、build_opening()、build_turn()，以及提示词协议读取器 read_section() / read_directive()
-[POS]: director 的提示词协议层：以 XML 标签组织 User Message，pipeline.py 写、真实大模型与 llm/mock.py 读
+[INPUT]: 依赖 app.schemas 的 PlayerState / WorldEvent，依赖 app.session 的 Session / Turn / LocalEnvironment，
+         依赖 director/lethal.py 的 Verdict，依赖 app.lore 的 GRANDMASTERS / Grandmaster / OpeningSeed
+[OUTPUT]: 对外提供 SYSTEM_PROMPT、HISTORY_PREAMBLE、build_opening()、build_turn()，以及提示词协议读取器 read_section() / read_directive()
+[POS]: director 的提示词协议层：System Prompt 是静态的世界法则（可被厂商缓存），每回合的动态上下文以 XML 标签组织进 User Message。
+       载荷恒定：只注入玩家状态、局部环境、滑动窗口与 memory.recall 筛出的相关大事，世界台账全量永不进 Prompt。
+       pipeline.py 写、真实大模型与 llm/mock.py 读
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
+import json
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
 from app.director.lethal import Verdict
-from app.director.lore import GRANDMASTERS, Grandmaster, OpeningSeed
-from app.schemas import MAX_EVENTS, GameState
-from app.session import Session, Turn
+from app.lore import GRANDMASTERS, Grandmaster, OpeningSeed
+from app.schemas import PlayerState, WorldEvent
+from app.session import LocalEnvironment, Session, Turn
 
 # ============================================================
-#  System Prompt —— 世界法则 + 标签化演算 + 江湖声望 + 状态记账 + 世界台账 + 叙事要求 + 输出契约
-#  绝顶高手名录由 lore.GRANDMASTERS 生成、台账上限取自 schemas：规则层与大模型共用同一份数字与名单
+#  System Prompt —— 世界法则 + 标签化演算 + 江湖声望 + 状态记账 + 局部视野 + 世界台账 + 叙事要求 + 输出契约
+#  绝顶高手名录由 lore.GRANDMASTERS 生成：规则层与大模型共用同一份名单
 # ============================================================
 _SYSTEM_TEMPLATE = """\
 你是《天龙八部：平行世界》的导演（Director AI）。这是一个以金庸《天龙八部》北宋江湖为底色的平行世界，\
 没有固定剧本，故事由玩家的每一个抉择涌现而出。你依据物理逻辑与武侠常识，推演玩家动作的后果，描绘新的局面。
 
 【世界法则】
-1. 无数值：世界没有血量、内力值与等级，玩家的一切状况都是 current_state.player_state 里的语义标签。\
+1. 无数值：世界没有血量、内力值与等级，玩家的一切状况都是 <player_state> 里的语义标签。\
 health_status 写生命体征（健康、轻伤、重伤濒死），每回合随 next_state 重写；\
 buffs_debuffs、social_traits、inventory、martial_arts 是四本标签账，由系统记账，见【状态记账】。
 2. 硬核：玩家起初是不会武功的无名小卒，即便学了几手粗浅功夫，与江湖高手之间仍隔着天堑。\
@@ -52,13 +56,23 @@ buffs_debuffs、social_traits、inventory、martial_arts 是四本标签账，�
   · buffs_debuffs：中毒、致残、内力枯竭等写 add；痊愈、解毒、恢复写 remove。
 - remove 的名称照抄当前清单，add 不要重复清单里已有的；叙事与选项都要与这四本账一致。
 
+【局部视野】（硬性规则）
+- <local_environment> 是此刻的地点与在场的有名有姓者（present_npcs）。
+- local_delta.arrived 写本回合进入视野者的真实姓名：叙述可以含蓄（"那魁梧大汉"），这里必须写破（"乔峰"）；\
+local_delta.departed 照抄 present_npcs 中离开视野者的名字。没写进 departed 的人一律视作仍在场。
+- 同一地图的唯一判据：新的 next_state.location 包含原 location 的全称——留在原地就照抄原 location，\
+深入其中的子地点就在原名后追加（"无锡松鹤楼" → "无锡松鹤楼二楼"）。除此之外的任何 location 都算切换地图，\
+系统会强制清空旧地点的在场者，此时 arrived 必须写出新地点的全部在场者（包括随玩家同行的人）。
+
 【世界台账】（硬性规则）
-- current_state.world_state.major_events 是平行世界的大事记，记录玩家造成的不可逆改变。
-- 玩家引发任何不可逆改变（杀死关键人物、摧毁地标、引发门派大战、改写原著走向），\
-必须概括为一句不超过 30 字的短语写入 world_delta.events_added。
-- 绝对不能覆盖或删除已有的大事。推演必须与大事记一致：死去的人不会复活，烧毁的庄园不会复原。
-- 大事记至多 {max_events} 条。只有大事记已满、本回合又要新增大事时，才用 world_delta.events_merged \
-把最旧的两三条合并为一条：sources 照抄原文，into 用"；"并列原有事实，不改原意、不添因果。其余时候 events_merged 必须为空。
+- <relevant_history> 是系统按当前地点、在场人物与玩家身份检索出的世界历史记录，都是已发生、不可逆转的事实：\
+推演必须与之一致，死去的人不会复活，烧毁的庄园不会复原。未列出的历史并非没有发生，只是与此刻无关。
+- 本回合若发生重大变故（关键 NPC 死亡、地标被毁或易主、门派大战、改写原著走向的剧情节点），\
+必须追加到 next_state.major_events，每条严格写作 {"tags": [...], "event_desc": "..."}：\
+tags 只写精准的实体名词（地点、人物、门派、物品，如 "聚贤庄"、"游氏双雄"、"丐帮"），1 到 6 个；\
+event_desc 一句话写清谁、在哪、做了什么，不超过 30 字。
+- next_state.major_events 只写本回合新发生的大事，系统会把它们追加进世界台账；\
+绝不抄写 <relevant_history> 里已有的条目，也无权修改或删除它们。偷窃、斗嘴、结怨之类记在标签账里，绝大多数回合为空数组。
 
 【叙事要求】
 - scene_description：100-200 字，第二人称"你"，白描为主，有画面、有声音、有危机或悬念；不替玩家做决定。
@@ -66,18 +80,17 @@ buffs_debuffs、social_traits、inventory、martial_arts 是四本标签账，�
   A 浅层交互：旁观、观察、搜刮；
   B 中层交互：试探、交涉、解谜；
   C 深层交互：铤而走险、破局，风险最高、回报也最大。
-- next_state：只写 location、time、weather、health_status 四个字段，各不超过 10 字；\
-weather 只写天象（晴、微雨、大雾、风沙），不写光线与气味。
-- present：此刻在场、有名有姓的人物真实姓名。叙述可以含蓄（"那魁梧大汉"），这里必须写破（"乔峰"）；人物离场即移除，无人则为空数组。
+- next_state：location、time、weather、health_status 四个字段各不超过 10 字，weather 只写天象（晴、微雨、大雾、风沙），\
+不写光线与气味；另带 major_events（见【世界台账】）。
 - 玩家死亡时：game_over 为 true，options 为 null，health_status 写明死状。
 
 【输出格式】
 只输出一个 JSON 对象，不要 markdown 代码块，不要任何解释文字：
 {"scene_description": "...", "game_over": false, "options": {"A": "...", "B": "...", "C": "..."}, \
-"next_state": {"location": "...", "time": "...", "weather": "...", "health_status": "..."}, \
+"next_state": {"location": "...", "time": "...", "weather": "...", "health_status": "...", "major_events": []}, \
 "player_delta": {"buffs_debuffs": {"add": [], "remove": []}, "social_traits": {"add": [], "remove": []}, \
 "inventory": {"add": [], "remove": []}, "martial_arts": {"add": [], "remove": []}}, \
-"world_delta": {"events_added": [], "events_merged": []}, "present": ["..."]}
+"local_delta": {"arrived": [], "departed": []}}
 """
 
 
@@ -88,11 +101,10 @@ def _render(template: str, **values: str) -> str:
     return template
 
 
-SYSTEM_PROMPT = _render(
-    _SYSTEM_TEMPLATE,
-    roster="、".join(m.name for m in GRANDMASTERS),
-    max_events=str(MAX_EVENTS),
-)
+SYSTEM_PROMPT = _render(_SYSTEM_TEMPLATE, roster="、".join(m.name for m in GRANDMASTERS))
+
+# <relevant_history> 的开场白：明确告诉大模型这批记录是什么、为何只有这几条
+HISTORY_PREAMBLE = "这是与当前场景/人物相关的世界历史记录："
 
 # ============================================================
 #  User Message 组装
@@ -111,53 +123,71 @@ def _tag(name: str, body: str, **attrs: str) -> str:
     return f"<{name}{head}>\n{body}\n</{name}>"
 
 
-def _state(state: GameState) -> str:
-    # JSON 里的引号是语法，只转义尖括号：冷启动时客户端提交的状态同样无法闭合标签
-    return _tag("current_state", state.model_dump_json().translate(_ANGLE))
+def _json(text: str) -> str:
+    # JSON 里的引号是语法，只转义尖括号：玩家写进状态里的任何文本都无法闭合标签
+    return text.translate(_ANGLE)
+
+
+def _quote(value: str | list[str]) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _player(player: PlayerState) -> str:
+    """只注入玩家状态：世界台账从不整树进入 Prompt，相关的几条由 _relevant 单独注入。"""
+    return _tag("player_state", _json(player.model_dump_json()))
+
+
+def _local(local: LocalEnvironment) -> str:
+    body = f'{{"location": {_quote(local.location)}, "present_npcs": {_quote(list(local.present_npcs))}}}'
+    return _tag("local_environment", _json(body))
 
 
 def _history(turns: Iterable[Turn]) -> str:
-    lines = [f"「{_clean(t.action) or '开局'}」→ {_clean(t.scene)}" for t in turns]
-    return _tag("recent_history", "\n".join(lines) or "（无）")
+    """滑动窗口逐行 JSON：玩家写进动作里的「」、→ 与换行都被 JSON 语法转义，伪造不出一条导演写过的场景。"""
+    lines = [f'{{"action": {_quote(t.action)}, "scene": {_quote(t.scene)}}}' for t in turns]
+    return _tag("recent_history", _json("\n".join(lines)) or "（无）")
 
 
-def _present(names: Iterable[str]) -> str:
-    return _tag("present", _clean("、".join(names)) or "（无）")
+def _relevant(events: Sequence[WorldEvent]) -> str:
+    lines = [f"- [{_clean('、'.join(e.tags))}] {_clean(e.event_desc)}" for e in events]
+    return _tag("relevant_history", "\n".join((HISTORY_PREAMBLE, *lines)) if lines else "（无）")
 
 
 def build_opening(seed: OpeningSeed) -> str:
+    """开局：新世界的台账为空，无历史可注入；种子点名的高手已由系统登记在场。"""
+    player = seed.state.player_state
     return "\n\n".join((
-        _state(seed.state),
+        _player(player),
+        _local(LocalEnvironment(location=player.location, present_npcs=seed.present)),
         _tag("opening_seed", _clean(seed.premise)),
         _tag(
             "directive",
             "这是开局。以开局种子为蓝本，写出玩家睁眼时所见的第一幕，并给出 A/B/C 三个选项。"
-            "next_state 沿用 current_state.player_state 的四个快照字段；四本标签账与世界台账已是开局状态，"
-            "不要在 player_delta 里重复上报。玩家必须活着。",
+            "next_state 沿用 <player_state> 的四个快照字段，major_events 为空；四本标签账已是开局状态，"
+            "不要在 player_delta 里重复上报；<local_environment> 已登记种子点名的人物，"
+            "local_delta.arrived 只补写其余开场在场、有名有姓者的真实姓名。玩家必须活着。",
             kind="opening",
         ),
     ))
 
 
-def build_turn(session: Session, action_type: str, action: str, verdict: Verdict) -> str:
+def build_turn(
+    session: Session, memories: Sequence[WorldEvent], action_type: str, action: str, verdict: Verdict
+) -> str:
+    """
+    回合载荷 = 玩家状态 + 局部环境 + 滑动窗口（至多 N 回合）+ 相关大事（至多 limit 条）+ 动作 + 指令：
+    每一项都有上限，Prompt 长度与游戏进行了多久、世界台账有多长无关。
+    """
     return "\n\n".join((
-        _state(session.state),
+        _player(session.state.player_state),
+        _local(session.local),
         _history(session.history),
-        _present(session.present),
+        _relevant(memories),
         _tag("player_action", _clean(action), type=action_type),
         _lethal_directive(verdict.killer) if verdict.killer else _tag(
-            "directive",
-            "依世界法则推演上述动作的后果，写出新的局面与三个选项。" + _ledger_hint(session.state),
-            kind="normal",
+            "directive", "依世界法则推演上述动作的后果，写出新的局面与三个选项。", kind="normal"
         ),
     ))
-
-
-def _ledger_hint(state: GameState) -> str:
-    """大模型数不清数组长度：台账满额时由系统直接点明，未满时只字不提，免得诱发不必要的合并。"""
-    if len(state.world_state.major_events) < MAX_EVENTS:
-        return ""
-    return f"注意：大事记已满 {MAX_EVENTS} 条，若本回合要新增大事，须先用 events_merged 合并最旧的两三条。"
 
 
 def _lethal_directive(killer: Grandmaster) -> str:
@@ -167,7 +197,7 @@ def _lethal_directive(killer: Grandmaster) -> str:
         f"【天命·必死】玩家身无武功，却冒犯了在场的绝顶高手「{killer.name}」。此人只需一招「{killer.signature}」，"
         "便将玩家当场格毙。以冷峻的笔触写出这一招之下玩家的死亡，一句话定胜负，"
         "不得手下留情，不得出现任何转机或援手。game_over 必须为 true，options 必须为 null，"
-        "next_state.health_status 写明死状。",
+        "next_state.health_status 写明死状，next_state.major_events 为空。",
         kind="lethal",
         killer=killer.name,
         signature=killer.signature,

@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 无（与 backend/app/schemas.py 逐字段镜像）
- * [OUTPUT]: 对外提供 PlayerState、WorldState、GameState、Options、OptionKey、ActionType、InteractRequest、InteractResponse、NewSessionResponse
+ * [OUTPUT]: 对外提供 PlayerState、WorldEvent、WorldState、GameState、Options、OptionKey、ActionType、InteractRequest、InteractResponse、NewSessionResponse
  * [POS]: frontend 的协议类型，是 api / hooks / components 共享的唯一数据形状
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md；字段变化必须与后端 schemas.py 同步
  */
@@ -20,9 +20,16 @@ export interface PlayerState {
   martial_arts: string[]
 }
 
-/** 平行世界的大事记：只增不删，至多 10 条 */
+/** 世界大事：带实体标签的原子事实，后端据 tags 检索出与当前场景相关的几条喂给导演 */
+export interface WorldEvent {
+  /** 地点、人物、门派、物品等实体名词 */
+  tags: string[]
+  event_desc: string
+}
+
+/** 平行世界的大事记：只增不删、不设上限（导演只看得见按标签筛出的几条） */
 export interface WorldState {
-  major_events: string[]
+  major_events: WorldEvent[]
 }
 
 /** current_state / next_state 的完整树：每次请求必须整树回传，不可遗漏 world_state */

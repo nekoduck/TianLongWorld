@@ -28,6 +28,7 @@ def create_app(settings: Settings | None = None, director: Director | None = Non
     director = director or Director(
         build_llm(settings),
         SessionStore(capacity=settings.session_capacity, history_turns=settings.history_turns),
+        memory_limit=settings.memory_limit,
     )
 
     app = FastAPI(title="天龙八部：平行世界", version="0.1.0")

@@ -11,6 +11,7 @@ import type {
   NewSessionResponse,
   Options,
   PlayerState,
+  WorldEvent,
 } from '../types'
 
 const LATENCY_MS = 1200
@@ -20,7 +21,7 @@ interface Frame {
   player: Partial<PlayerState>
   scene: string
   options: Options
-  event?: string
+  event?: WorldEvent
 }
 
 const NOBODY: PlayerState = {
@@ -53,7 +54,7 @@ const FRAMES: Frame[] = [
     scene:
       '你攥着那块冰冷的铁牌，在芦苇荡里一路狂奔，直到天边泛白才敢停下。雾中现出一片水榭楼台，匾上写着“燕子坞”三字。一个挎着竹篮的小丫鬟正在岸边浣纱，抬头见了你，又见了你手里的铁牌，脸色倏地变了。',
     options: { A: '藏起铁牌，装作迷路渔夫', B: '亮出铁牌，试探她的反应', C: '直闯水榭，求见慕容公子' },
-    event: '慕容家信物落入外人之手',
+    event: { tags: ['燕子坞', '慕容家'], event_desc: '慕容家信物落入外人之手' },
   },
 ]
 

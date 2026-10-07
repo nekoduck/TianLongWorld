@@ -65,7 +65,9 @@ LLM_BASE_URL=https://api.deepseek.com/v1
 - 死后继续调用 `/api/interact` 返回 **409**；推演失败返回 **502**；所有错误统一为 `{"detail": "..."}`。
 - 服务端状态是唯一权威，请求中的 `current_state` 只在服务端丢失会话（如重启）时用于恢复。
 - `current_state` / `next_state` 是一棵树：`player_state`（`location` / `time` / `weather` / `health_status` + `buffs_debuffs` / `social_traits` / `inventory` / `martial_arts` 四个标签清单）与 `world_state.major_events`（世界大事记）。前端每次请求必须整树回传。
-- 四个标签清单与世界大事记由服务端记账：导演只上报增减（`player_delta` / `world_delta`），叙事中没提到的标签不会凭空消失；大事记只增不删、至多 10 条，满额时才合并最旧的两三条。
+- 四个标签清单由服务端记账：导演只上报增减（`player_delta`），叙事中没提到的标签不会凭空消失。
+- 世界大事记 `major_events` 是 `[{"tags": ["聚贤庄", "游氏双雄", "丐帮"], "event_desc": "..."}]`：只追加、不合并、不删除、不设上限。导演只能在 `next_state.major_events` 里写本回合新发生的大事。
+- JIT 动态记忆：每回合调用大模型前，后端只挑出 `tags` 命中当前地点、在场人物或玩家身份的最近几条大事注入 Prompt；连同滑动窗口（最近 3~5 回合）与局部环境（切换地点即清空），Prompt 长度是与游戏进度无关的常数。
 - `ui_status_bar` 由服务端渲染：`【位置】 | 【时辰】 | 【身份】 | 【状态】 | 【武学】 | 【行囊】`，空缺时依次显示 无名小卒 / 健康 / 不会武功 / 空无一物。
 
 ## 试试作死

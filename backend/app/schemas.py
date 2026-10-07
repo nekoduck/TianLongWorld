@@ -1,7 +1,7 @@
 """
 [INPUT]: 依赖 pydantic 的 BaseModel / StringConstraints / model_validator
-[OUTPUT]: 对外提供 PlayerSnapshot、PlayerState、LEDGERS、WorldState、GameState、MAX_TAGS / MAX_EVENTS、
-          Options、InteractRequest、TagDelta / PlayerDelta / EventMerge / WorldDelta、DirectorOutput（含 DIRECTOR_SCHEMA）、
+[OUTPUT]: 对外提供 PlayerSnapshot、PlayerState、LEDGERS、WorldEvent、WorldState、GameState、MAX_TAGS、
+          Options、InteractRequest、TagDelta / PlayerDelta / LocalDelta / NextState、DirectorOutput（含 DIRECTOR_SCHEMA）、
           InteractResponse、NewSessionResponse
 [POS]: app 的前后端协议与大模型输出契约，是全系统唯一的数据形状来源（前端 types.ts 与之镜像）
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -16,10 +16,9 @@ from pydantic import BaseModel, Field, StringConstraints, model_validator
 Tag = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
 OptionText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)]
 Label = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20)]  # 人名、物品、武学、状态
-Event = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]  # 合并后的事件可稍长
+EventDesc = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
 
 MAX_TAGS = 16  # 每本玩家标签账的上限
-MAX_EVENTS = 10  # 世界台账上限：防止上下文膨胀诱发幻觉；只有满额且要新增时才允许合并
 
 TagList = Annotated[list[Label], Field(max_length=MAX_TAGS)]
 
@@ -47,10 +46,20 @@ LEDGERS = ("buffs_debuffs", "social_traits", "inventory", "martial_arts")
 
 
 # ============================================================
-#  世界状态 —— 平行世界的大事记，只增不删
+#  世界状态 —— 平行世界的大事记：带实体标签的原子事实，只增不删、不设上限
+#  台账可以无限增长，喂给大模型的却永远只是按标签筛出的几条（见 director/memory.py）
 # ============================================================
+class WorldEvent(BaseModel):
+    tags: list[Label] = Field(
+        min_length=1,
+        max_length=6,
+        description="事件涉及的实体名词：地点、人物、门派、物品，如 聚贤庄、游氏双雄、丐帮；检索靠它们命中",
+    )
+    event_desc: EventDesc = Field(description="一句话原子事实，如：玩家在聚贤庄大战中烧毁了正厅，游氏双雄战死")
+
+
 class WorldState(BaseModel):
-    major_events: Annotated[list[Event], Field(max_length=MAX_EVENTS)] = []
+    major_events: list[WorldEvent] = []
 
 
 class GameState(BaseModel):
@@ -95,7 +104,7 @@ class InteractRequest(BaseModel):
 
 # ============================================================
 #  大模型契约 —— 导演必须产出的结构（不含 ui_status_bar）
-#  一切清单只以增减上报，服务端据此记账：遗漏不等于失去
+#  一切清单只以增减上报，服务端据此记账：遗漏不等于失去；世界大事只追加
 # ============================================================
 class TagDelta(BaseModel):
     add: list[Label] = Field(default=[], max_length=8, description="本回合新增的标签；清单里已有的不要重复写")
@@ -109,18 +118,24 @@ class PlayerDelta(BaseModel):
     martial_arts: TagDelta = Field(default=TagDelta(), description="学会写 add；被废、遗忘写 remove")
 
 
-class EventMerge(BaseModel):
-    # 每次至多并三条：并得越多，大模型改写原意的机会越大
-    sources: list[Event] = Field(min_length=2, max_length=3, description="要合并的最旧几条大事，原文照抄台账")
-    into: Event = Field(description="用'；'并列原有事实，不改原意、不添因果")
+class LocalDelta(BaseModel):
+    """局部环境（在场 NPC）的增减：同一地图内遗漏不等于离场；换了地图由服务端强制清空，只留新地点的到场者。"""
 
-
-class WorldDelta(BaseModel):
-    events_added: list[Event] = Field(
-        default=[], max_length=3, description="玩家本回合引发的不可逆大事，每条一句短语；没有则为空数组"
+    arrived: list[Label] = Field(
+        default=[],
+        max_length=12,
+        description="本回合进入视野、有名有姓者的真实姓名（叙事含蓄也要写破，如 乔峰）；换了地图则写出新地点的全部在场者",
     )
-    events_merged: list[EventMerge] = Field(
-        default=[], max_length=3, description=f"仅当大事记已满 {MAX_EVENTS} 条且本回合要新增时才合并；否则为空数组"
+    departed: list[Label] = Field(default=[], max_length=12, description="本回合离开视野者，名字照抄 local_environment")
+
+
+class NextState(PlayerSnapshot):
+    """导演提议的下一刻：快照四字段整体重写；major_events 只写本回合新发生的大事，由服务端追加进世界台账。"""
+
+    major_events: list[WorldEvent] = Field(
+        default=[],
+        max_length=3,
+        description="仅本回合新发生的重大变故（NPC 死亡、地标被毁、剧情节点）；没有则为空数组，绝不抄写已有的历史",
     )
 
 
@@ -128,15 +143,11 @@ class DirectorOutput(BaseModel):
     scene_description: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=800)]
     game_over: bool
     options: Options | None = None
-    next_state: PlayerSnapshot  # 只有快照四字段：大模型从结构上就无法整体改写标签账与世界台账
+    # 快照四字段 + 本回合新增大事：大模型从结构上就无法整体改写标签账，也无法改写或删除已有的世界台账
+    next_state: NextState
     player_delta: PlayerDelta = PlayerDelta()
-    world_delta: WorldDelta = WorldDelta()
     # 服务端内部字段，不进前端协议：叙事可以只写"那魁梧大汉"，此处必须写"乔峰"，致死预判据此判定在场
-    present: list[Label] = Field(
-        default=[],
-        max_length=12,
-        description="此刻在场、有名有姓的人物真实姓名，即使叙述中未点破身份也要写出；无人则为空数组",
-    )
+    local_delta: LocalDelta = LocalDelta()
 
     @model_validator(mode="after")
     def _alive_needs_options(self) -> "DirectorOutput":
@@ -161,7 +172,7 @@ class InteractResponse(BaseModel):
 
     @classmethod
     def of(cls, state: GameState, out: DirectorOutput) -> "InteractResponse":
-        """state 是服务端记账后的完整状态，out 只贡献叙事与选项；内部字段（present、增减）不外泄。"""
+        """state 是服务端记账后的完整状态，out 只贡献叙事与选项；内部字段（局部环境、增减）不外泄。"""
         return cls(
             ui_status_bar=state.status_bar(),
             scene_description=out.scene_description,

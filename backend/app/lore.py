@@ -1,7 +1,8 @@
 """
 [INPUT]: 依赖 app.schemas 的 GameState / PlayerState
-[OUTPUT]: 对外提供 Grandmaster、GRANDMASTERS（绝顶高手名录）、OpeningSeed、OPENING_SEEDS（开局种子）、SHICHEN（十二时辰）
-[POS]: director 的静态世界设定库，只有数据没有逻辑；被 lethal.py（谁能秒杀你）、pipeline.py（从哪开局）与 llm/mock.py 消费
+[OUTPUT]: 对外提供 Grandmaster、GRANDMASTERS（绝顶高手名录）、kin()（同一人物的全部称呼）、OpeningSeed、OPENING_SEEDS（开局种子）、SHICHEN（十二时辰）
+[POS]: app 的静态世界设定库（置于 app 顶层而非 director 内：session 也要用它认人，放在 director 里会与 pipeline 形成导入环），只有数据与查表；被 lethal.py（谁能秒杀你）、memory.py（别名检索）、pipeline.py（从哪开局、谁在场）、
+       app/session.py（局部环境按身份认人）与 llm/mock.py 消费
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -43,6 +44,14 @@ GRANDMASTERS: tuple[Grandmaster, ...] = (
 )
 
 
+def kin(name: str) -> tuple[str, ...]:
+    """同一人物的全部称呼：名录中的高手展开为全部别名，其余人物原样返回——检索与认人时「乔峰」与「萧峰」是同一个人。"""
+    for master in GRANDMASTERS:
+        if name == master.name or name in master.aliases:
+            return tuple(dict.fromkeys((master.name, *master.aliases)))
+    return (name,)
+
+
 # ============================================================
 #  开局种子 —— 真实大模型以之为蓝本铺陈，Mock 直接以之为开场白
 # ============================================================
@@ -50,6 +59,7 @@ GRANDMASTERS: tuple[Grandmaster, ...] = (
 class OpeningSeed:
     state: GameState
     premise: str
+    present: tuple[str, ...]  # 开场白点名的绝顶高手：开局即登记在场，规则层的生死判定不依赖大模型记得写出他们
 
 
 def _seed(
@@ -59,7 +69,8 @@ def _seed(
     player = PlayerState(
         location=location, time=time, weather=weather, health_status="健康", buffs_debuffs=buffs, inventory=inventory
     )
-    return OpeningSeed(GameState(player_state=player), premise)
+    present = tuple(m.name for m in GRANDMASTERS if m.mentioned_in(premise))
+    return OpeningSeed(GameState(player_state=player), premise, present)
 
 
 OPENING_SEEDS: tuple[OpeningSeed, ...] = (

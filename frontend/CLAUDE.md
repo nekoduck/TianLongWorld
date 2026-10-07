@@ -11,7 +11,7 @@ index.html: 入口页，zh-CN、深色 color-scheme、内联 SVG 图标，引入
 .env.mock: dev:mock 模式加载，VITE_USE_MOCK=true
 src/main.tsx: 启动入口，StrictMode 挂载 App
 src/App.tsx: 布局编排者，入世页 / 三段式（StatusBar · 叙事视窗 · 交互区）/ 死亡后整屏褪灰只留投胎按钮；持有 useGame 与 useTypewriter
-src/types.ts: 协议类型，与 backend/app/schemas.py 逐字段镜像；GameState = { player_state, world_state } 状态树
+src/types.ts: 协议类型，与 backend/app/schemas.py 逐字段镜像；GameState = { player_state, world_state } 状态树，major_events 为 WorldEvent{ tags, event_desc }
 src/index.css: 视觉宪法，Tailwind v4 @theme 定义 墨/金/血 色令牌、宋体/书法字族、fade-in / breathe 动效与中央晕染背景
 src/vite-env.d.ts: VITE_USE_MOCK / VITE_API_BASE 的类型声明
 src/api/: 后端门面（GameApi 抽象 + HTTP 实现 + 静态 Mock），地图见 src/api/CLAUDE.md

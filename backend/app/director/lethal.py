@@ -1,5 +1,5 @@
 """
-[INPUT]: 依赖 director/lore.py 的 Grandmaster / GRANDMASTERS，依赖 app.schemas 的 PlayerState
+[INPUT]: 依赖 app.lore 的 Grandmaster / GRANDMASTERS，依赖 app.schemas 的 PlayerState
 [OUTPUT]: 对外提供 Verdict 裁决、SAFE 常量、judge() 致死预判
 [POS]: director 的确定性规则层，在大模型之前拦截"无武功挑衅在场绝顶高手"；它裁定生死，大模型只负责叙述
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -7,7 +7,7 @@
 
 from dataclasses import dataclass
 
-from app.director.lore import GRANDMASTERS, Grandmaster
+from app.lore import GRANDMASTERS, Grandmaster
 from app.schemas import PlayerState
 
 
