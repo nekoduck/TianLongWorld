@@ -9,7 +9,10 @@ export interface WorldState {
   location: string
   time: string
   weather: string
+  /** 身体状况：伤病、饥寒、疲惫；不含物品 */
   physical_state: string
+  /** 随身物品：服务端记账，只认增减，不会被大模型整体改写 */
+  inventory: string[]
 }
 
 export type OptionKey = 'A' | 'B' | 'C'

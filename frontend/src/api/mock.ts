@@ -17,19 +17,25 @@ interface Frame {
 
 const FRAMES: Frame[] = [
   {
-    state: { location: '太湖畔', time: '子时', weather: '微雨', physical_state: '手无寸铁、略感风寒' },
+    state: { location: '太湖畔', time: '子时', weather: '微雨', physical_state: '略感风寒', inventory: [] },
     scene:
       '冷雨打在太湖的芦苇上，你蜷在一条破船的篷下，浑身发冷。远处水面亮起一盏菱灯，一叶小舟悠悠划来，船头少女用吴侬软语哼着采菱曲。岸边柳树后，却分明伏着两个黑衣人，手按刀柄，死死盯着那盏灯。',
     options: { A: '伏在篷下，静观其变', B: '学一声水鸟叫，引开黑衣人', C: '跳入湖中，游向小舟报信' },
   },
   {
-    state: { location: '太湖畔', time: '丑时', weather: '大雾', physical_state: '手无寸铁、隐蔽' },
+    state: { location: '太湖畔', time: '丑时', weather: '大雾', physical_state: '略感风寒', inventory: [] },
     scene:
       '大雾忽起，菱灯在雾中晕成一团昏黄。黑衣人低声咒骂，其中一人蹚水而去，另一人仍守在柳树后。你借着雾气挪近了几步，看清他腰间挂着一块铁牌，上书一个“慕”字。小舟上的歌声停了。',
     options: { A: '原地不动，听他们说些什么', B: '摸索岸边，找件趁手之物', C: '扑上去夺他腰间铁牌' },
   },
   {
-    state: { location: '燕子坞外', time: '寅时', weather: '晨雾', physical_state: '浑身湿透、手握铁牌' },
+    state: {
+      location: '燕子坞外',
+      time: '寅时',
+      weather: '晨雾',
+      physical_state: '浑身湿透、略感风寒',
+      inventory: ['慕字铁牌'],
+    },
     scene:
       '你攥着那块冰冷的铁牌，在芦苇荡里一路狂奔，直到天边泛白才敢停下。雾中现出一片水榭楼台，匾上写着“燕子坞”三字。一个挎着竹篮的小丫鬟正在岸边浣纱，抬头见了你，又见了你手里的铁牌，脸色倏地变了。',
     options: { A: '藏起铁牌，装作迷路渔夫', B: '亮出铁牌，试探她的反应', C: '直闯水榭，求见慕容公子' },
@@ -42,7 +48,8 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 // 镜像后端 WorldState.status_bar()：Mock 必须与真实协议同形
 const statusBarOf = (s: WorldState) =>
-  `【位置：${s.location}】 | 【时辰：${s.time}】 | 【天气：${s.weather}】 | 【状态：${s.physical_state}】`
+  `【位置：${s.location}】 | 【时辰：${s.time}】 | 【天气：${s.weather}】 | 【状态：${s.physical_state}】 | ` +
+  `【行囊：${s.inventory.join(', ') || '空无一物'}】`
 
 const respond = ({ state, scene, options }: Frame): InteractResponse => ({
   ui_status_bar: statusBarOf(state),

@@ -1,5 +1,5 @@
 """
-[INPUT]: 依赖 director/prompts.py 的 read_section / read_directive，依赖 director/lore.py 的 SHICHEN / GRANDMASTERS，依赖 llm/base.py 的 JsonSchema，依赖 app.schemas 的 DirectorOutput / WorldState / Options
+[INPUT]: 依赖 director/prompts.py 的 read_section / read_directive，依赖 director/lore.py 的 SHICHEN / GRANDMASTERS，依赖 llm/base.py 的 JsonSchema，依赖 app.schemas 的 DirectorOutput / StateSnapshot / Options
 [OUTPUT]: 对外提供 MockLLM —— 实现 LLMClient 协议的离线导演
 [POS]: llm 包的零密钥替身：像真实大模型一样"阅读"提示词协议标签并产出合规 JSON，让整条管线无需 API Key 即可端到端运行
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -11,7 +11,7 @@ import random
 from app.director import prompts
 from app.director.lore import GRANDMASTERS, SHICHEN
 from app.llm.base import JsonSchema
-from app.schemas import DirectorOutput, Options, WorldState
+from app.schemas import DirectorOutput, Options, StateSnapshot
 
 # ============================================================
 #  素材库
@@ -35,6 +35,8 @@ _OPTIONS = (
     Options(A="寻个角落歇脚，恢复体力", B="向路人讨教此地门道", C="闯入险地，搏一场机缘"),
 )
 
+_FOUND_ITEM = "锈蚀铁牌"  # 玩家一说"拾/捡"，Mock 世界就让他捡到它——让离线模式也走通物品记账
+
 _EXECUTION = (
     "你话音未落，{killer}连眼皮都未抬，只随手一挥——{signature}！"
     "一股排山倒海的劲力当胸撞来，你眼前一黑，整个人如断线纸鸢般倒飞出去，重重摔在地上，再也没能起来。"
@@ -51,7 +53,8 @@ class MockLLM:
         if self._latency:
             await asyncio.sleep(self._latency)
         directive = prompts.read_directive(user)
-        state = WorldState.model_validate_json(prompts.read_section(user, "world_state"))
+        # 只读快照部分：随身物品由服务端记账，导演（含 Mock）只上报增减
+        state = StateSnapshot.model_validate_json(prompts.read_section(user, "world_state"))
 
         match directive.get("kind"):
             case "opening":
@@ -59,11 +62,12 @@ class MockLLM:
             case "lethal":
                 out = self._execution(state, directive["killer"], directive["signature"])
             case _:
-                out = self._wander(state, _read_present(user))
+                action = prompts.read_section(user, "player_action")
+                out = self._wander(state, _read_present(user), found=any(k in action for k in ("拾", "捡")))
         return out.model_dump_json()
 
     # ------------------------------------------------------------------
-    def _opening(self, state: WorldState, premise: str) -> DirectorOutput:
+    def _opening(self, state: StateSnapshot, premise: str) -> DirectorOutput:
         # 像真实导演一样写出在场名单：开局种子里点到的绝顶高手即在场
         present = [m.name for m in GRANDMASTERS if m.mentioned_in(premise)]
         return DirectorOutput(
@@ -74,12 +78,12 @@ class MockLLM:
             present=present,
         )
 
-    def _execution(self, state: WorldState, killer: str, signature: str) -> DirectorOutput:
+    def _execution(self, state: StateSnapshot, killer: str, signature: str) -> DirectorOutput:
         scene = _EXECUTION.format(killer=killer, signature=signature)
         dead = state.model_copy(update={"physical_state": f"中{signature}，气绝身亡"})
         return DirectorOutput(scene_description=scene, game_over=True, options=None, next_state=dead)
 
-    def _wander(self, state: WorldState, present: list[str]) -> DirectorOutput:
+    def _wander(self, state: StateSnapshot, present: list[str], *, found: bool) -> DirectorOutput:
         weather = self._rng.choice(_WEATHERS)
         scene = self._rng.choice(_SCENES).format(location=state.location, weather=weather)
         next_state = state.model_copy(update={"time": _next_shichen(state.time), "weather": weather})
@@ -88,6 +92,7 @@ class MockLLM:
             game_over=False,
             options=self._rng.choice(_OPTIONS),
             next_state=next_state,
+            items_gained=[_FOUND_ITEM] if found else [],
             present=present,  # Mock 世界里无人离场
         )
 

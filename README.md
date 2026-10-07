@@ -64,6 +64,7 @@ LLM_BASE_URL=https://api.deepseek.com/v1
 - `game_over: true` 时 `options` 为 `null`——死者没有选择。
 - 死后继续调用 `/api/interact` 返回 **409**；推演失败返回 **502**；所有错误统一为 `{"detail": "..."}`。
 - 服务端状态是唯一权威，请求中的 `current_state` 只在服务端丢失会话（如重启）时用于恢复。
+- `next_state.inventory` 是物品栏（行囊），由服务端记账：导演只上报得失（`items_gained` / `items_lost`），叙事中没提到的物品不会凭空消失；`ui_status_bar` 以 `【行囊：A, B】`（空时 `【行囊：空无一物】`）收尾；`physical_state` 只描述身体状况。
 
 ## 试试作死
 

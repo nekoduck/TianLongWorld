@@ -22,14 +22,15 @@ frontend/vite.config.ts - Vite 插件与 /api → :8000 开发代理
     → LLMClient          纯文本进出 + 契约 schema（gemini 结构化输出 / openai 兼容 / anthropic / mock）
     → parser             截取 JSON + Pydantic 校验，失败重采样
     → 生死封印            规则判死则强制 game_over，大模型无权赦免
-    → Session.advance()  服务端状态唯一权威
+    → Session.advance()  服务端状态唯一权威：快照照单全收，随身物品按 items_gained / items_lost 记账
   ← InteractResponse（ui_status_bar 由服务端从 next_state 确定性渲染）→ 打字机 → 选项浮现
 
 关键决策：
 - 服务端权威：请求里的 current_state 仅用于会话丢失时冷启动恢复，不能覆盖服务端状态（防篡改）
 - 生死归规则、叙事归模型：确定性规则裁决点名挑衅，System Prompt 内的高手名录让模型裁决"那人"式指代，永久死亡由服务端 409 守住
 - 在场人物结构化：叙事可以含蓄（"那魁梧大汉"），present 字段必须写破（"乔峰"）；它是服务端内部字段，不进前端协议
-- 短期叙事记忆：会话保留最近 N 回合场景原文喂给导演，四个状态字段之外的涌现细节由此延续
+- 状态按生命周期分存：location/time/weather/physical_state 是大模型每回合重写的快照；inventory 由服务端记账，大模型只能上报增减，遗漏不等于失去
+- 短期叙事记忆：会话保留最近 N 回合场景原文喂给导演，状态字段之外的涌现细节由此延续
 - 协议单一来源：backend/app/schemas.py 定义形状，frontend/src/types.ts 逐字段镜像
 </architecture>
 

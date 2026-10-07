@@ -5,14 +5,14 @@
 
 成员清单
 __init__.py: 包门面，只导出 Director
-pipeline.py: 编排核心 Director，open() 抽开局种子生成第一幕，interact() 串联 守卫 → judge(presence) → build_turn → LLM(附 DIRECTOR_SCHEMA) → parse（失败重采样，默认 2 次）→ 必死封印 → advance
+pipeline.py: 编排核心 Director，open() 抽开局种子生成第一幕（evolve(种子状态, 裁决) 继承种子物品），interact() 串联 守卫 → judge(presence) → build_turn → LLM(附 DIRECTOR_SCHEMA) → parse（失败重采样，默认 2 次）→ 必死封印 → advance
 lethal.py: 确定性致死预判，judge() 判定 无绝学 ∧ 敌意（先剔除"打听/打量"等无害复合词）∧ 点名 ∧ 在场（Session.presence()：present 名单优先，缺席时退回上一幕原文）；Verdict 以单字段 killer 表达裁决
-prompts.py: 提示词协议，SYSTEM_PROMPT（世界法则含由 GRANDMASTERS 生成的高手名录，覆盖"那人"式不点名挑衅/叙事要求/JSON 契约）+ build_opening / build_turn(session, ...) 以 XML 标签组装 User Message；插值文本转义尖括号与引号防注入；read_section / read_directive 供 Mock 读取
+prompts.py: 提示词协议，SYSTEM_PROMPT（世界法则：physical_state 只写持续身体状况、由 GRANDMASTERS 生成的高手名录覆盖"那人"式不点名挑衅 / 【物品栏管理】硬性规则：获得报 items_gained、用掉遗失丢弃报 items_lost、未耗尽的使用不算失去 / 叙事要求 / JSON 契约）+ build_opening / build_turn(session, ...) 以 XML 标签组装 User Message；插值文本转义尖括号与引号防注入；read_section / read_directive 供 Mock 读取
 parser.py: 解析闸门，截取首 "{" 至末 "}" 剥离围栏与寒暄，交 Pydantic 校验 DirectorOutput，失败抛 DirectorError
-lore.py: 静态世界设定，GRANDMASTERS（13 位会下死手的绝顶高手及别名、杀招；规则层与 System Prompt 共用）、OPENING_SEEDS（6 个开局情境，半数有高手在场）、SHICHEN 十二时辰
+lore.py: 静态世界设定，GRANDMASTERS（13 位会下死手的绝顶高手及别名、杀招；规则层与 System Prompt 共用）、OPENING_SEEDS（6 个开局情境，半数有高手在场，各带初始随身物品）、SHICHEN 十二时辰
 
 提示词协议（User Message 结构）
-  <world_state>{json}</world_state>
+  <world_state>{json}</world_state>                     含 inventory，供导演知晓随身物品（只读）
   <recent_history>「动作」→ 场景 ...</recent_history>     仅回合
   <present>乔峰、段誉</present>                          仅回合，上回合导演给出的在场名单
   <opening_seed>情境</opening_seed>                      仅开局

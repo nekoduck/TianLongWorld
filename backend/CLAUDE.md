@@ -9,8 +9,9 @@ requirements-dev.txt: 开发依赖，在运行依赖之上叠加 pytest
 pytest.ini: 测试配置，pythonpath=. 使 `import app` 生效，testpaths=tests
 .env.example: 配置模板，列出 LLM_PROVIDER / LLM_API_KEY / LLM_MODEL / LLM_THINKING_LEVEL 等全部可调项及 gemini / anthropic / openai 兼容示例；真实密钥写入同目录 .env（已 gitignore）
 app/: 应用包（协议、会话、路由、组合根），地图见 app/CLAUDE.md
-tests/conftest.py: 公共装置，ScriptedLLM 剧本替身 + alive_reply(scene, present) 报文工厂 + store / director / client 夹具，经 create_app(director=...) 注入
+tests/conftest.py: 公共装置，ScriptedLLM 剧本替身 + alive_reply(scene, present, gained, lost, **快照字段) 报文工厂 + store / director / client 夹具，经 create_app(director=...) 注入
 tests/test_api.py: 集成用例，覆盖开局、推演、必死封印、叙述隐名时靠 present 判在场、永久死亡 409、冷启动恢复、服务端权威、重试与 502、422 校验
+tests/test_inventory.py: 物品守恒用例，reconcile 纯函数（遗漏≠失去、先失后得、模糊匹配多义不删、去重）+ 管线集成（多回合不提仍在、快照夹带 inventory 被忽略、开局种子物品延续、冷启动恢复、Mock 拾取）
 tests/test_lethal.py: 致死预判单测，守护"敌意 ∧ 点名 ∧ 在场 ∧ 无绝学"四要素与无害复合词剔除
 tests/test_parser.py: 解析闸门单测，围栏/寒暄剥离、存活必有选项、死亡可无选项、散文拒收
 tests/test_llm_clients.py: 厂商客户端单测，替换 post_json 断言报文形状（Gemini 的 schema/思考档位/思考片段过滤/拒答），以及缺凭证启动即失败
