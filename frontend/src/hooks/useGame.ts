@@ -1,23 +1,24 @@
 /**
- * [INPUT]: 依赖 react 的 useReducer / useRef / useCallback，依赖 api/client.ts 的 api 与 ApiError，依赖 types.ts
- * [OUTPUT]: 对外提供 useGame() -> { ...GameState, start, act }、Phase 类型
+ * [INPUT]: 依赖 react 的 useReducer / useRef / useCallback，依赖 api/client.ts 的 api 与 ApiError，依赖 types.ts 的 GameState 等协议类型
+ * [OUTPUT]: 对外提供 useGame() -> { ...GameView, start, act }、Phase 类型
  * [POS]: hooks 的游戏状态机，前端唯一的状态源；App 读取它的快照，组件通过 start / act 发出意图
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 import { useCallback, useReducer, useRef } from 'react'
 
 import { api, ApiError } from '../api/client'
-import type { ActionType, InteractResponse, Options, WorldState } from '../types'
+import type { ActionType, GameState, InteractResponse, Options } from '../types'
 
 // ============================================================
 //  状态机：idle（未入世）→ loading → playing ⇄ loading → dead
 // ============================================================
 export type Phase = 'idle' | 'loading' | 'playing' | 'dead'
 
-interface GameState {
+interface GameView {
   phase: Phase
   sessionId: string | null
-  world: WorldState | null
+  /** 上一轮的 next_state 整树，下一次请求原样作为 current_state 回传 */
+  current: GameState | null
   statusBar: string
   scene: string
   options: Options | null
@@ -36,10 +37,10 @@ type Event =
   | { type: 'resolve'; res: InteractResponse; sessionId?: string }
   | { type: 'reject'; error: string }
 
-const INITIAL: GameState = {
+const INITIAL: GameView = {
   phase: 'idle',
   sessionId: null,
-  world: null,
+  current: null,
   statusBar: '',
   scene: '',
   options: null,
@@ -49,7 +50,7 @@ const INITIAL: GameState = {
   error: null,
 }
 
-function reducer(state: GameState, event: Event): GameState {
+function reducer(state: GameView, event: Event): GameView {
   switch (event.type) {
     case 'rebirth':
       // 清空前世的一切，只保留 turn 计数以确保打字机重置
@@ -62,7 +63,7 @@ function reducer(state: GameState, event: Event): GameState {
         ...state,
         phase: res.game_over ? 'dead' : 'playing',
         sessionId: sessionId ?? state.sessionId,
-        world: res.next_state,
+        current: res.next_state,
         statusBar: res.ui_status_bar,
         scene: res.scene_description,
         options: res.options,
@@ -107,22 +108,22 @@ export function useGame() {
     [flight],
   )
 
-  const { phase, sessionId, world } = state
+  const { phase, sessionId, current } = state
   const act = useCallback(
     (actionType: ActionType, text: string) =>
       flight(async () => {
         const action = text.trim()
-        if (phase !== 'playing' || !sessionId || !world || !action) return
+        if (phase !== 'playing' || !sessionId || !current || !action) return
         dispatch({ type: 'request', action })
         const res = await api.interact({
           session_id: sessionId,
-          current_state: world,
+          current_state: current,
           action_type: actionType,
           action_text: action,
         })
         dispatch({ type: 'resolve', res })
       }),
-    [flight, phase, sessionId, world],
+    [flight, phase, sessionId, current],
   )
 
   return { ...state, start, act }

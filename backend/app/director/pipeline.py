@@ -41,7 +41,7 @@ class Director:
     async def interact(self, req: InteractRequest) -> InteractResponse:
         session = self._store.get_or_rehydrate(req.session_id, req.current_state)
         with session.acting():
-            verdict = lethal.judge(req.action_text, session.state, session.presence())
+            verdict = lethal.judge(req.action_text, session.state.player_state, session.presence())
             prompt = prompts.build_turn(session, req.action_type, req.action_text, verdict)
             out = await self._direct(prompt)
             if verdict.lethal:

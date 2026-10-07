@@ -1,6 +1,8 @@
 """
 [INPUT]: 依赖 pydantic 的 BaseModel / StringConstraints / model_validator
-[OUTPUT]: 对外提供 StateSnapshot、WorldState、MAX_ITEMS、Options、InteractRequest、DirectorOutput（含 DIRECTOR_SCHEMA）、InteractResponse、NewSessionResponse
+[OUTPUT]: 对外提供 PlayerSnapshot、PlayerState、LEDGERS、WorldState、GameState、MAX_TAGS / MAX_EVENTS、
+          Options、InteractRequest、TagDelta / PlayerDelta / EventMerge / WorldDelta、DirectorOutput（含 DIRECTOR_SCHEMA）、
+          InteractResponse、NewSessionResponse
 [POS]: app 的前后端协议与大模型输出契约，是全系统唯一的数据形状来源（前端 types.ts 与之镜像）
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -13,32 +15,61 @@ from pydantic import BaseModel, Field, StringConstraints, model_validator
 # 语义标签：去空白、非空、封顶长度 —— 既挡住客户端塞入超长 Prompt，也约束大模型的输出漂移
 Tag = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
 OptionText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)]
-Label = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20)]  # 人名、物品名
+Label = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20)]  # 人名、物品、武学、状态
+Event = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]  # 合并后的事件可稍长
 
-MAX_ITEMS = 16
+MAX_TAGS = 16  # 每本玩家标签账的上限
+MAX_EVENTS = 10  # 世界台账上限：防止上下文膨胀诱发幻觉；只有满额且要新增时才允许合并
+
+TagList = Annotated[list[Label], Field(max_length=MAX_TAGS)]
 
 
 # ============================================================
-#  世界状态 —— 没有数值，只有标签
-#  两种生命周期分开存放：快照由大模型每回合整体重写；随身物品由服务端记账，只认增减
+#  玩家状态 —— 没有数值，只有标签
+#  两种生命周期分开存放：快照由大模型每回合整体重写；四本标签账由服务端记账，只认增减
 # ============================================================
-class StateSnapshot(BaseModel):
+class PlayerSnapshot(BaseModel):
     location: Tag
     time: Tag
     weather: Tag
-    physical_state: Tag  # 身体状况：伤病、饥寒、疲惫；不含物品
+    health_status: Tag  # 生命体征：健康、轻伤、重伤濒死……
 
 
-class WorldState(StateSnapshot):
-    inventory: list[Label] = Field(default_factory=list, max_length=MAX_ITEMS)
+class PlayerState(PlayerSnapshot):
+    buffs_debuffs: TagList = []  # 中毒、内力枯竭、致盲……战斗判定的关键
+    social_traits: TagList = []  # 门派、称号、性格、与核心 NPC 的恩怨
+    inventory: TagList = []
+    martial_arts: TagList = []
+
+
+# 由服务端记账的四本标签账：快照之外的一切玩家清单都在这里登记
+LEDGERS = ("buffs_debuffs", "social_traits", "inventory", "martial_arts")
+
+
+# ============================================================
+#  世界状态 —— 平行世界的大事记，只增不删
+# ============================================================
+class WorldState(BaseModel):
+    major_events: Annotated[list[Event], Field(max_length=MAX_EVENTS)] = []
+
+
+class GameState(BaseModel):
+    """current_state / next_state 的完整树：玩家 + 世界。"""
+
+    player_state: PlayerState
+    world_state: WorldState = WorldState()
 
     def status_bar(self) -> str:
         """ui_status_bar 是 next_state 的纯投影，由服务端确定性渲染，绝不交给大模型生成。"""
-        return (
-            f"【位置：{self.location}】 | 【时辰：{self.time}】 | "
-            f"【天气：{self.weather}】 | 【状态：{self.physical_state}】 | "
-            f"【行囊：{', '.join(self.inventory) or '空无一物'}】"
-        )
+        p = self.player_state
+        return " | ".join((
+            f"【位置：{p.location}】",
+            f"【时辰：{p.time}】",
+            f"【身份：{', '.join(p.social_traits) or '无名小卒'}】",
+            f"【状态：{', '.join([p.health_status, *p.buffs_debuffs])}】",
+            f"【武学：{', '.join(p.martial_arts) or '不会武功'}】",
+            f"【行囊：{', '.join(p.inventory) or '空无一物'}】",
+        ))
 
 
 class Options(BaseModel):
@@ -57,33 +88,52 @@ class InteractRequest(BaseModel):
     """
 
     session_id: UUID
-    current_state: WorldState
+    current_state: GameState
     action_type: Literal["choice", "custom"]
     action_text: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 
 
 # ============================================================
 #  大模型契约 —— 导演必须产出的结构（不含 ui_status_bar）
+#  一切清单只以增减上报，服务端据此记账：遗漏不等于失去
 # ============================================================
+class TagDelta(BaseModel):
+    add: list[Label] = Field(default=[], max_length=8, description="本回合新增的标签；清单里已有的不要重复写")
+    remove: list[Label] = Field(default=[], max_length=8, description="本回合确实失去的标签，名称照抄清单；没写进来的一律保留")
+
+
+class PlayerDelta(BaseModel):
+    buffs_debuffs: TagDelta = Field(default=TagDelta(), description="中毒、受伤致残、内力枯竭写 add；痊愈解毒写 remove")
+    social_traits: TagDelta = Field(default=TagDelta(), description="拜入门派、得到称号、结下恩怨写 add；被逐、和解写 remove")
+    inventory: TagDelta = Field(default=TagDelta(), description="获得写 add；用掉、遗失、被夺、赠予、丢弃、损毁写 remove")
+    martial_arts: TagDelta = Field(default=TagDelta(), description="学会写 add；被废、遗忘写 remove")
+
+
+class EventMerge(BaseModel):
+    # 每次至多并三条：并得越多，大模型改写原意的机会越大
+    sources: list[Event] = Field(min_length=2, max_length=3, description="要合并的最旧几条大事，原文照抄台账")
+    into: Event = Field(description="用'；'并列原有事实，不改原意、不添因果")
+
+
+class WorldDelta(BaseModel):
+    events_added: list[Event] = Field(
+        default=[], max_length=3, description="玩家本回合引发的不可逆大事，每条一句短语；没有则为空数组"
+    )
+    events_merged: list[EventMerge] = Field(
+        default=[], max_length=3, description=f"仅当大事记已满 {MAX_EVENTS} 条且本回合要新增时才合并；否则为空数组"
+    )
+
+
 class DirectorOutput(BaseModel):
     scene_description: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=800)]
     game_over: bool
     options: Options | None = None
-    next_state: StateSnapshot  # 不含 inventory：大模型从结构上就无法整体改写随身物品
-    # 物品只以增减上报，服务端据此记账；未上报失去的物品一律保留——遗漏不等于失去
-    items_gained: list[Label] = Field(
-        default_factory=list,
-        max_length=8,
-        description="本回合新得到的物品；随身清单里已有的不要重复写；没有则为空数组",
-    )
-    items_lost: list[Label] = Field(
-        default_factory=list,
-        max_length=8,
-        description="本回合确实离身的物品（用尽、被夺、丢弃、赠予、损毁），名称照抄随身清单；没有则为空数组",
-    )
+    next_state: PlayerSnapshot  # 只有快照四字段：大模型从结构上就无法整体改写标签账与世界台账
+    player_delta: PlayerDelta = PlayerDelta()
+    world_delta: WorldDelta = WorldDelta()
     # 服务端内部字段，不进前端协议：叙事可以只写"那魁梧大汉"，此处必须写"乔峰"，致死预判据此判定在场
     present: list[Label] = Field(
-        default_factory=list,
+        default=[],
         max_length=12,
         description="此刻在场、有名有姓的人物真实姓名，即使叙述中未点破身份也要写出；无人则为空数组",
     )
@@ -107,11 +157,11 @@ class InteractResponse(BaseModel):
     scene_description: str
     game_over: bool
     options: Options | None = Field(description="死者没有选择：game_over 为 true 时恒为 null")
-    next_state: WorldState
+    next_state: GameState
 
     @classmethod
-    def of(cls, state: WorldState, out: DirectorOutput) -> "InteractResponse":
-        """state 是服务端记账后的完整状态，out 只贡献叙事与选项；内部字段（present、物品增减）不外泄。"""
+    def of(cls, state: GameState, out: DirectorOutput) -> "InteractResponse":
+        """state 是服务端记账后的完整状态，out 只贡献叙事与选项；内部字段（present、增减）不外泄。"""
         return cls(
             ui_status_bar=state.status_bar(),
             scene_description=out.scene_description,

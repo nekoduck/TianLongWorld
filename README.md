@@ -64,7 +64,9 @@ LLM_BASE_URL=https://api.deepseek.com/v1
 - `game_over: true` 时 `options` 为 `null`——死者没有选择。
 - 死后继续调用 `/api/interact` 返回 **409**；推演失败返回 **502**；所有错误统一为 `{"detail": "..."}`。
 - 服务端状态是唯一权威，请求中的 `current_state` 只在服务端丢失会话（如重启）时用于恢复。
-- `next_state.inventory` 是物品栏（行囊），由服务端记账：导演只上报得失（`items_gained` / `items_lost`），叙事中没提到的物品不会凭空消失；`ui_status_bar` 以 `【行囊：A, B】`（空时 `【行囊：空无一物】`）收尾；`physical_state` 只描述身体状况。
+- `current_state` / `next_state` 是一棵树：`player_state`（`location` / `time` / `weather` / `health_status` + `buffs_debuffs` / `social_traits` / `inventory` / `martial_arts` 四个标签清单）与 `world_state.major_events`（世界大事记）。前端每次请求必须整树回传。
+- 四个标签清单与世界大事记由服务端记账：导演只上报增减（`player_delta` / `world_delta`），叙事中没提到的标签不会凭空消失；大事记只增不删、至多 10 条，满额时才合并最旧的两三条。
+- `ui_status_bar` 由服务端渲染：`【位置】 | 【时辰】 | 【身份】 | 【状态】 | 【武学】 | 【行囊】`，空缺时依次显示 无名小卒 / 健康 / 不会武功 / 空无一物。
 
 ## 试试作死
 

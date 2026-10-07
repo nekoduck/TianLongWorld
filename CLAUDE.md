@@ -17,19 +17,22 @@ frontend/vite.config.ts - Vite 插件与 /api → :8000 开发代理
 一回合数据流：
   ActionPanel → useGame.act → POST /api/interact → Director.interact
     → Session.acting()   守卫：死者不得行动、上一招未落定不得出下一招
-    → lethal.judge()     规则层裁定生死（无绝学 ∧ 敌意 ∧ 点名 ∧ 在场 → 必死；在场依据导演上回合给出的 present 名单）
+    → lethal.judge()     规则层裁定生死（无绝学 ∧ 敌意 ∧ 点名 ∧ 在场 → 必死；绝学读 martial_arts，在场读上回合 present 名单）
     → prompts.build_*()  XML 标签组装 User Message，必死时重写为处决指令
     → LLMClient          纯文本进出 + 契约 schema（gemini 结构化输出 / openai 兼容 / anthropic / mock）
     → parser             截取 JSON + Pydantic 校验，失败重采样
     → 生死封印            规则判死则强制 game_over，大模型无权赦免
-    → Session.advance()  服务端状态唯一权威：快照照单全收，随身物品按 items_gained / items_lost 记账
+    → Session.advance()  服务端状态唯一权威：evolve = 快照照单全收 + 四本标签账 reconcile + 世界台账 chronicle
   ← InteractResponse（ui_status_bar 由服务端从 next_state 确定性渲染）→ 打字机 → 选项浮现
 
 关键决策：
 - 服务端权威：请求里的 current_state 仅用于会话丢失时冷启动恢复，不能覆盖服务端状态（防篡改）
 - 生死归规则、叙事归模型：确定性规则裁决点名挑衅，System Prompt 内的高手名录让模型裁决"那人"式指代，永久死亡由服务端 409 守住
 - 在场人物结构化：叙事可以含蓄（"那魁梧大汉"），present 字段必须写破（"乔峰"）；它是服务端内部字段，不进前端协议
-- 状态按生命周期分存：location/time/weather/physical_state 是大模型每回合重写的快照；inventory 由服务端记账，大模型只能上报增减，遗漏不等于失去
+- 状态是一棵树：current_state / next_state = { player_state, world_state }，前端每次请求整树回传
+- 状态按生命周期分存：location/time/weather/health_status 是大模型每回合重写的快照；buffs_debuffs / social_traits / inventory / martial_arts
+  四本标签账与 world_state.major_events 世界台账由服务端记账，大模型只能上报增减（player_delta / world_delta），遗漏不等于失去
+- 世界台账只增不删、至多 10 条：只有满额且要新增时才采纳大模型的合并（每次至多并三条、须点名现存条目），否则确定性折叠最旧两条兜底
 - 短期叙事记忆：会话保留最近 N 回合场景原文喂给导演，状态字段之外的涌现细节由此延续
 - 协议单一来源：backend/app/schemas.py 定义形状，frontend/src/types.ts 逐字段镜像
 </architecture>
