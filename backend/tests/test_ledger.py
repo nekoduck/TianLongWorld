@@ -1,7 +1,7 @@
 """
 [INPUT]: 依赖 app.session 的 reconcile / chronicle，依赖 app.schemas 的 TagDelta / WorldEvent / GameState / WorldState / InteractRequest / LEDGERS，
          依赖 app.director 的 Director、app.lore 的 OPENING_SEEDS，依赖 conftest 的 ScriptedLLM / alive_reply 与 store / game / client 夹具
-[OUTPUT]: 记账用例：四本玩家标签账（遗漏≠失去、点名才移除、模糊匹配、快照走私拦截）、世界台账（只追加、复述去重、不设上限、
+[OUTPUT]: 记账用例：五本玩家账（四本标签账 + secrets；遗漏≠失去、点名才移除、模糊匹配、快照走私拦截）、世界台账（只追加、复述去重、不设上限、
           大模型无法借 next_state 改写或删除旧事）、状态栏格式与缺省值、开局与冷启动的整树延续、Mock 走同一本账
 [POS]: tests 中守护"清单由服务端记账、大模型只报增减"这条状态法则的用例集
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -71,7 +71,7 @@ def test_ledger_has_no_cap_and_never_merges():
 
 
 # ============================================================
-#  管线集成：四本账多回合不提仍在 / 快照走私 / 状态栏
+#  管线集成：五本账多回合不提仍在 / 快照走私 / 状态栏
 # ============================================================
 def _turn(director: Director, session_id, state: GameState, text: str = "四处张望"):
     req = InteractRequest(session_id=session_id, current_state=state, action_type="custom", action_text=text)

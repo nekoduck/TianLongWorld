@@ -5,7 +5,7 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md；字段变化必须与后端 schemas.py 同步
  */
 
-/** 玩家状态：前四项是每回合重写的快照，后四本标签账由服务端记账，只认增减 */
+/** 玩家状态：前四项是每回合重写的快照，其后五本账（四本标签账 + 私密情报）由服务端记账，只认增减 */
 export interface PlayerState {
   location: string
   time: string
@@ -18,6 +18,8 @@ export interface PlayerState {
   social_traits: string[]
   inventory: string[]
   martial_arts: string[]
+  /** 只有玩家自己知道的情报、隐藏的意图与物品内情：对游戏世界里的一切 NPC 不可见（情报隔离） */
+  secrets: string[]
 }
 
 /** 世界大事：带实体标签的原子事实，后端据 tags 检索出与当前场景相关的几条喂给导演 */

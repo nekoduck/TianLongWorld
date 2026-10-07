@@ -1,9 +1,10 @@
 """
 [INPUT]: 依赖 pydantic 的 BaseModel / Field / StringConstraints / field_validator / model_validator，依赖标准库 logging
-[OUTPUT]: 对外提供 PlayerSnapshot、PlayerState、LEDGERS、WorldEvent、WorldState、GameState、MAX_TAGS、MAX_NEW_EVENTS、
-          Options、InteractRequest、TagDelta / PlayerDelta / LocalDelta / NextState、DirectorOutput（含 DIRECTOR_SCHEMA）、
+[OUTPUT]: 对外提供 PlayerSnapshot、PlayerState（含 secrets 私密情报）、LEDGERS、WorldEvent、WorldState、GameState、MAX_TAGS、MAX_NEW_EVENTS、
+          Options、InteractRequest、TagDelta / SecretDelta / PlayerDelta / LocalDelta / NextState、DirectorOutput（含 DIRECTOR_SCHEMA）、
           InteractResponse、NewSessionResponse
-[POS]: app 的前后端协议与大模型输出契约，是全系统唯一的数据形状来源（前端 types.ts 与之镜像）
+[POS]: app 的前后端协议与大模型输出契约，是全系统唯一的数据形状来源（前端 types.ts 与之镜像）。
+       情报按可见性分存：player_state.secrets 只有玩家知道，world_state.major_events 是天下皆知或已发生物理改变的客观事实
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -21,16 +22,18 @@ Tag = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_
 OptionText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)]
 Label = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20)]  # 人名、物品、武学、状态
 EventDesc = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
+Secret = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)]  # 一句话私密情报
 
 MAX_TAGS = 16  # 每本玩家标签账的上限
 MAX_NEW_EVENTS = 3  # 每回合至多新增的世界大事：同一场变故应合为一条
 
 TagList = Annotated[list[Label], Field(max_length=MAX_TAGS)]
+SecretList = Annotated[list[Secret], Field(max_length=MAX_TAGS)]
 
 
 # ============================================================
 #  玩家状态 —— 没有数值，只有标签
-#  两种生命周期分开存放：快照由大模型每回合整体重写；四本标签账由服务端记账，只认增减
+#  两种生命周期分开存放：快照由大模型每回合整体重写；五本账（四本标签账 + 私密情报账）由服务端记账，只认增减
 # ============================================================
 class PlayerSnapshot(BaseModel):
     location: Tag
@@ -44,10 +47,12 @@ class PlayerState(PlayerSnapshot):
     social_traits: TagList = []  # 门派、称号、性格、与核心 NPC 的恩怨
     inventory: TagList = []
     martial_arts: TagList = []
+    # 只有玩家单方面知道的情报、隐藏的意图、未公开的物品内情：对一切 NPC 不可见（情报隔离），旧客户端缺省为空
+    secrets: SecretList = []
 
 
-# 由服务端记账的四本标签账：快照之外的一切玩家清单都在这里登记
-LEDGERS = ("buffs_debuffs", "social_traits", "inventory", "martial_arts")
+# 由服务端记账的五本账：快照之外的一切玩家清单都在这里登记
+LEDGERS = ("buffs_debuffs", "social_traits", "inventory", "martial_arts", "secrets")
 
 
 # ============================================================
@@ -60,7 +65,9 @@ class WorldEvent(BaseModel):
         max_length=6,
         description="事件涉及的实体名词：地点、人物、门派、物品，如 聚贤庄、游氏双雄、丐帮；检索靠它们命中",
     )
-    event_desc: EventDesc = Field(description="一句话原子事实，如：玩家在聚贤庄大战中烧毁了正厅，游氏双雄战死")
+    event_desc: EventDesc = Field(
+        description="一句话公开的客观事实，如：玩家在聚贤庄大战中烧毁了正厅，游氏双雄战死；只有玩家知道的内情写进 secrets"
+    )
 
 
 class WorldState(BaseModel):
@@ -116,11 +123,24 @@ class TagDelta(BaseModel):
     remove: list[Label] = Field(default=[], max_length=8, description="本回合确实失去的标签，名称照抄清单；没写进来的一律保留")
 
 
+class SecretDelta(BaseModel):
+    """私密情报的增减：形状同 TagDelta，条目是一句话而非标签。秘密只会从私密流向公开（remove），不会被大模型的遗漏抹掉。"""
+
+    add: list[Secret] = Field(default=[], max_length=8, description="本回合新得的私密情报，一句话写清；已有的不要重复写")
+    remove: list[Secret] = Field(default=[], max_length=8, description="已当众揭穿、广为人知或失去意义的情报，原文照抄 secrets")
+
+
 class PlayerDelta(BaseModel):
     buffs_debuffs: TagDelta = Field(default=TagDelta(), description="中毒、受伤致残、内力枯竭写 add；痊愈解毒写 remove")
-    social_traits: TagDelta = Field(default=TagDelta(), description="拜入门派、得到称号、结下恩怨写 add；被逐、和解写 remove")
+    social_traits: TagDelta = Field(
+        default=TagDelta(), description="江湖上公开的身份名声：拜入门派、得到称号、结下恩怨写 add；被逐、和解写 remove"
+    )
     inventory: TagDelta = Field(default=TagDelta(), description="获得写 add；用掉、遗失、被夺、赠予、丢弃、损毁写 remove")
     martial_arts: TagDelta = Field(default=TagDelta(), description="学会写 add；被废、遗忘写 remove")
+    secrets: SecretDelta = Field(
+        default=SecretDelta(),
+        description="只有玩家知道的情报：偷听到的秘密、物品不为人知的内情、隐藏的身份与图谋写 add；当众揭穿写 remove。绝不写进 major_events",
+    )
 
 
 class LocalDelta(BaseModel):

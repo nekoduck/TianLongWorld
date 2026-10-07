@@ -1,8 +1,8 @@
 """
 [INPUT]: 依赖 director/prompts.py 的 read_section / read_directive，依赖 app.lore 的 SHICHEN / GRANDMASTERS，依赖 llm/base.py 的 JsonSchema，
-         依赖 app.schemas 的 PlayerState / NextState / DirectorOutput / PlayerDelta / TagDelta / LocalDelta / WorldEvent / Options
+         依赖 app.schemas 的 PlayerState / NextState / DirectorOutput / PlayerDelta / TagDelta / SecretDelta / LocalDelta / WorldEvent / Options
 [OUTPUT]: 对外提供 MockLLM —— 实现 LLMClient 协议的离线导演
-[POS]: llm 包的零密钥替身：像真实大模型一样只"阅读"提示词协议标签（player_state / opening_seed / player_action / directive）并产出合规 JSON，让整条管线无需 API Key 即可端到端运行；"烧/毁"上报一条以当前地点为标签的世界大事，走通 JIT 记忆
+[POS]: llm 包的零密钥替身：像真实大模型一样只"阅读"提示词协议标签（player_state / opening_seed / player_action / directive）并产出合规 JSON，让整条管线无需 API Key 即可端到端运行；"偷听"上报一条私密情报，"烧/毁"上报一条以当前地点为标签的世界大事，走通情报隔离与 JIT 记忆
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -12,7 +12,17 @@ import random
 from app.director import prompts
 from app.lore import GRANDMASTERS, SHICHEN
 from app.llm.base import JsonSchema
-from app.schemas import DirectorOutput, LocalDelta, NextState, Options, PlayerDelta, PlayerState, TagDelta, WorldEvent
+from app.schemas import (
+    DirectorOutput,
+    LocalDelta,
+    NextState,
+    Options,
+    PlayerDelta,
+    PlayerState,
+    SecretDelta,
+    TagDelta,
+    WorldEvent,
+)
 
 # ============================================================
 #  素材库
@@ -36,9 +46,12 @@ _OPTIONS = (
     Options(A="寻个角落歇脚，恢复体力", B="向路人讨教此地门道", C="闯入险地，搏一场机缘"),
 )
 
-# 两条确定性规则，让离线模式也走通两种记账：说"拾/捡"就捡到铁牌（标签账），说"烧/毁"就毁掉此地（世界台账）
+# 三条确定性规则，让离线模式也走通三种记账：说"拾/捡"就捡到铁牌（标签账），说"偷听"就听到一桩秘密（私密情报账），
+# 说"烧/毁"就毁掉此地（世界台账）——私密与公开各归其位
 _FOUND_ITEM = "锈蚀铁牌"
 _FOUND_WORDS = ("拾", "捡")
+_SECRET = "听见有人约在三更的杏子林碰头"
+_SECRET_WORDS = ("偷听",)
 _RAZE_WORDS = ("烧", "毁")
 
 _EXECUTION = (
@@ -91,6 +104,7 @@ class MockLLM:
 
     def _wander(self, state: NextState, action: str) -> DirectorOutput:
         found = any(word in action for word in _FOUND_WORDS)
+        overheard = any(word in action for word in _SECRET_WORDS)
         razed = any(word in action for word in _RAZE_WORDS)
         weather = self._rng.choice(_WEATHERS)
         scene = self._rng.choice(_SCENES).format(location=state.location, weather=weather)
@@ -104,7 +118,10 @@ class MockLLM:
             game_over=False,
             options=self._rng.choice(_OPTIONS),
             next_state=next_state,
-            player_delta=PlayerDelta(inventory=TagDelta(add=[_FOUND_ITEM] if found else [])),
+            player_delta=PlayerDelta(
+                inventory=TagDelta(add=[_FOUND_ITEM] if found else []),
+                secrets=SecretDelta(add=[_SECRET] if overheard else []),
+            ),
             # local_delta 缺省为空：Mock 世界里无人进出，在场者由服务端照旧记着
         )
 

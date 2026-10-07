@@ -33,6 +33,7 @@ const NOBODY: PlayerState = {
   social_traits: [],
   inventory: [],
   martial_arts: [],
+  secrets: [],
 }
 
 // 每帧只写本帧改动的字段，其余沿用上一帧——与服务端"快照重写、清单只认增减"同一语义
@@ -50,7 +51,14 @@ const FRAMES: Frame[] = [
     options: { A: '原地不动，听他们说些什么', B: '摸索岸边，找件趁手之物', C: '扑上去夺他腰间铁牌' },
   },
   {
-    player: { location: '燕子坞外', time: '寅时', weather: '晨雾', inventory: ['慕字铁牌'], social_traits: ['慕容家的眼中钉'] },
+    player: {
+      location: '燕子坞外',
+      time: '寅时',
+      weather: '晨雾',
+      inventory: ['慕字铁牌'],
+      social_traits: ['慕容家的眼中钉'],
+      secrets: ['太湖畔伏击菱灯小舟的黑衣人是慕容家的人'],
+    },
     scene:
       '你攥着那块冰冷的铁牌，在芦苇荡里一路狂奔，直到天边泛白才敢停下。雾中现出一片水榭楼台，匾上写着“燕子坞”三字。一个挎着竹篮的小丫鬟正在岸边浣纱，抬头见了你，又见了你手里的铁牌，脸色倏地变了。',
     options: { A: '藏起铁牌，装作迷路渔夫', B: '亮出铁牌，试探她的反应', C: '直闯水榭，求见慕容公子' },

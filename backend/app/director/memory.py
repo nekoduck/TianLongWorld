@@ -29,6 +29,7 @@ def recall(
     另有一路：tag（含别名）原样出现在 mentioned（这一招的动作文本）里——"潜回松鹤楼""去找乔峰"在落笔写抵达场景之前
     就要看见那里、那人的过往；只做单向检索，长动作文本不能反过来"包含"一切短标签。
     相关事件按发生先后保留最近的 limit 条——越近的大事越可能左右眼前的局面，条数封顶使 Prompt 长度与台账长度无关。
+    检索键只取场景里公开可感知的东西：玩家的 secrets 从不参与检索，免得秘密每回合把相关历史拽进上下文、诱导导演加戏。
     """
     keys = (location, *(alias for npc in present_npcs for alias in kin(npc)), *traits)
     relevant = [

@@ -1,10 +1,10 @@
 """
-[INPUT]: 依赖 app.schemas 的 GameState / PlayerSnapshot / PlayerState / WorldState / WorldEvent / TagDelta / LocalDelta / DirectorOutput / LEDGERS / MAX_TAGS，
+[INPUT]: 依赖 app.schemas 的 GameState / PlayerSnapshot / PlayerState / WorldState / WorldEvent / TagDelta / SecretDelta / LocalDelta / DirectorOutput / LEDGERS / MAX_TAGS，
          依赖 app.lore 的 kin / is_grandmaster（在场者按身份认人、满员时高手优先），依赖 app.errors 的 SessionDeadError / SessionBusyError
 [OUTPUT]: 对外提供 evolve（状态推进）、reconcile（标签账）、chronicle（世界台账）、LocalEnvironment / observe（局部环境）、Turn、
           Session（含 acting 守卫、presence 在场判定素材、advance 推进）、SessionStore（LRU 内存仓库）
 [POS]: app 的会话状态层，是世界状态的唯一权威；被 director/pipeline.py 读写，不感知 HTTP 与大模型。
-       三种记账各守一条规矩：标签账遗漏不等于失去；世界台账只追加不删除；局部环境同图只认增减、换图强制清空
+       三种记账各守一条规矩：五本玩家账（含 secrets）遗漏不等于失去；世界台账只追加不删除；局部环境同图只认增减、换图强制清空
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -25,6 +25,7 @@ from app.schemas import (
     LocalDelta,
     PlayerSnapshot,
     PlayerState,
+    SecretDelta,
     TagDelta,
     WorldEvent,
     WorldState,
@@ -47,9 +48,9 @@ def evolve(state: GameState, out: DirectorOutput) -> GameState:
     return GameState(player_state=player, world_state=world)
 
 
-def reconcile(tags: list[str], delta: TagDelta) -> list[str]:
+def reconcile(tags: list[str], delta: TagDelta | SecretDelta) -> list[str]:
     """
-    标签守恒：只有被点名移除的才会消失，大模型的遗漏不等于失去。
+    标签守恒（四本标签账与私密情报账同一规矩）：只有被点名移除的才会消失，大模型的遗漏不等于失去。
     先减后加——"水囊"喝空写作 移除「水囊」+ 新增「空水囊」，先减才不会与新增之物撞名。
     """
     kept = list(tags)

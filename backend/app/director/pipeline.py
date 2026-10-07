@@ -58,7 +58,8 @@ class Director:
         with session.acting():
             player = session.state.player_state
             verdict = lethal.judge(req.action_text, player, session.presence())
-            # 记忆拦截：全量世界台账止步于此，只有与此时此地此人相关的几条进入 Prompt
+            # 记忆拦截：全量世界台账止步于此，只有与此时此地此人相关的几条进入 Prompt。
+            # secrets 刻意不作检索键：以秘密为钥匙召回历史，等于每回合提醒导演"玩家藏着什么"，正是上帝视角漂移的温床
             memories = recall(
                 session.state.world_state.major_events,
                 location=player.location,
