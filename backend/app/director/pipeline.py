@@ -1,6 +1,6 @@
 """
 [INPUT]: 依赖 app.llm.base 的 LLMClient 协议，依赖 app.session 的 SessionStore / LocalEnvironment / evolve / observe，
-         依赖 director 内 lethal / memory / prompts / parser，依赖 app.lore 的 OPENING_SEEDS，
+         依赖 director 内 lethal / memory / perception / prompts / parser，依赖 app.lore 的 OPENING_SEEDS，
          依赖 app.schemas 的 DIRECTOR_SCHEMA / DirectorOutput / InteractRequest / InteractResponse / NewSessionResponse，依赖 app.errors 的 DirectorError
 [OUTPUT]: 对外提供 Director 类 —— open() 开局、interact() 推演一回合
 [POS]: director 的编排核心，串起 守卫 → 致死预判 → 记忆过滤（JIT）→ Prompt 组装 → 大模型 → 解析 → 生死封印 → 状态推进；被 app/api.py 调用
@@ -12,6 +12,7 @@ import random
 
 from app.director import lethal, prompts
 from app.director.memory import recall
+from app.director.perception import surface
 from app.lore import OPENING_SEEDS
 from app.director.parser import parse_director_output
 from app.errors import DirectorError
@@ -65,7 +66,9 @@ class Director:
                 location=player.location,
                 present_npcs=session.local.present_npcs,
                 traits=player.social_traits,
-                mentioned=req.action_text,  # 规格外的第四路：动作点名的目的地与人物，抵达那一回合就要看见那里的过往
+                # 规格外的第四路：动作点名的目的地与人物，抵达那一回合就要看见那里的过往；
+                # 只取表面行为——心里琢磨乔峰，不该把乔峰的历史拽进上下文
+                mentioned=surface(req.action_text),
                 limit=self._memory_limit,
             )
             prompt = prompts.build_turn(session, memories, req.action_type, req.action_text, verdict)

@@ -1,12 +1,14 @@
 """
-[INPUT]: 依赖 app.lore 的 Grandmaster / GRANDMASTERS，依赖 app.schemas 的 PlayerState
+[INPUT]: 依赖 app.lore 的 Grandmaster / GRANDMASTERS，依赖 director/perception.py 的 surface，依赖 app.schemas 的 PlayerState
 [OUTPUT]: 对外提供 Verdict 裁决、SAFE 常量、judge() 致死预判
-[POS]: director 的确定性规则层，在大模型之前拦截"无武功挑衅在场绝顶高手"；它裁定生死，大模型只负责叙述
+[POS]: director 的确定性规则层，在大模型之前拦截"无武功挑衅在场绝顶高手"；它裁定生死，大模型只负责叙述。
+       只审玩家的表面行为：内心念头不是冒犯，规则层与 NPC 守同一条情报隔离线
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
 from dataclasses import dataclass
 
+from app.director.perception import surface
 from app.lore import GRANDMASTERS, Grandmaster
 from app.schemas import PlayerState
 
@@ -55,14 +57,16 @@ def judge(action: str, player: PlayerState, presence: str) -> Verdict:
     """
     必死 = 玩家无绝学 ∧ 动作带敌意 ∧ 动作点名某绝顶高手 ∧ 此人在场（presence 含其任一称呼）。
     在场条件防止"我要去少林挑战扫地僧"这种远在天边的狠话被当场处决。
+    敌意与点名只看表面行为（perception.surface）：心里暗骂乔峰，乔峰听不见——高手不会读心，规则层也不替他读。
     绝学从结构化的 martial_arts（及"内力深厚"之类的 buffs）读取，而非在一句身体描写里搜字。
     """
     prowess = "、".join(player.martial_arts + player.buffs_debuffs)
     if any(mark in prowess for mark in _MASTERY):
         return SAFE
-    if not _is_hostile(action):
+    visible = surface(action)
+    if not _is_hostile(visible):
         return SAFE
     for master in GRANDMASTERS:
-        if master.mentioned_in(action) and master.mentioned_in(presence):
+        if master.mentioned_in(visible) and master.mentioned_in(presence):
             return Verdict(killer=master)
     return SAFE

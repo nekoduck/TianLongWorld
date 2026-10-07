@@ -2,7 +2,8 @@
 [INPUT]: 依赖 director/prompts.py 的 read_section / read_directive，依赖 app.lore 的 SHICHEN / GRANDMASTERS，依赖 llm/base.py 的 JsonSchema，
          依赖 app.schemas 的 PlayerState / NextState / DirectorOutput / PlayerDelta / TagDelta / SecretDelta / LocalDelta / WorldEvent / Options
 [OUTPUT]: 对外提供 MockLLM —— 实现 LLMClient 协议的离线导演
-[POS]: llm 包的零密钥替身：像真实大模型一样只"阅读"提示词协议标签（player_state / opening_seed / player_action / directive）并产出合规 JSON，让整条管线无需 API Key 即可端到端运行；"偷听"上报一条私密情报，"烧/毁"上报一条以当前地点为标签的世界大事，走通情报隔离与 JIT 记忆
+[POS]: llm 包的零密钥替身：像真实大模型一样只"阅读"提示词协议标签（player_state / opening_seed / player_action / directive）并产出合规 JSON，让整条管线无需 API Key 即可端到端运行；"偷听"上报一条私密情报，"烧/毁"上报一条以当前地点为标签、旁观者视角的世界大事，走通情报隔离与 JIT 记忆；
+       回合场景与选项是被动沙盒的样板——只有环境的自然反馈，没有冲着玩家来的目光与巧合
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -29,21 +30,22 @@ from app.schemas import (
 # ============================================================
 _WEATHERS = ("晴", "阴", "微雨", "大雾", "疾风", "细雪")
 
+# 被动沙盒的样板：只有环境的自然反馈与各忙各的路人，没有冲着玩家来的目光、尾随与恰好听见的秘闻
 _SCENES = (
-    "{location}的风忽然停了，四下静得只听得见自己的心跳。暗处似有一道目光掠过你的后颈，转瞬即逝。"
-    "脚边泥地里半埋着一枚铁牌，刻着古怪的纹路，泛着冷光——像是某个门派的信物，又像是一道催命符。",
-    "动作未完，远处传来一阵急促的马蹄声，几名江湖客打马而过，其中一人回头深深看了你一眼，嘴角挂着冷笑。"
-    "尘土落定，路边茶棚的老汉压低声音道：“客官，这几日{location}不太平，入夜莫要乱走。”",
-    "一切比预想的顺利，却顺利得有些古怪。{location}的人群里，一个戴斗笠的瘦高汉子始终与你隔着十来步，"
-    "你停他也停，你走他也走。他腰间的刀鞘是空的，刀却不知藏在何处。",
-    "天色骤变，{weather}之中，前方破庙里亮起一点火光，隐约有人在争吵，提到了“易筋经”三个字。"
-    "随即一声闷响，争吵戛然而止，火光也灭了。你分明闻到了一丝血腥气。",
+    "{location}的风轻轻吹过，四下只有虫鸣与远处的犬吠。路边茶棚的老汉支着下巴打盹，"
+    "几个挑担的货郎各走各路，谁也没多看你一眼。脚边泥地里半埋着一块锈迹斑斑的铁片。",
+    "你在{location}慢慢转了一圈。街角的面摊冒着热气，摊主正跟熟客抱怨今年的米价；"
+    "墙根下两个孩童蹲着斗蟋蟀，吵得不可开交，见你走近，抱起竹笼便跑开了。",
+    "{weather}之中，{location}行人稀少。一辆牛车吱呀呀碾过泥路，车夫哼着走调的小曲，"
+    "转过山坳便不见了。道旁的野草被车辙压弯，又慢慢直了起来。",
+    "天色渐变，{location}的炊烟一缕缕升起。远处传来几声更鼓，近处只有你自己的脚步声，"
+    "和偶尔从檐下扑棱飞起的麻雀。",
 )
 
 _OPTIONS = (
-    Options(A="躲在暗处，静观其变", B="旁敲侧击，打探消息", C="孤注一掷，抢先出手"),
-    Options(A="拾起地上之物细看", B="跟上去，看个究竟", C="拦住来人，当面质问"),
-    Options(A="寻个角落歇脚，恢复体力", B="向路人讨教此地门道", C="闯入险地，搏一场机缘"),
+    Options(A="四下看看，留意动静", B="找人搭话，打听近况", C="离开此地，换个去处"),
+    Options(A="拾起地上之物细看", B="向摊主讨碗热汤", C="趁天色未晚赶路"),
+    Options(A="寻个角落歇脚，恢复体力", B="向路人讨教此地门道", C="去更远处闯荡一番"),
 )
 
 # 三条确定性规则，让离线模式也走通三种记账：说"拾/捡"就捡到铁牌（标签账），说"偷听"就听到一桩秘密（私密情报账），
@@ -109,7 +111,8 @@ class MockLLM:
         weather = self._rng.choice(_WEATHERS)
         scene = self._rng.choice(_SCENES).format(location=state.location, weather=weather)
         place = state.location[:20]  # 标签是 Label（≤20 字）
-        events = [WorldEvent(tags=[place], event_desc=f"{place}毁于玩家之手")] if razed else []
+        # 旁观者视角：世人看得见的是这场火，看不见是谁放的——真相若是暗中所为，属于玩家的 secrets
+        events = [WorldEvent(tags=[place], event_desc=f"{place}突起大火，烧成一片焦土")] if razed else []
         next_state = state.model_copy(
             update={"time": _next_shichen(state.time), "weather": weather, "major_events": events}
         )

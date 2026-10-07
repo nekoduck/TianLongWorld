@@ -1,6 +1,6 @@
 """
 [INPUT]: 依赖 pydantic 的 BaseModel / Field / StringConstraints / field_validator / model_validator，依赖标准库 logging
-[OUTPUT]: 对外提供 PlayerSnapshot、PlayerState（含 secrets 私密情报）、LEDGERS、WorldEvent、WorldState、GameState、MAX_TAGS、MAX_NEW_EVENTS、
+[OUTPUT]: 对外提供 PlayerSnapshot、PlayerState（含 secrets 私密情报）、LEDGERS、WorldEvent、WorldState、GameState、MAX_TAGS、MAX_NEW_EVENTS、SECRET_CHARS、
           Options、InteractRequest、TagDelta / SecretDelta / PlayerDelta / LocalDelta / NextState、DirectorOutput（含 DIRECTOR_SCHEMA）、
           InteractResponse、NewSessionResponse
 [POS]: app 的前后端协议与大模型输出契约，是全系统唯一的数据形状来源（前端 types.ts 与之镜像）。
@@ -22,9 +22,10 @@ Tag = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_
 OptionText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)]
 Label = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20)]  # 人名、物品、武学、状态
 EventDesc = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
-Secret = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)]  # 一句话私密情报
+SECRET_CHARS = 60
+Secret = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=SECRET_CHARS)]  # 一句话私密情报
 
-MAX_TAGS = 16  # 每本玩家标签账的上限
+MAX_TAGS = 16  # 每本玩家账的条数上限（四本标签账与私密情报账同用）
 MAX_NEW_EVENTS = 3  # 每回合至多新增的世界大事：同一场变故应合为一条
 
 TagList = Annotated[list[Label], Field(max_length=MAX_TAGS)]
@@ -128,6 +129,17 @@ class SecretDelta(BaseModel):
 
     add: list[Secret] = Field(default=[], max_length=8, description="本回合新得的私密情报，一句话写清；已有的不要重复写")
     remove: list[Secret] = Field(default=[], max_length=8, description="已当众揭穿、广为人知或失去意义的情报，原文照抄 secrets")
+
+    @field_validator("add", "remove", mode="before")
+    @classmethod
+    def _clip(cls, value: object) -> object:
+        # 情报是句子，大模型偶尔写长、写多：截断并记下，而不是让整回合被判非法、重采样耗尽后 502
+        if not isinstance(value, list):
+            return value
+        clipped = [item[:SECRET_CHARS] if isinstance(item, str) else item for item in value[:8]]
+        if clipped != value:
+            logger.warning("私密情报超长或超量，已截断：%s", value)
+        return clipped
 
 
 class PlayerDelta(BaseModel):

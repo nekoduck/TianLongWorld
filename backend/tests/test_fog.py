@@ -1,10 +1,13 @@
 """
 [INPUT]: 依赖 app.director 的 Director、app.director.prompts 的 SYSTEM_PROMPT / SECRETS_PREAMBLE / build_turn / read_section、
-         app.director.lethal 的 SAFE，依赖 app.schemas 的 GameState / PlayerState / WorldEvent / WorldState / InteractRequest / SecretDelta，
+         app.director.lethal 的 SAFE，依赖 app.session 的 SessionStore / absorb，
+         依赖 app.schemas 的 GameState / PlayerState / WorldEvent / WorldState / InteractRequest / SecretDelta / MAX_TAGS / SECRET_CHARS，
          依赖 conftest 的 ScriptedLLM / alive_reply 与 store / game / client 夹具
 [OUTPUT]: 情报隔离（Fog of War）与被动沙盒用例：System Prompt 逐字植入用户规定的铁律与克制原则；<secrets> 与 <player_state> 结构分离、
-          逐行 JSON 不可伪造不可闭合；每回合指令带落笔前自查；secrets 从不作 JIT 检索键；私密情报进 secrets 而非世界台账、
-          当众揭穿时移出、不进状态栏、不能借 next_state 走私；契约边界与旧客户端兼容；Mock 的"偷听"走通私密账
+          逐行 JSON 不可伪造不可闭合；每回合指令带落笔前自查；secrets 从不作 JIT 检索键，内心念头也不触发点名检索；
+          私密情报进 secrets 而非世界台账（双写时私密优先，同名公开事实照记）、当众揭穿时移出、不进状态栏、不能借 next_state 走私；
+          情报账按包含关系去重、满员请走最早的；客户端严格校验而大模型增减截断不 502；旧客户端兼容；
+          Mock 的"偷听"走通私密账、放火只记旁观者视角
 [POS]: tests 中守护"导演的全知不外借给任何 NPC"这条叙事红线的用例集
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -20,8 +23,8 @@ from pydantic import ValidationError
 from app.director import Director
 from app.director.lethal import SAFE
 from app.director.prompts import SECRETS_PREAMBLE, SYSTEM_PROMPT, build_turn, read_section
-from app.schemas import GameState, InteractRequest, PlayerState, SecretDelta, WorldEvent, WorldState
-from app.session import SessionStore
+from app.schemas import MAX_TAGS, SECRET_CHARS, GameState, InteractRequest, PlayerState, SecretDelta, WorldEvent, WorldState
+from app.session import SessionStore, absorb
 from conftest import ScriptedLLM, alive_reply
 
 LETTER = "信封里是丐帮副帮主的谋反密信"
@@ -149,11 +152,61 @@ def test_secrets_cannot_be_smuggled_through_next_state(store, game):
 # ============================================================
 #  契约与兼容
 # ============================================================
-def test_secret_and_secret_delta_are_bounded():
+def test_client_secrets_are_bounded_but_llm_deltas_are_clipped():
+    # 客户端提交的状态严格校验；大模型写长、写多的情报截断记日志，而不是让整回合 502
     with pytest.raises(ValidationError):
-        PlayerState(location="a", time="b", weather="c", health_status="d", secrets=["密" * 61])
-    with pytest.raises(ValidationError):
-        SecretDelta(add=[f"秘密{i}" for i in range(9)])
+        PlayerState(location="a", time="b", weather="c", health_status="d", secrets=["密" * (SECRET_CHARS + 1)])
+    delta = SecretDelta(add=["密" * (SECRET_CHARS + 5), *(f"秘密{i}" for i in range(9))])
+    assert len(delta.add) == 8 and delta.add[0] == "密" * SECRET_CHARS
+
+
+def test_secret_written_into_both_ledgers_stays_private(store, game):
+    # 大模型把刚得知的内情同时写进 secrets 与 major_events：私密优先，世界台账（会被注入、对 NPC 公开）一字不收
+    session = store.create(game, "松鹤楼人声鼎沸。")
+    murder = "白世镜是害死马大元的凶手"
+    leaked = [{"tags": ["白世镜", "马大元"], "event_desc": murder}, {"tags": ["丐帮"], "event_desc": f"玩家得知{murder}"}]
+    llm = ScriptedLLM(alive_reply(player_delta={"secrets": {"add": [murder]}}, major_events=leaked))
+    out = _interact(Director(llm, store), session.id, game, "伏在隔间板壁后偷听")
+    assert out.next_state.player_state.secrets == [murder]
+    assert out.next_state.world_state.major_events == []
+
+
+def test_public_fact_sharing_a_name_with_a_secret_is_still_recorded(store, game):
+    # 只认相同或相互包含：马大元暴毙是公开的事，不能因为秘密里也有"马大元"就被吞掉
+    session = store.create(game, "丐帮总舵一片缟素。")
+    murder = "白世镜是害死马大元的凶手"
+    died = {"tags": ["马大元", "丐帮"], "event_desc": "丐帮副帮主马大元暴毙"}
+    llm = ScriptedLLM(alive_reply(player_delta={"secrets": {"add": [murder]}}, major_events=[died]))
+    out = _interact(Director(llm, store), session.id, game)
+    assert out.next_state.world_state.major_events == [WorldEvent(**died)]
+
+
+def test_secrets_ledger_dedupes_rewordings_and_keeps_new_intel_when_full():
+    # 换个说法再报：被包含的不再记，更详尽的取而代之；满员时请走最早的，新知不会凭空丢失
+    assert absorb([LETTER], SecretDelta(add=["谋反密信"])) == [LETTER]
+    detailed = LETTER + "，落款是全冠清"
+    assert absorb([LETTER, ERRAND], SecretDelta(add=[detailed])) == [ERRAND, detailed]
+    full = [f"旧闻{i}" for i in range(MAX_TAGS)]
+    assert absorb(full, SecretDelta(add=["白世镜是害死马大元的凶手"])) == [*full[1:], "白世镜是害死马大元的凶手"]
+
+
+def test_pipeline_keeps_secrets_with_their_own_bookkeeping(store):
+    # 经由 Director 走一回合：情报账用 absorb 记账——换个说法再报（被已知情报包含）不会多出一条
+    tree = _tree()
+    session = store.create(tree, "茶馆里人声嘈杂。")
+    llm = ScriptedLLM(alive_reply(location="无锡茶馆", player_delta={"secrets": {"add": ["谋反密信"]}}))
+    out = _interact(Director(llm, store), session.id, tree)
+    assert out.next_state.player_state.secrets == [LETTER, ERRAND]
+
+
+def test_private_thoughts_do_not_pull_history_into_the_prompt(store):
+    # 动作点名检索只取表面行为：心里琢磨乔峰，不该把乔峰的历史拽进上下文
+    expelled = WorldEvent(tags=["乔峰", "丐帮"], event_desc="乔峰在杏子林被逐出丐帮")
+    tree = _tree().model_copy(update={"world_state": WorldState(major_events=[expelled])})
+    session = store.create(tree, "茶馆里人声嘈杂。")
+    llm = ScriptedLLM(alive_reply(location="无锡茶馆"))
+    _interact(Director(llm, store), session.id, tree, "喝着茶，心里反复琢磨那名弟子要我去找乔峰的遗言")
+    assert read_section(llm.prompts[0], "relevant_history") == "（无）"
 
 
 def test_client_snapshot_keeps_secrets_and_legacy_clients_still_play(client):
@@ -180,3 +233,7 @@ def test_mock_director_keeps_overheard_secrets_private(client):
     assert state["next_state"]["player_state"]["secrets"] == ["听见有人约在三更的杏子林碰头"]
     assert state["next_state"]["world_state"]["major_events"] == []
     assert "杏子林" not in state["ui_status_bar"]
+    # 放火入台账时只写旁观者看得见的后果，不点破是谁放的
+    body["current_state"], body["action_text"] = state["next_state"], "一把火烧了此地"
+    (event,) = client.post("/api/interact", json=body).json()["next_state"]["world_state"]["major_events"]
+    assert "玩家" not in event["event_desc"]

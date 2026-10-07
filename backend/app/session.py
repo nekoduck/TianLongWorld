@@ -1,7 +1,7 @@
 """
 [INPUT]: 依赖 app.schemas 的 GameState / PlayerSnapshot / PlayerState / WorldState / WorldEvent / TagDelta / SecretDelta / LocalDelta / DirectorOutput / LEDGERS / MAX_TAGS，
          依赖 app.lore 的 kin / is_grandmaster（在场者按身份认人、满员时高手优先），依赖 app.errors 的 SessionDeadError / SessionBusyError
-[OUTPUT]: 对外提供 evolve（状态推进）、reconcile（标签账）、chronicle（世界台账）、LocalEnvironment / observe（局部环境）、Turn、
+[OUTPUT]: 对外提供 evolve（状态推进）、reconcile（四本标签账）、absorb（私密情报账）、chronicle（世界台账）、LocalEnvironment / observe（局部环境）、Turn、
           Session（含 acting 守卫、presence 在场判定素材、advance 推进）、SessionStore（LRU 内存仓库）
 [POS]: app 的会话状态层，是世界状态的唯一权威；被 director/pipeline.py 读写，不感知 HTTP 与大模型。
        三种记账各守一条规矩：五本玩家账（含 secrets）遗漏不等于失去；世界台账只追加不删除；局部环境同图只认增减、换图强制清空
@@ -37,35 +37,79 @@ MAX_PRESENT = 12  # 局部环境在场者上限：满员时绝顶高手一律留
 
 
 # ============================================================
-#  状态推进 —— 快照照单全收；标签账只认增减；世界台账只追加
+#  状态推进 —— 快照照单全收；五本账只认增减；世界台账只追加，且容不下仍是秘密的事
 # ============================================================
+_SECRET_OVERLAP = 6  # 判"同一件事"的最短包含长度：太短会把"马大元暴毙"这类公开事实误当成秘密吞掉
+
+
 def evolve(state: GameState, out: DirectorOutput) -> GameState:
     before, delta = state.player_state, out.player_delta
-    ledgers = {name: reconcile(getattr(before, name), getattr(delta, name)) for name in LEDGERS}
+    ledgers = {name: _BOOKKEEPERS.get(name, reconcile)(getattr(before, name), getattr(delta, name)) for name in LEDGERS}
     snapshot = PlayerSnapshot.model_validate(out.next_state.model_dump(exclude={"major_events"}))
     player = PlayerState(**snapshot.model_dump(), **ledgers)
-    world = WorldState(major_events=chronicle(state.world_state.major_events, out.next_state.major_events))
+    public = [event for event in out.next_state.major_events if not _still_secret(event, player.secrets)]
+    world = WorldState(major_events=chronicle(state.world_state.major_events, public))
     return GameState(player_state=player, world_state=world)
 
 
-def reconcile(tags: list[str], delta: TagDelta | SecretDelta) -> list[str]:
+def _still_secret(event: WorldEvent, secrets: Sequence[str]) -> bool:
     """
-    标签守恒（四本标签账与私密情报账同一规矩）：只有被点名移除的才会消失，大模型的遗漏不等于失去。
+    同一件事不能既是秘密又是天下皆知：大模型把刚得知的内情同时写进 secrets 与 major_events 时，私密优先——
+    泄露不可撤回，而公开的大事等秘密真被当众揭穿（secrets 里 remove 掉）时再记也不迟。
+    只认相同或相互包含（短者不少于 6 字）：模糊重叠会把"马大元暴毙"这类公开事实误当秘密吞掉。
+    """
+    desc = event.event_desc
+    for secret in secrets:
+        short, long = sorted((desc, secret), key=len)
+        if desc == secret or (len(short) >= _SECRET_OVERLAP and short in long):
+            logger.info("世界大事与玩家仍持有的秘密是同一件事，不入台账：%s", desc)
+            return True
+    return False
+
+
+def reconcile(tags: list[str], delta: TagDelta) -> list[str]:
+    """
+    标签守恒：只有被点名移除的才会消失，大模型的遗漏不等于失去。
     先减后加——"水囊"喝空写作 移除「水囊」+ 新增「空水囊」，先减才不会与新增之物撞名。
     """
-    kept = list(tags)
-    for name in delta.remove:
-        held = _match(kept, name)
-        if held is None:
-            logger.info("忽略未持有或指代不明的移除：%s ∉ %s", name, kept)
-        else:
-            kept.remove(held)
+    kept = _drop_named(tags, delta.remove)
     for name in delta.add:
         if name not in kept:
             kept.append(name)
     if len(kept) > MAX_TAGS:
         logger.warning("标签超过 %d 个，截去最后新增的：%s", MAX_TAGS, kept[MAX_TAGS:])
     return kept[:MAX_TAGS]
+
+
+def absorb(secrets: list[str], delta: SecretDelta) -> list[str]:
+    """
+    私密情报账：移除同样只认点名（遗漏不等于遗忘），但新增与满员的规矩不同于行囊——
+    - 同一情报换个说法再报：被已知情报包含的不再记；包含了已知情报的更详尽说法取而代之
+    - 满员时请走最早的情报：新知比旧闻更可能左右眼前，行囊满了丢新物是常理，情报满了丢新知却是失忆
+    """
+    kept = _drop_named(secrets, delta.remove)
+    for fact in delta.add:
+        if any(fact in known for known in kept):
+            continue
+        kept = [known for known in kept if known not in fact] + [fact]
+    if len(kept) > MAX_TAGS:
+        logger.warning("私密情报超过 %d 条，请走最早的：%s", MAX_TAGS, kept[: len(kept) - MAX_TAGS])
+    return kept[-MAX_TAGS:]
+
+
+def _drop_named(held: list[str], names: Sequence[str]) -> list[str]:
+    kept = list(held)
+    for name in names:
+        found = _match(kept, name)
+        if found is None:
+            logger.info("忽略未持有或指代不明的移除：%s ∉ %s", name, kept)
+        else:
+            kept.remove(found)
+    return kept
+
+
+# 账本 -> 记账规则：四本标签账走 reconcile，私密情报账走 absorb
+_BOOKKEEPERS = {"secrets": absorb}
 
 
 def chronicle(events: list[WorldEvent], fresh: Sequence[WorldEvent]) -> list[WorldEvent]:

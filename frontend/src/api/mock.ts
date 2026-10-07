@@ -56,7 +56,7 @@ const FRAMES: Frame[] = [
       time: '寅时',
       weather: '晨雾',
       inventory: ['慕字铁牌'],
-      social_traits: ['慕容家的眼中钉'],
+      // 雾里无人看见是谁拿走了铁牌：这是只有玩家知道的事，进 secrets 而非公开身份 social_traits
       secrets: ['太湖畔伏击菱灯小舟的黑衣人是慕容家的人'],
     },
     scene:
