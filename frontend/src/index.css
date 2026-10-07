@@ -1,0 +1,56 @@
+/**
+ * [INPUT]: 依赖 tailwindcss v4 的 @theme 设计令牌机制，依赖 index.html 引入的 Noto Serif SC / Ma Shan Zheng 字体
+ * [OUTPUT]: 对外提供 墨/金/血 三色令牌、font-serif / font-brush 字族、animate-fade-in / animate-breathe 动效
+ * [POS]: frontend 的视觉宪法，所有组件只消费此处令牌，不写魔法色值
+ * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ */
+@import 'tailwindcss';
+
+@theme {
+  /* 字体：Google Fonts 不可达时依次回落到系统宋体 / 仿宋 / 楷体 */
+  --font-serif: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', 'STSong', 'SimSun', 'FangSong', serif;
+  --font-brush: 'Ma Shan Zheng', 'STKaiti', 'KaiTi', 'Noto Serif SC', serif;
+
+  /* 墨：底色 */
+  --color-ink-950: #09090a;
+  --color-ink-900: #111113;
+  --color-ink-800: #1a1a1d;
+  --color-ink-700: #26262a;
+
+  /* 金：状态栏与点睛 */
+  --color-gold-300: #e6cf9a;
+  --color-gold-400: #c9a45c;
+  --color-gold-500: #a8843f;
+  --color-gold-700: #5e4822;
+  --color-gold-900: #2a2010;
+
+  /* 血：死亡与险招 */
+  --color-blood-400: #e05a5a;
+  --color-blood-500: #c53030;
+  --color-blood-600: #9b1c1c;
+  --color-blood-900: #3b0b0b;
+
+  --animate-fade-in: fade-in 0.9s ease-out both;
+  --animate-breathe: breathe 2.4s ease-in-out infinite;
+
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes breathe {
+    0%, 100% { opacity: 0.35; }
+    50% { opacity: 1; }
+  }
+}
+
+@layer base {
+  body {
+    @apply bg-ink-950 font-serif text-stone-300 antialiased;
+    /* 中央微光的墨色晕染，把视线收拢到屏幕中央的叙事区 */
+    background-image: radial-gradient(ellipse at 50% 40%, #18181b 0%, var(--color-ink-950) 65%);
+    background-attachment: fixed;
+  }
+  ::selection {
+    @apply bg-gold-700 text-gold-300;
+  }
+}
