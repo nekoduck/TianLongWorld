@@ -1,13 +1,15 @@
 """
-[INPUT]: 依赖 director/lore.py 的 Grandmaster / GRANDMASTERS，依赖 app.schemas 的 PlayerState
+[INPUT]: 依赖 app.lore 的 Grandmaster / GRANDMASTERS / MASTER_ARTS，依赖 app.schemas 的 PlayerState
 [OUTPUT]: 对外提供 Verdict 裁决、SAFE 常量、judge() 致死预判
-[POS]: director 的确定性规则层，在大模型之前拦截"无武功挑衅在场绝顶高手"；它裁定生死，大模型只负责叙述
+[POS]: director 的确定性规则层，在大模型之前拦截"无绝学挑衅在场绝顶高手"；它裁定生死，大模型只负责叙述——
+       判死回合即使大模型失败或抗命，编排器也会以确定性处决落定
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
-from app.director.lore import GRANDMASTERS, Grandmaster
+from app.lore import GRANDMASTERS, MASTER_ARTS, Grandmaster
 from app.schemas import PlayerState
 
 
@@ -38,12 +40,6 @@ _BENIGN = (
     "刺探", "偷看", "偷听", "偷偷",
 )
 
-# 身负这些绝学者已非无名小卒，生死交还大模型按常识裁量
-_MASTERY = (
-    "北冥神功", "六脉神剑", "降龙十八掌", "易筋经", "小无相功", "天山六阳掌",
-    "斗转星移", "一阳指", "凌波微步", "内力深厚", "绝世武功", "身负绝学",
-)
-
 
 def _is_hostile(action: str) -> bool:
     for word in _BENIGN:
@@ -51,17 +47,17 @@ def _is_hostile(action: str) -> bool:
     return any(word in action for word in _HOSTILE)
 
 
-def judge(action: str, player: PlayerState, presence: str) -> Verdict:
+def judge(action: str, player: PlayerState, present: Sequence[str]) -> Verdict:
     """
-    必死 = 玩家无绝学 ∧ 动作带敌意 ∧ 动作点名某绝顶高手 ∧ 此人在场（presence 含其任一称呼）。
-    在场条件防止"我要去少林挑战扫地僧"这种远在天边的狠话被当场处决。
-    绝学从结构化的 martial_arts（及"内力深厚"之类的 buffs）读取，而非在一句身体描写里搜字。
+    必死 = 玩家无绝学 ∧ 动作带敌意 ∧ 动作点名某绝顶高手 ∧ 此人在场。
+    - 在场只读结构化的局部环境实体账，绝不回退到叙事原文：传闻里提到的高手不能隔空处决玩家
+    - 绝学只读 martial_arts：buffs 里"北冥神功尽失"之类的负面标签不再反向赐予免死
     """
-    prowess = "、".join(player.martial_arts + player.buffs_debuffs)
-    if any(mark in prowess for mark in _MASTERY):
+    if any(art in learned for learned in player.martial_arts for art in MASTER_ARTS):
         return SAFE
     if not _is_hostile(action):
         return SAFE
+    presence = "、".join(present)
     for master in GRANDMASTERS:
         if master.mentioned_in(action) and master.mentioned_in(presence):
             return Verdict(killer=master)

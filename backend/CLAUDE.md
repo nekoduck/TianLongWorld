@@ -1,20 +1,27 @@
 # backend/
 > L2 | 父级: /CLAUDE.md
 
-FastAPI 服务的工程根：依赖声明、配置模板、测试装置。业务代码全部位于 app/ 包内，cwd 须为 backend/（`app.main:app` 与 pytest 的 pythonpath 均以此为根）。
+FastAPI 服务的工程根：依赖声明、配置模板、类型闸门、测试装置。业务代码全部位于 app/ 包内，cwd 须为 backend/（`app.main:app` 与 pytest 的 pythonpath 均以此为根）；运行期事件库落在 data/（gitignore）。
 
 成员清单
-requirements.txt: 运行依赖，fastapi + uvicorn[standard] + pydantic v2 + pydantic-settings + httpx2（大模型 HTTP 调用与 TestClient 共用）
-requirements-dev.txt: 开发依赖，在运行依赖之上叠加 pytest
+requirements.txt: 运行依赖，fastapi + uvicorn[standard] + pydantic v2 + pydantic-settings + httpx2（大模型 HTTP 调用与 TestClient 共用）；事件库用标准库 sqlite3，无额外依赖
+requirements-dev.txt: 开发依赖，在运行依赖之上叠加 pytest 与 mypy
 pytest.ini: 测试配置，pythonpath=. 使 `import app` 生效，testpaths=tests
-.env.example: 配置模板，列出 LLM_PROVIDER / LLM_API_KEY / LLM_MODEL / LLM_THINKING_LEVEL 等全部可调项及 gemini / anthropic / openai 兼容示例；真实密钥写入同目录 .env（已 gitignore）
-app/: 应用包（协议、会话、路由、组合根），地图见 app/CLAUDE.md
-tests/conftest.py: 公共装置，ScriptedLLM 剧本替身 + alive_reply(scene, present, player_delta, world_delta, **快照字段) 报文工厂 + game 状态树 / store / director / client 夹具，经 create_app(director=...) 注入
-tests/test_api.py: 集成用例，覆盖开局、推演、必死封印、叙述隐名时靠 present 判在场、永久死亡 409、整树冷启动（含世界台账）、伪造武学被服务端否决、重试与 502、422 校验（含旧版扁平状态被拒）
-tests/test_ledger.py: 记账用例，reconcile 标签账（遗漏≠失去、先减后加、模糊匹配多义不动、去重）+ chronicle 世界台账（只增不删、不必要的合并被忽略、合并须点名现存条目、超限折叠）+ 管线集成（四本账参数化多回合不提仍在、快照走私被忽略、解毒/拜帮/烧楼一回合三账、状态栏缺省值与完整格式、开局与整树冷启动、Mock 走两本账）
-tests/test_lethal.py: 致死预判单测，守护"敌意 ∧ 点名 ∧ 在场 ∧ 无绝学（读 martial_arts）"四要素与无害复合词剔除
-tests/test_parser.py: 解析闸门单测，围栏/寒暄剥离、存活必有选项、死亡可无选项、散文拒收
-tests/test_llm_clients.py: 厂商客户端单测，替换 post_json 断言报文形状（Gemini 的 schema/思考档位/思考片段过滤/拒答），以及缺凭证启动即失败
+mypy.ini: 类型闸门配置，strict + pydantic.mypy 插件（init_typed / init_forbid_extra），files 与 mypy_path 以 $MYPY_CONFIG_FILE_DIR 锚定，覆盖 app 与 tests
+.env.example: 配置模板，列出 LLM_PROVIDER / LLM_API_KEY / LLM_MODEL / LLM_THINKING_LEVEL / LLM_STRICT_SCHEMA / DATABASE_PATH / HISTORY_TURNS / MEMORY_LIMIT 等全部可调项及 gemini / anthropic / openai 兼容示例；真实密钥写入同目录 .env（已 gitignore）
+app/: 应用包（契约、事件、事件库、纯函数内核、编排、模型适配、组合根），地图见 app/CLAUDE.md
+tests/conftest.py: 公共装置，ScriptedLLM 剧本替身（可抛异常、记录 system/prompt/schema）+ alive()/dead()/snapshot()/reply() 由契约模型构造报文 + begin_life() 直写开局事件 + make_director() + db_path/settings/store/director/client 夹具（事件库落在 tmp_path，settings 经 model_construct 隔离本机 .env）
+tests/test_engine.py: 纯函数内核用例，裁决（开局只认种子、四本账记账与绝学防线、时辰只进不退、死状、必死作废增减与世界大事、局部环境同图/换图）与投影（折叠等价、滑动窗口截断、流完整性）
+tests/test_store.py: 事件库用例，读写往返、触发器禁止 UPDATE/DELETE、乐观并发与原子回滚、同一世界跨命追加、重开文件持久化
+tests/test_memory.py: JIT 召回用例，地点/别名/身份命中、单字不命中、无关排除、保序与 limit
+tests/test_prompts.py: 提示词协议用例，PARCER 两行逐字与六段顺序、示例可通过契约校验、XML 输入只含注入事实（无世界整树、只含相关记忆、窗口行数）、防注入、必死指令属性、带错重采样回灌
+tests/test_pipeline.py: 编排器用例，正常回合原子追加、幻觉原地停顿不落库、带错重采样、LLMError 502 与恢复、必死在抗命/失败下的确定性处决、死者/未知/并发守卫、JIT 与窗口与换地图注入、开局兜底与同世界投胎
+tests/test_api.py: HTTP 集成用例，开局与出招、跨 app 实例持久化、投胎保留世界大事、404/409/502 的 {detail, code}、客户端篡改无效、422 校验
+tests/test_lethal.py: 致死预判单测，"敌意 ∧ 点名 ∧ 在场（只读实体账）∧ 无绝学（只读 martial_arts）"与无害复合词剔除
+tests/test_parser.py: 解析闸门单测，围栏/寒暄/尾随文本、hints 字段路径与上限、存活必有选项、多余字段与重复选项拒收
+tests/test_llm_clients.py: 厂商客户端单测，替换 post_json 断言报文形状（Gemini responseJsonSchema、OpenAI json_schema strict 与退回、Anthropic 强制工具调用）、截断/拒答/形状异常收敛为 LLMError、strict_json_schema 整形，以及缺凭证启动即失败
+tests/test_mock.py: Mock 导演用例，读取真实 prompt 产出合规契约：开局在场者、拾物、毁地、必死处决、时辰推进
+tests/test_typing.py: 类型闸门，以 mypy.api 按 mypy.ini 检查 app 与 tests，零错误才放行
 
 运行
   python -m venv .venv && .venv/bin/pip install -r requirements-dev.txt

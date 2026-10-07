@@ -1,7 +1,8 @@
 """
 [INPUT]: 依赖 app.config 的 Settings，依赖 llm 包内 MockLLM / GeminiClient / OpenAICompatClient / AnthropicClient
 [OUTPUT]: 对外提供 build_llm() —— 按 LLM_PROVIDER 装配 LLMClient
-[POS]: llm 包的唯一装配点，被 main.py 在启动时调用一次；配置缺失在启动期就失败，而非等到第一位玩家出招
+[POS]: llm 包的唯一装配点，被 main.py 在启动时调用一次；配置缺失在启动期就失败，而非等到第一位玩家出招。
+       Settings → 客户端参数的翻译只在此处发生（如 LLM_STRICT_SCHEMA → OpenAICompatClient.strict_schema），客户端不读配置
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -47,4 +48,5 @@ def build_llm(s: Settings) -> LLMClient:
         base_url=s.llm_base_url or "https://api.openai.com/v1",
         temperature=s.llm_temperature,
         timeout=s.llm_timeout,
+        strict_schema=s.llm_strict_schema,  # DeepSeek 等只认 json_object 的端点设 LLM_STRICT_SCHEMA=false
     )

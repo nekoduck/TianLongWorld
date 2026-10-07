@@ -1,7 +1,8 @@
 /**
- * [INPUT]: 依赖 hooks/useGame 的状态机、hooks/useTypewriter 的打字机，依赖 components/* 全部六个组件
+ * [INPUT]: 依赖 hooks/useGame 的状态机（start / rebirth / act）、hooks/useTypewriter 的打字机，依赖 components/* 全部六个组件
  * [OUTPUT]: 对外提供 App 根组件（default export）
- * [POS]: frontend 的布局编排者：三段式（状态栏 / 叙事视窗 / 交互区）+ 入世页 + 死亡锁死；只做组合，不持有业务逻辑
+ * [POS]: frontend 的布局编排者：三段式（状态栏 / 叙事视窗 / 交互区）+ 入世页 + 死亡锁死；只做组合，不持有业务逻辑。
+ *        入世页的"入世"开辟新世界（start），死亡层的"重新投胎"留在同一世界（rebirth）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 import { ActionPanel } from './components/ActionPanel'
@@ -47,7 +48,7 @@ export default function App() {
 
       <footer className="px-4 pb-8 sm:px-8">
         {dead ? (
-          mourning && <DeathScreen onRebirth={game.start} />
+          mourning && <DeathScreen onRebirth={game.rebirth} />
         ) : (
           <ActionPanel
             key={game.turn}
