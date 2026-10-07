@@ -5,7 +5,8 @@
          依赖 conftest 的 ScriptedLLM / alive_reply 与 store / game / client 夹具
 [OUTPUT]: 情报隔离（Fog of War）与被动沙盒用例：System Prompt 逐字植入用户规定的铁律与克制原则；<secrets> 与 <player_state> 结构分离、
           逐行 JSON 不可伪造不可闭合；每回合指令带落笔前自查；secrets 从不作 RAG 检索键，内心念头也不触发语义检索，
-          只活在秘密里的实体即便被大模型提取也成不了下一回合的关系图种子，参考模块被标明不是 NPC 的共同记忆；
+          只活在秘密里的实体即便被大模型提取也成不了下一回合的关系图种子——叙事复述的念头先剥掉、仍是秘密的人事滤掉
+          （人就在眼前时照样是种子，秘密当众揭穿的同一回合即解禁），参考模块被标明不是 NPC 的共同记忆；
           私密情报进 secrets 而非世界台账（双写时私密优先，同名公开事实照记）、当众揭穿时移出且同回合的公开后果照记、
           同回合先退场旧说法再收新知、不进状态栏、不能借 next_state 走私；
           情报账按包含关系去重、满员请走最早的；客户端严格校验而大模型增减截断不 502；旧客户端兼容；
@@ -254,6 +255,38 @@ def test_pipeline_keeps_secrets_with_their_own_bookkeeping(store):
     llm = ScriptedLLM(alive_reply(location="无锡茶馆", player_delta={"secrets": {"add": ["谋反密信"]}}))
     out = _interact(Director(llm, store), session.id, tree)
     assert out.next_state.player_state.secrets == [LETTER, ERRAND]
+
+
+def test_thoughts_and_secrets_in_the_narration_do_not_seed_the_graph(store):
+    # 叙事复述了玩家的念头、提到了玩家独知的秘密：念头剥掉（段誉）、仍是秘密的人事滤掉（白世镜），公开说起的聚贤庄照常留下
+    murder = "白世镜是害死马大元的凶手"
+    tree = _tree(secrets=[LETTER, ERRAND, murder])
+    session = store.create(tree, "茶馆里人声嘈杂。")
+    scene = "你心里反复琢磨着段誉那天说的话。怀里那封写着白世镜罪状的密信硌得胸口发疼，邻桌茶客正说起聚贤庄的英雄宴。"
+    llm = ScriptedLLM(
+        alive_reply(scene, location="无锡茶馆", involved=["段誉", "白世镜", "聚贤庄", "无锡茶馆"]),
+        alive_reply("白世镜大步走进茶馆，四下张望。", location="无锡茶馆", arrived=["白世镜"], involved=["白世镜"]),
+    )
+    director = Director(llm, store)
+    _interact(director, session.id, tree)
+    assert session.involved == ("聚贤庄", "无锡茶馆")
+    # 对照：秘密里的人若就站在眼前，他是看得见的在场者，照样是检索种子
+    _interact(director, session.id, tree)
+    assert session.involved == ("白世镜",)
+
+
+def test_a_revealed_secret_unlocks_its_people_for_retrieval(store):
+    # 检索种子在落账之后才定：秘密当众揭穿的同一回合就已退场，乔峰随之解禁
+    tree = _tree()
+    session = store.create(tree, "茶馆里人声嘈杂。")
+    reply = alive_reply(
+        "你当众说出那名弟子的遗言：他临死前要人去找乔峰。",
+        location="无锡茶馆",
+        involved=["乔峰"],
+        player_delta={"secrets": {"remove": ["让我找乔峰"]}},
+    )
+    _interact(Director(ScriptedLLM(reply), store), session.id, tree, "当众说出那名弟子的遗言")
+    assert session.state.player_state.secrets == [LETTER] and session.involved == ("乔峰",)
 
 
 def test_private_thoughts_do_not_pull_history_into_the_prompt(store):

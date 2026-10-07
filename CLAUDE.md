@@ -28,10 +28,10 @@ frontend/vite.config.ts - Vite 插件与 /api → :8000 开发代理
     → LLMClient          纯文本进出 + 契约 schema（gemini 结构化输出 / openai 兼容 / anthropic / mock）
     → parser             截取 JSON + Pydantic 校验，失败重采样
     → 生死封印            规则判死则强制 game_over，大模型无权赦免
-    → Session.advance()  服务端状态唯一权威：evolve = 快照照单全收 + 四本标签账 reconcile；局部环境 observe（同图只认增减，切换地图强制清空）；
-                         involved_entities 经 witnessed 可见性闸门（场景原文含别名 / 在场 / 所在地）留作下一回合的检索种子
+    → Session.advance()  服务端状态唯一权威：evolve = 快照照单全收 + 四本标签账 reconcile；局部环境 observe（同图只认增减，切换地图强制清空）
     → _settle(memory)    情报与大事统一经 commit_event 落账：先 retire_secret 让揭穿的秘密退场，再收新知（absorb：包含去重、满员请走最早的），
-                         最后记公开大事（chronicle 只追加；与仍持有的秘密是同一件事的不入账——私密优先）
+                         最后记公开大事（chronicle 只追加；与仍持有的秘密是同一件事的不入账——私密优先）；
+                         随后 perception.witnessed 拿落账后的情报账定下一回合的检索种子（在场 / 所在地之外，须出现在剥去念头的叙述里且不牵涉仍持有的秘密）
   ← InteractResponse（ui_status_bar 由服务端从 next_state 确定性渲染）→ 打字机 → 选项浮现
 
 关键决策：
@@ -43,8 +43,8 @@ frontend/vite.config.ts - Vite 插件与 /api → :8000 开发代理
   四本标签账与 secrets 私密情报账由服务端记账，大模型只能上报增减（player_delta），遗漏不等于失去
 - 情报隔离（Fog of War）：情报按可见性分存——secrets 只有玩家知道，major_events 只收天下皆知或已发生物理改变的客观事实，
   social_traits 只记公开名声。导演全知但不外借：secrets 与未示人之物对 NPC 绝对不可见，NPC 只凭自身认知、玩家表面行为与公开世事行事；
-  玩家暗中所为在台账里只写旁观者看得到的后果，真相进 secrets；secrets 只进不出——不作 RAG 检索键、不进检索结果，只活在秘密里的实体
-  也种不进下一回合的关系图，免得秘密每回合把相关历史拽进上下文；参考模块是导演的案头资料，不是 NPC 的共同记忆；
+  玩家暗中所为在台账里只写旁观者看得到的后果，真相进 secrets；secrets 只进不出——不作 RAG 检索键、不进检索结果，叙事里复述的念头
+  与仍是秘密的人事也种不进下一回合的关系图，免得秘密每回合把相关历史拽进上下文；参考模块是导演的案头资料，不是 NPC 的共同记忆；
   NPC 认得出玩家（见过、自报家门、服色、信物、画像）才按 social_traits 与台账旧事对待他；玩家的内心念头对 NPC、规则层与检索都不可见
 - 被动沙盒：不为推进剧情凭空制造宿命与巧合，闲逛只得环境的自然反馈，路人按普通人的逻辑生活；平淡的一回合同样合法——
   危机与悬念只能来自玩家行为的合理后果或眼前本就在场的人与事，选项不为制造机缘凭空设局

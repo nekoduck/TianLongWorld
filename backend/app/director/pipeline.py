@@ -1,11 +1,11 @@
 """
 [INPUT]: 依赖 app.llm.base 的 LLMClient 协议，依赖 app.memory_service 的 MemoryService / MemoryFactory / in_memory（记忆仓储抽象），
-         依赖 app.session 的 Session / SessionStore / LocalEnvironment / evolve / observe / witnessed，
+         依赖 app.session 的 Session / SessionStore / LocalEnvironment / evolve / observe，
          依赖 director 内 lethal / perception / prompts / parser，依赖 app.lore 的 OPENING_SEEDS，
          依赖 app.schemas 的 DIRECTOR_SCHEMA / DirectorOutput / InteractRequest / InteractResponse / NewSessionResponse，依赖 app.errors 的 DirectorError
 [OUTPUT]: 对外提供 Director 类 —— open() 开局、interact() 推演一回合
 [POS]: director 的编排核心，串起 守卫 → 致死预判 → RAG 检索（关系图 + 语义）→ System Prompt 组装 → 大模型 → 解析 → 生死封印
-       → 状态推进 → 记忆落账；只认 MemoryService 抽象，从不碰台账的存储形状；被 app/api.py 调用
+       → 状态推进 → 记忆落账 → 定下一回合的检索种子；只认 MemoryService 抽象，从不碰台账的存储形状；被 app/api.py 调用
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -14,13 +14,13 @@ import random
 
 from app.director import lethal, prompts
 from app.director.parser import parse_director_output
-from app.director.perception import surface
+from app.director.perception import surface, witnessed
 from app.errors import DirectorError
 from app.llm.base import LLMClient
 from app.lore import OPENING_SEEDS
 from app.memory_service import MemoryFactory, MemoryService, in_memory
 from app.schemas import DIRECTOR_SCHEMA, DirectorOutput, InteractRequest, InteractResponse, NewSessionResponse
-from app.session import LocalEnvironment, Session, SessionStore, evolve, observe, witnessed
+from app.session import LocalEnvironment, Session, SessionStore, evolve, observe
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +53,8 @@ class Director:
         # 种子点名的高手恒先登记在场；开局不是移动，按大模型写出的开局地点登记，措辞漂移（"无锡松鹤楼"→"松鹤楼"）也清不掉他们
         here = LocalEnvironment(location=out.next_state.location, present_npcs=seed.present)
         local = observe(here, here.location, out.local_delta)
-        session = self._store.create(evolve(seed.state, out), out.scene_description, local, witnessed(out, local))
-        _settle(self._memory(session), out)
+        session = self._store.create(evolve(seed.state, out), out.scene_description, local)
+        _settle(self._memory(session), session, out)
         return NewSessionResponse(session_id=session.id, **InteractResponse.of(session.state, out).model_dump())
 
     # ------------------------------------------------------------------
@@ -71,7 +71,7 @@ class Director:
                 # 规则层的死刑不容大模型赦免：无论它写了什么，都封印为死亡
                 out = out.model_copy(update={"game_over": True, "options": None})
             session.advance(req.action_text, out)
-            _settle(memory, out)
+            _settle(memory, session, out)
         return InteractResponse.of(session.state, out)
 
     def _context(self, memory: MemoryService, session: Session, action: str) -> str:
@@ -103,10 +103,11 @@ class Director:
                 attempt += 1
 
 
-def _settle(memory: MemoryService, out: DirectorOutput) -> None:
+def _settle(memory: MemoryService, session: Session, out: DirectorOutput) -> None:
     """
     情报与大事统一经记忆仓储落账，顺序即语义：先让揭穿的秘密退场，再收新知，最后记公开大事——
     仓储据此判断一条"大事"是否仍是玩家独知的秘密（私密优先），而被当众揭穿的秘密不再挡住它的公开后果。
+    下一回合的检索种子最后才定：拿落账后的情报账来筛，仍是秘密的人事种不进关系图，刚被揭穿的则可以。
     """
     secrets = out.player_delta.secrets
     for secret in secrets.remove:
@@ -115,3 +116,4 @@ def _settle(memory: MemoryService, out: DirectorOutput) -> None:
         memory.commit_event({"event_desc": secret}, is_secret=True)
     for event in out.next_state.major_events:
         memory.commit_event(event.model_dump(), is_secret=False)
+    session.involved = witnessed(out, session.local, session.state.player_state.secrets)

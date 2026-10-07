@@ -181,7 +181,7 @@ def system_prompt(graph: str = "", history: Sequence[str] = ()) -> str:
     """
     本回合的 System Prompt = 静态世界法则 + [Graph_Context] 关系网 + [Semantic_History] 往事与常识。
     法则恒为前缀：厂商的前缀缓存照常命中，资料也排在法则之后、无法改写法则。
-    资料逐行 JSON 字符串：台账里的换行、引号与方括号都被转义，伪造不出第二行，也伪造不出模块标题。
+    资料逐行 JSON 字符串：换行与引号都被转义，一条资料永远只占一行、以引号开头——伪造不出第二行，也伪造不出行首的模块标题。
     """
     return "\n\n".join((
         SYSTEM_PROMPT.rstrip(),

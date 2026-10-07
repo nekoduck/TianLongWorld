@@ -1,7 +1,7 @@
 """
 [INPUT]: 依赖 app.director 的 Director、app.director.prompts 的 SYSTEM_PROMPT / GRAPH_MODULE / HISTORY_MODULE / build_turn / read_section / read_module、
-         app.director.lethal 的 SAFE、app.memory_service 的 in_memory，依赖 app.session 的 Session / SessionStore / Turn / LocalEnvironment /
-         observe / witnessed / MAX_PRESENT，依赖 app.schemas 的 WorldEvent / WorldState / GameState / PlayerState / InteractRequest / LocalDelta /
+         app.director.lethal 的 SAFE、app.director.perception 的 witnessed、app.memory_service 的 in_memory，
+         依赖 app.session 的 Session / SessionStore / Turn / LocalEnvironment / observe / MAX_PRESENT，依赖 app.schemas 的 WorldEvent / WorldState / GameState / PlayerState / InteractRequest / LocalDelta /
          DirectorOutput / MAX_NEW_EVENTS / MAX_ENTITIES，依赖 app.lore 的 OPENING_SEEDS、app.config 的 Settings、app.main 的 create_app、
          app.llm.mock 的 MockLLM，依赖 conftest 的 ScriptedLLM / alive_reply 与 store / game 夹具
 [OUTPUT]: RAG 上下文管道用例：System Prompt 以静态法则为前缀、按规格挂两个参考模块、历史不再进 User Message；
@@ -28,6 +28,7 @@ from pydantic import ValidationError
 from app.config import Settings
 from app.director import Director
 from app.director.lethal import SAFE
+from app.director.perception import witnessed
 from app.director.prompts import GRAPH_MODULE, HISTORY_MODULE, SYSTEM_PROMPT, build_turn, read_module, read_section
 from app.llm.mock import MockLLM
 from app.lore import OPENING_SEEDS
@@ -44,7 +45,7 @@ from app.schemas import (
     WorldEvent,
     WorldState,
 )
-from app.session import MAX_PRESENT, LocalEnvironment, Session, SessionStore, Turn, observe, witnessed
+from app.session import MAX_PRESENT, LocalEnvironment, Session, SessionStore, Turn, observe
 from conftest import ScriptedLLM, alive_reply
 
 
@@ -131,7 +132,7 @@ def test_witnessed_entities_are_the_ones_the_player_could_perceive():
     out = DirectorOutput.model_validate_json(alive_reply(
         "乔帮主放下酒碗，朝楼梯口看了一眼。", location="无锡松鹤楼二楼", involved=["萧峰", "松鹤楼", "段誉", "全冠清"]
     ))
-    assert witnessed(out, LocalEnvironment("无锡松鹤楼二楼", ("段誉",))) == ("萧峰", "松鹤楼", "段誉")
+    assert witnessed(out, LocalEnvironment("无锡松鹤楼二楼", ("段誉",)), secrets=()) == ("萧峰", "松鹤楼", "段誉")
 
 
 def test_action_naming_a_place_recalls_it_before_arrival(store):
@@ -341,7 +342,7 @@ def test_opening_entities_seed_the_first_turn(store):
     opening = asyncio.run(director.open())
     assert _graph(llm.systems[0]) == [] and _history(llm.systems[0]) == []
     _interact(director, opening.session_id, opening.next_state)
-    assert _graph(llm.systems[1])[0] == "【原著】萧峰（乔峰）是丐帮帮主，威震江湖"
+    assert _graph(llm.systems[1])[0] == "【原著】乔峰是丐帮帮主，威震江湖"
 
 
 def test_mock_director_extracts_entities(store):

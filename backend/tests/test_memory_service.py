@@ -2,9 +2,12 @@
 [INPUT]: 依赖 app.memory_service 的 MemoryService / InMemoryMemoryService / in_memory，依赖 app.session 的 Session / SessionStore，
          依赖 app.schemas 的 GameState / PlayerState / WorldEvent / WorldState / MAX_TAGS
 [OUTPUT]: 记忆仓储契约用例：抽象接口与缺方法的实现都不可实例化、工厂按会话划定命名空间；
-          关系图（规格原例两端命中的关系先于一跳之外的、别名 / 修饰称呼 / 门派群体 / 地点包含命中、台账大事是排在原著之前的动态边、
+          关系图（规格原例两端命中的关系先于一跳之外的、别名 / 修饰称呼（检索键与标签两侧）/ 门派群体 / 地点包含命中、
+          台账大事是排在原著之前的动态边、
           单字不命中与无命中返回空串、封顶时保留最近的大事、一条大事伪造不出第二行、秘密不入关系网）；
-          语义检索（点名的地点抵达前即可召回、江湖常识按关键词召回、别名点名、同分近事优先与 top_k 封顶、无关动作返回空、
+          语义检索（点名的地点抵达前即可召回、点名命中按新近排序而非字面相似、未点名的近义复述按相似度排序、江湖常识按关键词召回、
+          别名点名、近事优先与 top_k 封顶、
+          无关动作返回空、
           秘密不入语料、同一条大事两路同形）；落账（公开大事只追加且复述去重、私密情报按包含去重且满员请走最早的、
           仍是秘密的事不进台账而揭穿后照记、形状不对的数据拒收）
 [POS]: tests 中守护"导演管线只认记忆仓储这一抽象，仓储按契约读写会话状态树"这条分层边界的用例集
@@ -75,15 +78,15 @@ def test_factory_binds_one_repository_per_world():
 def test_graph_answers_the_relations_between_named_entities():
     # 规格原例：传入 ["丐帮", "乔峰"]，两端都命中的关系排在一跳之外的之前
     lines = _graph(_memory(), "丐帮", "乔峰")
-    assert lines[0] == "【原著】萧峰（乔峰）是丐帮帮主，威震江湖"
+    assert lines[0] == "【原著】乔峰是丐帮帮主，威震江湖"
     assert {"【原著】马大元是丐帮副帮主", "【原著】江湖并称「北乔峰，南慕容」"} <= set(lines)
 
 
 @pytest.mark.parametrize(
     ("name", "relation"),
     [
-        ("乔帮主", "萧峰（乔峰）是丐帮帮主"),
-        ("醉酒的乔峰", "萧峰（乔峰）是丐帮帮主"),
+        ("乔帮主", "乔峰是丐帮帮主"),
+        ("醉酒的乔峰", "乔峰是丐帮帮主"),
         ("丐帮弟子", "马大元是丐帮副帮主"),
         ("少林寺山门外", "玄慈是少林寺方丈"),
     ],
@@ -96,8 +99,10 @@ def test_graph_resolves_aliases_factions_and_places(name: str, relation: str):
 def test_world_events_are_dynamic_edges_listed_before_canon():
     # 台账里的大事是平行世界长出来的边：命中任一 tag 即入网，排在原著关系之前（二者冲突时以台账为准）
     assert _graph(_memory(FAN, BURNED, VOW), "聚贤庄废墟") == [BURNED_LINE, "【原著】游骥、游驹兄弟人称游氏双雄，是聚贤庄的庄主"]
-    # 标签写的是「乔峰」，在场者登记成了修饰称呼"契丹人萧峰"：同一个人的大事照样入网
+    # 两侧都展开别名：标签写「乔峰」而在场者登记成"契丹人萧峰"，或标签写成"丐帮帮主萧峰"而种子是「乔峰」，同一个人的大事照样入网
     assert _graph(_memory(VOW), "契丹人萧峰")[0] == "【台账】乔峰、雁门关：萧峰在雁门关外折箭立誓"
+    decorated = _event("丐帮帮主萧峰在聚贤庄力战群雄", "丐帮帮主萧峰")
+    assert _graph(_memory(decorated), "乔峰")[0] == "【台账】丐帮帮主萧峰：丐帮帮主萧峰在聚贤庄力战群雄"
 
 
 def test_graph_ignores_single_characters_and_reads_empty_without_hits():
@@ -131,6 +136,21 @@ def test_secrets_never_enter_the_graph():
 def test_semantic_search_recalls_a_named_place_before_arrival():
     hits = _memory(FAN, BURNED, VOW).query_semantic_events("天亮后潜回聚贤庄看看")
     assert BURNED_LINE in hits and not any("段誉" in hit or "雁门关" in hit for hit in hits)
+
+
+def test_named_hits_put_the_latest_event_first():
+    # 点名命中按新近排序：更早的短句与江湖常识再"像"这一招，也挤不掉刚发生的那场大火
+    memory = _memory(_event("聚贤庄设宴", "聚贤庄"), _event("聚贤庄修缮", "聚贤庄"), BURNED)
+    assert memory.query_semantic_events("天亮后潜回聚贤庄看看") == [
+        BURNED_LINE, "【台账】聚贤庄：聚贤庄修缮", "【台账】聚贤庄：聚贤庄设宴"
+    ]
+
+
+def test_unnamed_paraphrases_rank_by_similarity():
+    # 没点名的近义复述（向量召回）在第二梯队，越像越先——不是越近越先
+    closer, looser = _event("太湖上的画舫夜里起火", "燕子坞"), _event("太湖上一艘画舫夜里起火沉没", "燕子坞")
+    hits = _memory(closer, looser).query_semantic_events("听说太湖上的画舫夜里起火沉没了")
+    assert hits == ["【台账】燕子坞：太湖上的画舫夜里起火", "【台账】燕子坞：太湖上一艘画舫夜里起火沉没"]
 
 
 def test_semantic_search_recalls_world_rules_by_keyword():

@@ -51,17 +51,18 @@ def is_grandmaster(name: str) -> bool:
     return any(master.mentioned_in(name) for master in GRANDMASTERS)
 
 
+# 称呼 -> 同一人物的全部称呼：认人、检索与可见性闸门每回合要查成千上万次，查表而非遍历名录
+_KIN = {alias: tuple(dict.fromkeys((m.name, *m.aliases))) for m in GRANDMASTERS for alias in (m.name, *m.aliases)}
+
+
 def kin(name: str) -> tuple[str, ...]:
     """同一人物的全部称呼：名录中的高手展开为全部别名，其余人物原样返回——检索与认人时「乔峰」与「萧峰」是同一个人。"""
-    for master in GRANDMASTERS:
-        if name == master.name or name in master.aliases:
-            return tuple(dict.fromkeys((master.name, *master.aliases)))
-    return (name,)
+    return _KIN.get(name, (name,))
 
 
 # ============================================================
 #  关系网 —— 知识图谱的静态边：原著开篇时江湖公认的人物、门派关系
-#  只收天下皆知之事，原著后文才揭晓的隐秘（身世、假死、私情）一概不录：
+#  只收天下皆知之事，原著后文才揭晓的隐秘（身世、假死、私情）一概不录，措辞也只用开篇时江湖上的叫法（「乔峰」而非「萧峰」）：
 #  关系网会摆上导演的案头，录入隐秘就等于把它推到每个相关 NPC 面前
 # ============================================================
 @dataclass(frozen=True)
@@ -72,14 +73,13 @@ class Relation:
 
 
 RELATIONS: tuple[Relation, ...] = (
-    Relation("萧峰", "丐帮", "萧峰（乔峰）是丐帮帮主，威震江湖"),
+    Relation("萧峰", "丐帮", "乔峰是丐帮帮主，威震江湖"),
     Relation("萧峰", "慕容复", "江湖并称「北乔峰，南慕容」"),
     Relation("马大元", "丐帮", "马大元是丐帮副帮主"),
     Relation("白世镜", "丐帮", "白世镜是丐帮执法长老"),
     Relation("全冠清", "丐帮", "全冠清是丐帮大智分舵舵主"),
     Relation("康敏", "马大元", "康敏是马大元的妻子"),
     Relation("慕容复", "姑苏慕容", "慕容复是姑苏慕容氏的公子"),
-    Relation("慕容博", "慕容复", "慕容博是慕容复之父，江湖上都说他早已过世"),
     Relation("王语嫣", "慕容复", "王语嫣是慕容复的表妹，一心倾慕于他"),
     Relation("阿朱", "姑苏慕容", "阿朱是慕容家的侍婢，精于易容"),
     Relation("阿碧", "姑苏慕容", "阿碧是慕容家的侍婢"),

@@ -60,7 +60,7 @@ MemoryFactory = Callable[[Session], MemoryService]  # 每个会话（世界）�
 #  内存实现 —— 存储即会话状态树（单一事实来源），检索是图与向量的朴素模拟
 # ============================================================
 _MIN_KEY = 2  # 单字键（"刀""庄"）匹配面太宽，只会把无关的关系与往事灌进上下文
-_MIN_SCORE = 0.2  # 语义检索的及格线：点名即及格（加权 1.0），未点名的须是近乎同义的复述
+_MIN_SIMILARITY = 0.2  # 未点名的条目要进语义检索，须与动作近乎同义：只撞上一个常见二元组（"天下"）的不算
 _GRAPH_LIMIT = 12  # 关系网缺省行数；线上取值由 config.graph_limit 经 in_memory() 传入
 
 
@@ -69,7 +69,10 @@ class InMemoryMemoryService(MemoryService):
     - 存储：会话的状态树（secrets 在 player_state，大事在 world_state），写穿透——前端拿到的整树与仓储永远是同一份
     - 关系图：节点是实体，边有两种——世界台账里的大事（一条大事连起它的全部 tags，是平行世界长出来的边）
       与 lore.RELATIONS（原著开篇的静态边）；实体与节点两侧都经 kin 展开别名，相互包含即命中
-    - 语义：字符二元组 Jaccard 相似度模拟向量召回，点名（tag 或关键词原样出现在动作里）加权模拟关键词召回，相加即混合检索
+    - 语义：混合检索的两个梯队——点名命中（tag 或关键词原样出现在动作里，模拟关键词召回）在前、越近越先；
+      未点名而字符二元组 Jaccard 相似度过线的近义复述（模拟向量召回）在后、越像越先
+    - 检索是线性扫描，命中先在去重后的标签词汇上判定（台账再长，人名地名的词汇量也有限）；
+      真上规模时换图数据库与向量库——这正是仓储接口存在的意义
     """
 
     def __init__(self, session: Session, *, graph_limit: int = _GRAPH_LIMIT) -> None:
@@ -81,31 +84,39 @@ class InMemoryMemoryService(MemoryService):
         keys = _aliases(entity_names)
         if not keys:
             return ""
+        events = self._events()
+        touched = {tag for tag in _vocabulary(events) if _touches(tag, keys)}
         # 大事在前：它们是平行世界的现状，导演无从由原著得知；原著关系在后，两端都命中的（这些实体之间的）先于一跳之外的
-        events = [_line(event) for event in self._events() if any(_touches(tag, keys) for tag in event.tags)]
+        recent = [event for event in events if not touched.isdisjoint(event.tags)][-self._graph_limit :]
         touching = [r for r in RELATIONS if _touches(r.a, keys) or _touches(r.b, keys)]
         between = [r for r in touching if _touches(r.a, keys) and _touches(r.b, keys)]
         beyond = [r for r in touching if r not in between]
-        lines = [*events[-self._graph_limit :], *(f"【原著】{r.fact}" for r in (*between, *beyond))]
+        lines = [*map(_line, recent), *(f"【原著】{r.fact}" for r in (*between, *beyond))]
         return "\n".join(lines[: self._graph_limit])
 
     # ---- 读：语义 ----
     def query_semantic_events(self, action_text: str, top_k: int = 3) -> list[str]:
         if top_k <= 0:
             return []
-        grams = _bigrams(action_text)
-        corpus = [
+        events = self._events()
+        # 常识先入列、大事后入列：序号越大越近，同一梯队里近事优先
+        corpus: list[tuple[Sequence[str], str, str | WorldEvent]] = [
             *((rule.keys, rule.text, f"【常识】{rule.text}") for rule in WORLD_RULES),
-            *((event.tags, event.event_desc, _line(event)) for event in self._events()),
+            *((event.tags, event.event_desc, event) for event in events),
         ]
-        scored = [
-            (score, rank, line)
-            for rank, (keys, text, line) in enumerate(corpus)
-            if (score := _named(keys, action_text) + _jaccard(grams, _bigrams(text))) >= _MIN_SCORE
-        ]
-        # 相关度降序；同分时越晚入列的越靠前——大事排在常识之后入列，台账里越近的越先
-        scored.sort(key=lambda hit: (-hit[0], -hit[1]))
-        return [line for _, _, line in scored[:top_k]]
+        vocabulary = {key for rule in WORLD_RULES for key in rule.keys} | _vocabulary(events)
+        named = {key for key in vocabulary if _named(key, action_text)}
+        grams = _bigrams(action_text)
+        called: list[int] = []
+        similar: list[tuple[float, int]] = []
+        for rank, (keys, text, _) in enumerate(corpus):
+            if not named.isdisjoint(keys):
+                called.append(rank)
+            elif any(gram in text for gram in grams) and (score := _jaccard(grams, _bigrams(text))) >= _MIN_SIMILARITY:
+                similar.append((score, rank))
+        # 点名的越近越先：动作点到的地方，最近发生的事最可能左右眼前；未点名的越像越先
+        ranked = [*sorted(called, reverse=True), *(rank for _, rank in sorted(similar, reverse=True))]
+        return [_render(corpus[rank][2]) for rank in ranked[:top_k]]
 
     # ---- 写 ----
     def commit_event(self, event_data: Mapping[str, Any], is_secret: bool) -> None:
@@ -162,9 +173,13 @@ def _touches(node: str, keys: Sequence[str]) -> bool:
     return any(_hit(alias, key) for alias in kin(node) for key in keys)
 
 
-def _named(keys: Iterable[str], text: str) -> float:
-    """点名加权：某个键（含别名）原样出现在动作里。只做单向检索——长动作文本不能反过来"包含"一切短键。"""
-    return 1.0 if any(alias in text for key in keys for alias in kin(key) if len(alias) >= _MIN_KEY) else 0.0
+def _named(key: str, text: str) -> bool:
+    """点名：键（含别名）原样出现在动作里。只做单向检索——长动作文本不能反过来"包含"一切短键。"""
+    return any(alias in text for alias in kin(key) if len(alias) >= _MIN_KEY)
+
+
+def _vocabulary(events: Iterable[WorldEvent]) -> set[str]:
+    return {tag for event in events for tag in event.tags}
 
 
 def _bigrams(text: str) -> set[str]:
@@ -179,3 +194,7 @@ def _jaccard(a: set[str], b: set[str]) -> float:
 def _line(event: WorldEvent) -> str:
     """台账大事的案头形态：标签在前、原文在后；压平内部空白，一条大事永远只占一行，伪造不出第二行。"""
     return " ".join(f"【台账】{'、'.join(event.tags)}：{event.event_desc}".split())
+
+
+def _render(item: str | WorldEvent) -> str:
+    return item if isinstance(item, str) else _line(item)

@@ -2,7 +2,8 @@
 [INPUT]: 依赖 app.session 的 reconcile / chronicle，依赖 app.schemas 的 TagDelta / WorldEvent / GameState / WorldState / InteractRequest / LEDGERS，
          依赖 app.director 的 Director、app.lore 的 OPENING_SEEDS，依赖 conftest 的 ScriptedLLM / alive_reply 与 store / game / client 夹具
 [OUTPUT]: 记账用例：五本玩家账（四本标签账 + secrets；遗漏≠失去、点名才移除、模糊匹配、快照走私拦截）、世界台账（只追加、复述去重、不设上限、
-          大模型无法借 next_state 改写或删除旧事）、状态栏格式与缺省值、开局与冷启动的整树延续（开局的情报与大事同样经记忆仓储落账）、
+          大模型无法借 next_state 改写或删除旧事）、状态栏格式与缺省值、开局与冷启动的整树延续（开局的情报与大事同样经记忆仓储落账、
+          同一颗种子开出的两局不共享台账）、
           Mock 走同一本账
 [POS]: tests 中守护"清单由服务端记账、大模型只报增减"这条状态法则的用例集
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -170,6 +171,15 @@ def test_opening_settles_secrets_and_events_through_memory(store):
     opening = asyncio.run(Director(ScriptedLLM(reply), store, rng=_Draw(songhe)).open())
     assert opening.next_state.player_state.secrets == ["那三枚铜钱是从邻桌顺来的"]
     assert opening.next_state.world_state.major_events == [_event("松鹤楼今日新换了招牌", "松鹤楼")]
+
+
+def test_sessions_never_share_a_world(store):
+    # 开局种子是模块级模板：两局从同一颗种子开出来，台账必须各是各的，也不能与模板共用一份可变的清单
+    songhe = next(s for s in OPENING_SEEDS if s.state.player_state.inventory == ["三枚铜钱"])
+    director = Director(ScriptedLLM(alive_reply(), alive_reply()), store, rng=_Draw(songhe))
+    first, second = (asyncio.run(director.open()) for _ in range(2))
+    worlds = [store.get_or_rehydrate(o.session_id, o.next_state).state.world_state.major_events for o in (first, second)]
+    assert worlds[0] is not worlds[1] and all(world is not songhe.state.world_state.major_events for world in worlds)
 
 
 def test_rehydration_restores_the_whole_tree(store, game):

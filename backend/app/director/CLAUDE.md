@@ -5,9 +5,9 @@
 
 成员清单
 __init__.py: 包门面，只导出 Director
-pipeline.py: 编排核心 Director(llm, store, memory=MemoryFactory, semantic_top_k, attempts)，open() 抽开局种子生成第一幕（两个参考模块为（无）；evolve(种子状态, 裁决) 继承种子物品；种子点名的高手按大模型写出的开局地点先登记在场，地点措辞漂移也清不掉，再 observe 大模型补写的到场者；开局实体经 witnessed 种下第一回合；情报与大事同样经 _settle 落账），interact() 串联 守卫 → judge(presence) → _context RAG 检索（关系图种子 = 上一回合 involved + 在场 NPC + 所在地 + 公开身份；语义查询 = surface(动作)，多取再与关系网去重，封顶 top_k）→ system_prompt(graph, history) + build_turn → LLM(附 DIRECTOR_SCHEMA) → parse（失败重采样，默认 2 次）→ 必死封印 → advance → _settle（先 retire_secret、再 commit 新知、最后 commit 公开大事：顺序即私密优先的语义）；只认 MemoryService 抽象
+pipeline.py: 编排核心 Director(llm, store, memory=MemoryFactory, semantic_top_k, attempts)，open() 抽开局种子生成第一幕（两个参考模块为（无）；evolve(种子状态, 裁决) 继承种子物品；种子点名的高手按大模型写出的开局地点先登记在场，地点措辞漂移也清不掉，再 observe 大模型补写的到场者；开局同样经 _settle 落账并种下第一回合的检索种子），interact() 串联 守卫 → judge(presence) → _context RAG 检索（关系图种子 = 上一回合 involved + 在场 NPC + 所在地 + 公开身份；语义查询 = surface(动作)，多取再与关系网去重，封顶 top_k）→ system_prompt(graph, history) + build_turn → LLM(附 DIRECTOR_SCHEMA) → parse（失败重采样，默认 2 次）→ 必死封印 → advance → _settle（先 retire_secret、再 commit 新知、最后 commit 公开大事：顺序即私密优先的语义；最后经 perception.witnessed 拿落账后的情报账定下一回合的检索种子）；只认 MemoryService 抽象
 lethal.py: 确定性致死预判，judge(action, player, presence) 判定 无绝学（读 martial_arts 与 buffs_debuffs）∧ 敌意（先剔除"打听/打量"等无害复合词）∧ 点名（敌意与点名都只审 perception.surface 后的表面行为，心里骂乔峰不算冒犯）∧ 在场（Session.presence()：局部环境 present_npcs 优先，为空时退回上一幕原文）；Verdict 以单字段 killer 表达裁决
-perception.py: 感知边界，surface(action) 剥掉以纯心理动词（心里/心想/暗骂/盘算/琢磨……；"暗自""暗中"不算——暗中出手看得见）起头的念头从句，只留外人看得见、听得见的部分；"玩家的表面行为"在全系统只有这一个定义，lethal 与 RAG 语义检索共用
+perception.py: 感知边界，surface(text) 剥掉以纯心理动词（心里/心想/暗骂/盘算/琢磨……；"暗自""暗中"不算——暗中出手看得见）起头的念头从句，只留外人看得见、听得见的部分，"表面行为"在全系统只有这一个定义，lethal、RAG 语义检索与 witnessed 共用；witnessed(out, local, secrets) 实体可见性闸门：involved_entities 里此刻在场或就是所在地的一律留下，其余须出现在剥去念头的场景叙述里（含别名）且不牵涉玩家仍持有的秘密——叙事复述的念头、只有玩家知道的人事都种不进下一回合的关系图
 prompts.py: 提示词协议，SYSTEM_PROMPT 是静态世界法则：高手名录 / 【情报隔离铁律】secrets 与未示人之物对 NPC 绝对不可见、NPC 只凭自身认知 + 玩家表面行为 + 公开世事、禁止因秘密找上门或生预感、窗口与参考模块都不是 NPC 的共同记忆 / 【克制生成原则】不凭空制造宿命与巧合、平淡一回合合法 / 【标签化演算】/ 【江湖声望】NPC 认得出玩家才按 social_traits 与旧事对待他 / 【状态记账】五本账只报 player_delta 增减 + 私密与公开分界 / 【局部视野】/ 【世界台账】两个参考模块怎么读（【台账】已发生不可逆、【原著】开篇关系可被台账改写、【常识】世界规矩）、重大变故以 {"tags","event_desc"} 追加、每回合至多 3 条、不抄旧事 / 【实体提取】逐字含用户规定的提取指令、写进 next_state.involved_entities、至多 12 个专名、只写场面上出现的 / 叙事要求 / JSON 契约；system_prompt(graph, history) = SYSTEM_PROMPT 恒为前缀（厂商前缀缓存照常命中）+ [Graph_Context: 当前实体关系网] + [Semantic_History: 历史相关事件]（HISTORY_PREAMBLE"这是与当前场景/人物相关的世界历史记录："领起），资料逐行 JSON 字符串、无则"（无）"；build_opening(seed) / build_turn(session, action_type, action, verdict) 以 XML 标签组装 User Message：secrets 从 <player_state> 剥出、以 SECRETS_PREAMBLE 单独成段，普通回合指令附 _SELF_CHECK 落笔前自查；插值转义尖括号与引号，窗口逐行 JSON；read_section / read_directive 供 Mock 读取，read_module 读回参考模块条目
 parser.py: 解析闸门，截取首 "{" 至末 "}" 剥离围栏与寒暄，交 Pydantic 校验 DirectorOutput，失败抛 DirectorError
 
@@ -17,7 +17,7 @@ System Prompt（静态法则在前，检索资料在后；每一行资料都封�
   [Graph_Context: 当前实体关系网]
   这是与此刻在场者、所在地、玩家身份及上一回合涉及之人事相关的关系网：
   "【台账】聚贤庄、游氏双雄、丐帮：玩家在聚贤庄大战中烧毁了正厅，游氏双雄战死"     至多 GRAPH_LIMIT 行，大事在前
-  "【原著】萧峰（乔峰）是丐帮帮主，威震江湖"
+  "【原著】乔峰是丐帮帮主，威震江湖"
   [Semantic_History: 历史相关事件]
   这是与当前场景/人物相关的世界历史记录：
   "【常识】聚贤庄游氏双雄交游广阔，常邀天下英雄聚会"                               至多 SEMANTIC_TOP_K 行，与关系网去重
