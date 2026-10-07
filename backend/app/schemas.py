@@ -1,10 +1,12 @@
 """
 [INPUT]: 依赖 pydantic 的 BaseModel / Field / StringConstraints / field_validator / model_validator，依赖标准库 logging
-[OUTPUT]: 对外提供 PlayerSnapshot、PlayerState（含 secrets 私密情报）、LEDGERS、WorldEvent、WorldState、GameState、MAX_TAGS、MAX_NEW_EVENTS、SECRET_CHARS、
-          Options、InteractRequest、TagDelta / SecretDelta / PlayerDelta / LocalDelta / NextState、DirectorOutput（含 DIRECTOR_SCHEMA）、
+[OUTPUT]: 对外提供 PlayerSnapshot、PlayerState（含 secrets 私密情报）、TAG_LEDGERS / LEDGERS、WorldEvent、WorldState、GameState、
+          MAX_TAGS、MAX_NEW_EVENTS、MAX_ENTITIES、LABEL_CHARS、SECRET_CHARS、Secret、Options、InteractRequest、
+          TagDelta / SecretDelta / PlayerDelta / LocalDelta / NextState（含 involved_entities 实体提取）、DirectorOutput（含 DIRECTOR_SCHEMA）、
           InteractResponse、NewSessionResponse
 [POS]: app 的前后端协议与大模型输出契约，是全系统唯一的数据形状来源（前端 types.ts 与之镜像）。
-       情报按可见性分存：player_state.secrets 只有玩家知道，world_state.major_events 是天下皆知或已发生物理改变的客观事实
+       情报按可见性分存：player_state.secrets 只有玩家知道，world_state.major_events 是天下皆知或已发生物理改变的客观事实；
+       next_state.involved_entities 是大模型每回合提取的专有名词，只进服务端（下一回合关系图检索的种子），不进前端协议
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -20,13 +22,15 @@ logger = logging.getLogger(__name__)
 # 语义标签：去空白、非空、封顶长度 —— 既挡住客户端塞入超长 Prompt，也约束大模型的输出漂移
 Tag = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
 OptionText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)]
-Label = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20)]  # 人名、物品、武学、状态
+LABEL_CHARS = 20
+Label = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=LABEL_CHARS)]  # 人名、物品、武学、状态
 EventDesc = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
 SECRET_CHARS = 60
 Secret = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=SECRET_CHARS)]  # 一句话私密情报
 
 MAX_TAGS = 16  # 每本玩家账的条数上限（四本标签账与私密情报账同用）
 MAX_NEW_EVENTS = 3  # 每回合至多新增的世界大事：同一场变故应合为一条
+MAX_ENTITIES = 12  # 每回合至多提取的核心专有名词：它们是下一回合关系图检索的种子，多了只会稀释关系网
 
 TagList = Annotated[list[Label], Field(max_length=MAX_TAGS)]
 SecretList = Annotated[list[Secret], Field(max_length=MAX_TAGS)]
@@ -34,7 +38,8 @@ SecretList = Annotated[list[Secret], Field(max_length=MAX_TAGS)]
 
 # ============================================================
 #  玩家状态 —— 没有数值，只有标签
-#  两种生命周期分开存放：快照由大模型每回合整体重写；五本账（四本标签账 + 私密情报账）由服务端记账，只认增减
+#  两种生命周期分开存放：快照由大模型每回合整体重写；五本账（四本标签账 + 私密情报账）由服务端记账，只认增减——
+#  四本标签账由 session.evolve 记账，私密情报账经记忆仓储（app/memory_service.py）落账
 # ============================================================
 class PlayerSnapshot(BaseModel):
     location: Tag
@@ -53,12 +58,13 @@ class PlayerState(PlayerSnapshot):
 
 
 # 由服务端记账的五本账：快照之外的一切玩家清单都在这里登记
-LEDGERS = ("buffs_debuffs", "social_traits", "inventory", "martial_arts", "secrets")
+TAG_LEDGERS = ("buffs_debuffs", "social_traits", "inventory", "martial_arts")  # session.evolve 按增减记账
+LEDGERS = (*TAG_LEDGERS, "secrets")  # secrets 是情报而非标签，经记忆仓储的 commit_event / retire_secret 落账
 
 
 # ============================================================
 #  世界状态 —— 平行世界的大事记：带实体标签的原子事实，只增不删、不设上限
-#  台账可以无限增长，喂给大模型的却永远只是按标签筛出的几条（见 director/memory.py）
+#  台账可以无限增长，喂给大模型的却永远只是检索出的几条（见 app/memory_service.py）
 # ============================================================
 class WorldEvent(BaseModel):
     tags: list[Label] = Field(
@@ -170,7 +176,10 @@ class LocalDelta(BaseModel):
 
 
 class NextState(PlayerSnapshot):
-    """导演提议的下一刻：快照四字段整体重写；major_events 只写本回合新发生的大事，由服务端追加进世界台账。"""
+    """
+    导演提议的下一刻：快照四字段整体重写；major_events 只写本回合新发生的大事，由服务端追加进世界台账；
+    involved_entities 是本回合推演涉及的核心专有名词（实体提取），由服务端滤去场面上看不见的之后，作为下一回合关系图检索的种子。
+    """
 
     major_events: list[WorldEvent] = Field(
         default=[],
@@ -178,6 +187,15 @@ class NextState(PlayerSnapshot):
         description=(
             f"仅本回合新发生的重大变故（NPC 死亡、地标被毁、剧情节点），至多 {MAX_NEW_EVENTS} 条，同一场变故合为一条；"
             "没有则为空数组，绝不抄写已有的历史"
+        ),
+    )
+
+    involved_entities: list[Label] = Field(
+        default=[],
+        max_length=MAX_ENTITIES,
+        description=(
+            "本回合推演涉及的核心专有名词：具体地点、人名、武功、门派、特定物品，人物写真名；"
+            "只写场景中实际出现的，只存在于 secrets 或玩家内心念头里的不写"
         ),
     )
 
@@ -189,6 +207,18 @@ class NextState(PlayerSnapshot):
             logger.warning("本回合新增大事超过 %d 条，舍弃：%s", MAX_NEW_EVENTS, value[MAX_NEW_EVENTS:])
             return value[:MAX_NEW_EVENTS]
         return value
+
+    @field_validator("involved_entities", mode="before")
+    @classmethod
+    def _keep_proper_nouns(cls, value: object) -> object:
+        # 实体只是检索种子，不是契约要害：写重复、写成长句、写超量都去重截断并记下，而不是让整回合被判非法、重采样耗尽后 502
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            return value  # 形状不对的交给 Label 校验判非法
+        names = (item.strip() for item in value)
+        kept = list(dict.fromkeys(name for name in names if 0 < len(name) <= LABEL_CHARS))[:MAX_ENTITIES]
+        if kept != value:
+            logger.warning("实体提取有重复、超长或超量，已规整：%s", value)
+        return kept
 
 
 class DirectorOutput(BaseModel):

@@ -1,9 +1,10 @@
 """
 [INPUT]: 依赖 director/prompts.py 的 read_section / read_directive，依赖 app.lore 的 SHICHEN / GRANDMASTERS，依赖 llm/base.py 的 JsonSchema，
-         依赖 app.schemas 的 PlayerState / NextState / DirectorOutput / PlayerDelta / TagDelta / SecretDelta / LocalDelta / WorldEvent / Options
+         依赖 app.schemas 的 PlayerState / NextState / DirectorOutput / PlayerDelta / TagDelta / SecretDelta / LocalDelta / WorldEvent / Options / LABEL_CHARS
 [OUTPUT]: 对外提供 MockLLM —— 实现 LLMClient 协议的离线导演
-[POS]: llm 包的零密钥替身：像真实大模型一样只"阅读"提示词协议标签（player_state / opening_seed / player_action / directive）并产出合规 JSON，让整条管线无需 API Key 即可端到端运行；"偷听"上报一条私密情报，"烧/毁"上报一条以当前地点为标签、旁观者视角的世界大事，走通情报隔离与 JIT 记忆；
-       回合场景与选项是被动沙盒的样板——只有环境的自然反馈，没有冲着玩家来的目光与巧合
+[POS]: llm 包的零密钥替身：像真实大模型一样只"阅读"提示词协议标签（player_state / opening_seed / player_action / directive）并产出合规 JSON，让整条管线无需 API Key 即可端到端运行；"偷听"上报一条私密情报，"烧/毁"上报一条以当前地点为标签、旁观者视角的世界大事，走通情报隔离与记忆落账；
+       每回合照常做实体提取（所在地 + 到场的高手 / 行刑者），走通下一回合的关系图检索；System Prompt 里的参考模块它不读——
+       回合场景与选项是被动沙盒的样板，只有环境的自然反馈，没有冲着玩家来的目光与巧合
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -14,6 +15,7 @@ from app.director import prompts
 from app.lore import GRANDMASTERS, SHICHEN
 from app.llm.base import JsonSchema
 from app.schemas import (
+    LABEL_CHARS,
     DirectorOutput,
     LocalDelta,
     NextState,
@@ -95,13 +97,15 @@ class MockLLM:
             scene_description=premise,
             game_over=False,
             options=self._rng.choice(_OPTIONS),
-            next_state=state,
+            next_state=state.model_copy(update={"involved_entities": [_place(state), *arrived]}),
             local_delta=LocalDelta(arrived=arrived),
         )
 
     def _execution(self, state: NextState, killer: str, signature: str) -> DirectorOutput:
         scene = _EXECUTION.format(killer=killer, signature=signature)
-        dead = state.model_copy(update={"health_status": f"中{signature}，气绝身亡"})
+        dead = state.model_copy(
+            update={"health_status": f"中{signature}，气绝身亡", "involved_entities": [_place(state), killer, signature]}
+        )
         return DirectorOutput(scene_description=scene, game_over=True, options=None, next_state=dead)
 
     def _wander(self, state: NextState, action: str) -> DirectorOutput:
@@ -110,11 +114,11 @@ class MockLLM:
         razed = any(word in action for word in _RAZE_WORDS)
         weather = self._rng.choice(_WEATHERS)
         scene = self._rng.choice(_SCENES).format(location=state.location, weather=weather)
-        place = state.location[:20]  # 标签是 Label（≤20 字）
+        place = _place(state)
         # 旁观者视角：世人看得见的是这场火，看不见是谁放的——真相若是暗中所为，属于玩家的 secrets
         events = [WorldEvent(tags=[place], event_desc=f"{place}突起大火，烧成一片焦土")] if razed else []
         next_state = state.model_copy(
-            update={"time": _next_shichen(state.time), "weather": weather, "major_events": events}
+            update={"time": _next_shichen(state.time), "weather": weather, "major_events": events, "involved_entities": [place]}
         )
         return DirectorOutput(
             scene_description=scene,
@@ -131,3 +135,7 @@ class MockLLM:
 
 def _next_shichen(time: str) -> str:
     return SHICHEN[(SHICHEN.index(time) + 1) % len(SHICHEN)] if time in SHICHEN else time
+
+
+def _place(state: NextState) -> str:
+    return state.location[:LABEL_CHARS]  # 地点作标签或实体时须是 Label（≤20 字）

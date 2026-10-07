@@ -1,10 +1,13 @@
 """
-[INPUT]: 依赖 app.schemas 的 GameState / PlayerSnapshot / PlayerState / WorldState / WorldEvent / TagDelta / SecretDelta / LocalDelta / DirectorOutput / LEDGERS / MAX_TAGS，
+[INPUT]: 依赖 app.schemas 的 GameState / PlayerSnapshot / PlayerState / WorldEvent / TagDelta / SecretDelta / LocalDelta / DirectorOutput / TAG_LEDGERS / MAX_TAGS，
          依赖 app.lore 的 kin / is_grandmaster（在场者按身份认人、满员时高手优先），依赖 app.errors 的 SessionDeadError / SessionBusyError
-[OUTPUT]: 对外提供 evolve（状态推进）、reconcile（四本标签账）、absorb（私密情报账）、chronicle（世界台账）、LocalEnvironment / observe（局部环境）、Turn、
-          Session（含 acting 守卫、presence 在场判定素材、advance 推进）、SessionStore（LRU 内存仓库）
+[OUTPUT]: 对外提供 evolve（状态推进）、reconcile（四本标签账）、absorb（私密情报账）、chronicle（世界台账）、still_secret（私密优先判据）、
+          LocalEnvironment / observe（局部环境）、witnessed（实体可见性闸门）、Turn、
+          Session（含 acting 守卫、presence 在场判定素材、involved 检索种子、advance 推进）、SessionStore（LRU 内存仓库）
 [POS]: app 的会话状态层，是世界状态的唯一权威；被 director/pipeline.py 读写，不感知 HTTP 与大模型。
-       三种记账各守一条规矩：五本玩家账（含 secrets）遗漏不等于失去；世界台账只追加不删除；局部环境同图只认增减、换图强制清空
+       三种记账各守一条规矩：五本玩家账（含 secrets）遗漏不等于失去；世界台账只追加不删除；局部环境同图只认增减、换图强制清空。
+       absorb / chronicle / still_secret 是私密情报账与世界台账的记账规矩，由记忆仓储（app/memory_service.py）在 commit_event 里施行——
+       规矩住在这里，存储换成什么后端都照此记账
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -18,8 +21,8 @@ from uuid import UUID, uuid4
 from app.errors import SessionBusyError, SessionDeadError
 from app.lore import is_grandmaster, kin
 from app.schemas import (
-    LEDGERS,
     MAX_TAGS,
+    TAG_LEDGERS,
     DirectorOutput,
     GameState,
     LocalDelta,
@@ -28,7 +31,6 @@ from app.schemas import (
     SecretDelta,
     TagDelta,
     WorldEvent,
-    WorldState,
 )
 
 logger = logging.getLogger(__name__)
@@ -37,22 +39,24 @@ MAX_PRESENT = 12  # 局部环境在场者上限：满员时绝顶高手一律留
 
 
 # ============================================================
-#  状态推进 —— 快照照单全收；五本账只认增减；世界台账只追加，且容不下仍是秘密的事
+#  状态推进 —— 快照照单全收；标签账只认增减；情报账与世界台账交给记忆仓储落账
 # ============================================================
 _SECRET_OVERLAP = 6  # 判"同一件事"的最短包含长度：太短会把"马大元暴毙"这类公开事实误当成秘密吞掉
 
 
 def evolve(state: GameState, out: DirectorOutput) -> GameState:
+    """
+    快照四字段照单全收，四本标签账按增减记账；私密情报账与世界台账原样带过——
+    它们统一经记忆仓储的 commit_event / retire_secret 落账，换存储后端时这里一行不用改。
+    """
     before, delta = state.player_state, out.player_delta
-    ledgers = {name: _BOOKKEEPERS.get(name, reconcile)(getattr(before, name), getattr(delta, name)) for name in LEDGERS}
-    snapshot = PlayerSnapshot.model_validate(out.next_state.model_dump(exclude={"major_events"}))
-    player = PlayerState(**snapshot.model_dump(), **ledgers)
-    public = [event for event in out.next_state.major_events if not _still_secret(event, player.secrets)]
-    world = WorldState(major_events=chronicle(state.world_state.major_events, public))
-    return GameState(player_state=player, world_state=world)
+    snapshot = {name: getattr(out.next_state, name) for name in PlayerSnapshot.model_fields}
+    ledgers = {name: reconcile(getattr(before, name), getattr(delta, name)) for name in TAG_LEDGERS}
+    player = PlayerState.model_validate(before.model_dump() | snapshot | ledgers)
+    return GameState(player_state=player, world_state=state.world_state)
 
 
-def _still_secret(event: WorldEvent, secrets: Sequence[str]) -> bool:
+def still_secret(event: WorldEvent, secrets: Sequence[str]) -> bool:
     """
     同一件事不能既是秘密又是天下皆知：大模型把刚得知的内情同时写进 secrets 与 major_events 时，私密优先——
     泄露不可撤回，而公开的大事等秘密真被当众揭穿（secrets 里 remove 掉）时再记也不迟。
@@ -106,10 +110,6 @@ def _drop_named(held: list[str], names: Sequence[str]) -> list[str]:
         else:
             kept.remove(found)
     return kept
-
-
-# 账本 -> 记账规则：四本标签账走 reconcile，私密情报账走 absorb
-_BOOKKEEPERS = {"secrets": absorb}
 
 
 def chronicle(events: list[WorldEvent], fresh: Sequence[WorldEvent]) -> list[WorldEvent]:
@@ -187,6 +187,19 @@ def _same_person(a: str, b: str) -> bool:
     return bool(set(kin(a)) & set(kin(b)))
 
 
+def witnessed(out: DirectorOutput, local: LocalEnvironment) -> tuple[str, ...]:
+    """
+    实体可见性闸门：大模型提取的 involved_entities 只留场面上看得见的——场景原文里出现（含别名）、此刻在场或就是所在地的专名。
+    只存在于 secrets 或玩家内心念头里的人事，即便被写进来，也成不了下一回合关系图检索的种子：秘密不能牵动世界。
+    """
+    scene, here = out.scene_description, local.location
+    return tuple(
+        name
+        for name in out.next_state.involved_entities
+        if any(alias in scene for alias in kin(name)) or name in here or any(_same_person(name, npc) for npc in local.present_npcs)
+    )
+
+
 # ============================================================
 #  会话
 # ============================================================
@@ -204,6 +217,7 @@ class Session:
     state: GameState
     history: deque[Turn]  # 滑动窗口：deque 的 maxlen 即窗口长度，更早的回合自动截断
     local: LocalEnvironment = field(default_factory=lambda: LocalEnvironment(location=""))
+    involved: tuple[str, ...] = ()  # 上一回合推演涉及、且场面上看得见的专有名词：下一回合关系图检索的种子
     dead: bool = False
     busy: bool = False
 
@@ -227,8 +241,10 @@ class Session:
             self.busy = False
 
     def advance(self, action: str, out: DirectorOutput) -> None:
+        """回合落定：快照与标签账、局部环境、检索种子、短期记忆、生死。情报账与世界台账由管线随后经记忆仓储落账。"""
         self.state = evolve(self.state, out)
         self.local = observe(self.local, out.next_state.location, out.local_delta)
+        self.involved = witnessed(out, self.local)
         self.history.append(Turn(action, out.scene_description))
         self.dead = out.game_over
 
@@ -241,12 +257,14 @@ class SessionStore:
         self._capacity = capacity
         self._history_turns = history_turns
 
-    def create(self, state: GameState, opening_scene: str, local: LocalEnvironment | None = None) -> Session:
+    def create(
+        self, state: GameState, opening_scene: str, local: LocalEnvironment | None = None, involved: tuple[str, ...] = ()
+    ) -> Session:
         here = local or LocalEnvironment(location=state.player_state.location)
-        return self._put(uuid4(), state, (Turn("", opening_scene),), here)
+        return self._put(uuid4(), state, (Turn("", opening_scene),), here, involved)
 
     def get_or_rehydrate(self, session_id: UUID, client_state: GameState) -> Session:
-        """服务端会话优先；丢失时以客户端快照冷启动（开发期热重载、进程重启后无缝续玩；局部环境与短期记忆随之清空）。"""
+        """服务端会话优先；丢失时以客户端快照冷启动（开发期热重载、进程重启后无缝续玩；局部环境、检索种子与短期记忆随之清空）。"""
         session = self._sessions.get(session_id)
         if session is None:
             local = LocalEnvironment(location=client_state.player_state.location)
@@ -254,8 +272,15 @@ class SessionStore:
         self._sessions.move_to_end(session_id)
         return session
 
-    def _put(self, session_id: UUID, state: GameState, turns: tuple[Turn, ...], local: LocalEnvironment) -> Session:
-        session = Session(session_id, state, deque(turns, maxlen=self._history_turns), local)
+    def _put(
+        self,
+        session_id: UUID,
+        state: GameState,
+        turns: tuple[Turn, ...],
+        local: LocalEnvironment,
+        involved: tuple[str, ...] = (),
+    ) -> Session:
+        session = Session(session_id, state, deque(turns, maxlen=self._history_turns), local, involved)
         self._sessions[session_id] = session
         while len(self._sessions) > self._capacity:
             self._sessions.popitem(last=False)

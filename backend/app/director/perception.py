@@ -2,7 +2,7 @@
 [INPUT]: 依赖标准库 re
 [OUTPUT]: 对外提供 surface() —— 玩家动作中外人看得见、听得见的部分
 [POS]: director 的感知边界：同一条动作文本，导演全读，NPC 与规则层只读"表面行为"。
-       被 lethal.judge（只有看得见的冒犯才招来杀身之祸）与 pipeline 的 JIT 点名检索（内心念头不把历史拽进上下文）共用，
+       被 lethal.judge（只有看得见的冒犯才招来杀身之祸）与 pipeline 的 RAG 语义检索（内心念头不把历史拽进上下文）共用，
        "玩家的表面行为"在全系统只有这一个定义
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """

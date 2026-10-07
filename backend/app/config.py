@@ -1,8 +1,8 @@
 """
 [INPUT]: 依赖 pydantic 的 Field、pydantic-settings 的 BaseSettings，读取进程环境变量与 backend/.env
 [OUTPUT]: 对外提供 Settings 配置模型、get_settings() 进程级单例
-[POS]: app 的唯一配置入口，被 main.py（装配、滑动窗口长度、JIT 记忆条数、CORS）与 llm/factory.py（模型选型）消费；
-       窗口与记忆条数以 Field 约束钉死范围——Prompt 载荷恒定是架构红线，不是可随意调大的旋钮
+[POS]: app 的唯一配置入口，被 main.py（装配、滑动窗口长度、RAG 检索条数、CORS）与 llm/factory.py（模型选型）消费；
+       窗口与两条检索路径的条数以 Field 约束钉死范围——Prompt 载荷恒定是架构红线，不是可随意调大的旋钮
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -33,11 +33,12 @@ class Settings(BaseSettings):
     llm_thinking_level: str = "low"  # 仅 gemini：思考档位，low 把回合延迟压到约 5s；留空则用模型默认
 
     # ------------------------------------------------------------------
-    #  会话与上下文 —— 纯内存，容量封顶防止长跑进程无界增长；窗口与记忆条数封顶使 Prompt 长度恒定
+    #  会话与上下文 —— 纯内存，容量封顶防止长跑进程无界增长；窗口与检索条数封顶使 Prompt 长度恒定
     # ------------------------------------------------------------------
     session_capacity: int = 1000
     history_turns: int = Field(default=4, ge=3, le=5)  # 滑动窗口：喂给导演的最近回合原文，钉死在 3~5
-    memory_limit: int = Field(default=8, ge=1, le=20)  # JIT 记忆：每回合至多注入的相关世界大事条数
+    graph_limit: int = Field(default=12, ge=1, le=30)  # 关系图检索：每回合至多注入的关系网行数（台账大事 + 原著关系）
+    semantic_top_k: int = Field(default=3, ge=1, le=10)  # 语义检索：每回合至多注入的相关往事与江湖常识条数
 
     # ------------------------------------------------------------------
     #  HTTP

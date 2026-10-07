@@ -2,7 +2,8 @@
 [INPUT]: 依赖 app.session 的 reconcile / chronicle，依赖 app.schemas 的 TagDelta / WorldEvent / GameState / WorldState / InteractRequest / LEDGERS，
          依赖 app.director 的 Director、app.lore 的 OPENING_SEEDS，依赖 conftest 的 ScriptedLLM / alive_reply 与 store / game / client 夹具
 [OUTPUT]: 记账用例：五本玩家账（四本标签账 + secrets；遗漏≠失去、点名才移除、模糊匹配、快照走私拦截）、世界台账（只追加、复述去重、不设上限、
-          大模型无法借 next_state 改写或删除旧事）、状态栏格式与缺省值、开局与冷启动的整树延续、Mock 走同一本账
+          大模型无法借 next_state 改写或删除旧事）、状态栏格式与缺省值、开局与冷启动的整树延续（开局的情报与大事同样经记忆仓储落账）、
+          Mock 走同一本账
 [POS]: tests 中守护"清单由服务端记账、大模型只报增减"这条状态法则的用例集
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -157,6 +158,18 @@ def test_opening_seed_ledgers_carry_over_without_duplication(store):
     opening = asyncio.run(Director(ScriptedLLM(reply), store, rng=_Draw(songhe)).open())
     assert opening.next_state.player_state.inventory == ["三枚铜钱", "半块炊饼"]
     assert opening.next_state.player_state.buffs_debuffs == songhe.state.player_state.buffs_debuffs
+
+
+def test_opening_settles_secrets_and_events_through_memory(store):
+    # 开局与回合走同一本账：开场就得知的私密情报与开场写下的大事，同样经记忆仓储落账
+    songhe = next(s for s in OPENING_SEEDS if s.state.player_state.inventory == ["三枚铜钱"])
+    reply = alive_reply(
+        player_delta={"secrets": {"add": ["那三枚铜钱是从邻桌顺来的"]}},
+        major_events=[{"tags": ["松鹤楼"], "event_desc": "松鹤楼今日新换了招牌"}],
+    )
+    opening = asyncio.run(Director(ScriptedLLM(reply), store, rng=_Draw(songhe)).open())
+    assert opening.next_state.player_state.secrets == ["那三枚铜钱是从邻桌顺来的"]
+    assert opening.next_state.world_state.major_events == [_event("松鹤楼今日新换了招牌", "松鹤楼")]
 
 
 def test_rehydration_restores_the_whole_tree(store, game):

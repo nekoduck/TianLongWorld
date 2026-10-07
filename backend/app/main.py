@@ -1,7 +1,8 @@
 """
-[INPUT]: 依赖 fastapi 与 CORSMiddleware，依赖 app.config / app.api / app.director / app.session / app.llm.factory / app.errors
+[INPUT]: 依赖 fastapi 与 CORSMiddleware，依赖 app.config / app.api / app.director / app.session / app.memory_service / app.llm.factory / app.errors
 [OUTPUT]: 对外提供 create_app() 组合根与模块级 app（uvicorn app.main:app 的入口）
-[POS]: app 的组合根：唯一一处把配置、大模型、会话仓库、导演与路由装配在一起的地方；测试经 director 参数注入替身
+[POS]: app 的组合根：唯一一处把配置、大模型、会话仓库、记忆仓储、导演与路由装配在一起的地方——
+       记忆存在内存还是图数据库与向量库，只在这里换一个工厂；测试经 director 参数注入替身
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -14,6 +15,7 @@ from app.config import Settings, get_settings
 from app.director import Director
 from app.errors import GameError
 from app.llm.factory import build_llm
+from app.memory_service import in_memory
 from app.session import SessionStore
 
 
@@ -28,7 +30,8 @@ def create_app(settings: Settings | None = None, director: Director | None = Non
     director = director or Director(
         build_llm(settings),
         SessionStore(capacity=settings.session_capacity, history_turns=settings.history_turns),
-        memory_limit=settings.memory_limit,
+        memory=in_memory(graph_limit=settings.graph_limit),
+        semantic_top_k=settings.semantic_top_k,
     )
 
     app = FastAPI(title="天龙八部：平行世界", version="0.1.0")
