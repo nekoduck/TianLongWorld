@@ -1,17 +1,22 @@
 """
 [INPUT]: 依赖 domain/models 的节点类型、entity_id / EntityKind、prerequisite_cycle、NAME_CHARS / DESC_CHARS 与 WorldBlueprint；
          Raw* 抽取记录仅作类型标注（运行期不导入，避免与 knowledge_extractor 成环）
-[OUTPUT]: 对外提供 BlueprintAssembler（名称级抽取记录 → 引用完整的 WorldBlueprint）、AssemblyReport（丢弃 / 封存 / 失败的明细）、
+[OUTPUT]: 对外提供 BlueprintAssembler（名称级抽取记录 → 引用完整的 WorldBlueprint）、AssemblyReport（丢弃 / 封存 / 孤儿 / 时间线 / 自愈 / 失败的明细）、
+          CanonEventKind（抽取契约里 T=0 之后的三类状态变化：组装器认得的证据种类）、
           GENERIC_PEOPLE / GENERIC_PLACES / GENERIC_ARTS 泛称词表（人物与地点另有"描述不是名字"的模式判据）
 [POS]: infrastructure 的确定性组装器（World Seeding 的后半程）：大模型读书，这里定案。
-       实体消歧：两条记录的正名互见（正名=正名 或 正名=别名）才合并，别名撞别名不合并；称谓与泛称（爹爹、夫人、院子、卧室）
-       既不能当正名也不能当别名——真实原著里「妈妈」曾把刀白凤与甘宝宝捏成一个人、「卧室」曾把剑湖宫与万劫谷连成一片；
-       正名按各块记录投票（同票取先出现者），免得某一回只以「爹爹」称呼的人从此就叫「爹爹」；
+       实体消歧：两条记录的正名互见（正名=某组任一称呼，或本记录的称号 / 别名=某组某条记录的正名）才合并，别名撞别名不合并；
+       称谓与泛称（爹爹、夫人、院子、卧室）既不能当正名也不能当别名——真实原著里「妈妈」曾把刀白凤与甘宝宝捏成一个人；
+       三名分立：本名只在知道本名的记录里投票（只以称号出场的记录写的是称号，不能篡位成主键——段延庆不叫「恶贯满盈」），
+       整组都只知称号时才退回全体投票；称号归 titles，化名旧称归 aliases；
        尾缀并入：「玄悲禅师」「一阳指法」在词干恰是另一组正名时并入它，带尾缀的称呼降为别名；
-       时间切片：标量状态"首次登场即开篇"（按原著先后取第一次写明的值；看不出的 None 不占位，否则"未知"会冒充"最弱"），列表取并集；
+       时间切片：标量状态"首次登场即开篇"（按原著先后取第一次写明的值；看不出的 None 不占位），列表取并集；
+       时间线隔离：抽取契约的 events 是 T=0 之后的状态变化，它们是证据而不是状态——只用来否决被时间线污染的开篇状态
+       （后文习得的武学剔出开篇武学、后文才得到的物品不认他作开篇物主、后文身故者开篇健在），本身不进蓝图；
        境界通篇看不出时由图谱证据定下限：身负武学或身在门派者至少三流，两样都无从考证的才算不入流；
-       引用落地：一切名称引用都必须解析到本体实体，解析不了的出口、关系、人物武学直接丢弃，物品无处安放即丢弃；
-       宁严勿宽：武学的前置引用了本体中不存在的武学 / 典籍 / 地点，或前置成环，一律封存（sealed）——宁可失传，不可滥传；
+       引用落地：一切名称引用都必须解析到本体实体，解析不了的出口、关系、人物武学直接丢弃；
+       物品无处安放即丢弃——唯独被某门武学获取要求引用的，以下落不明的孤儿留在本体里，等自愈代理（graph_linter）据常识安放；
+       宁严勿宽：武学引用了根本不存在的武学 / 典籍 / 地点，或根基成环，一律封存（sealed）——宁可失传，不可滥传；
        拓扑补全：上级地点与其处所互通（「剑湖宫」入「剑湖宫·练武厅」），道路双向，A 通 B 而 B 不通 A 时补一条「往A」的回程
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -22,6 +27,7 @@ import re
 from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from app.domain.models import (
@@ -48,14 +54,28 @@ if TYPE_CHECKING:
     from app.infrastructure.knowledge_extractor import ChunkExtraction
 
 
+# T=0 之后改变状态的三类事：每一类恰好否决一种开篇状态——组装器只认得这三种证据。
+# 枚举也是抽取契约的一部分（knowledge_extractor 的 RawCanonEvent.kind），定义在消费它的这一侧，免得运行期成环
+class CanonEventKind(StrEnum):
+    LEARNED = "习得武学"  # 否决：此人开篇即会此功
+    OBTAINED = "得到物品"  # 否决：此人是此物的开篇物主
+    DIED = "身故"  # 否决：此人开篇已故
+
+
 @dataclass
 class AssemblyReport:
     dropped: list[str] = field(default_factory=list)
     sealed: list[str] = field(default_factory=list)
+    orphans: list[str] = field(default_factory=list)  # 被武学引用却下落不明的物品，待自愈
+    timeline: list[str] = field(default_factory=list)  # 被后文事件否决的开篇状态
+    healed: list[str] = field(default_factory=list)  # 自愈代理的安放与未决（由播种操作面在组装之后填入）
     failed_chunks: list[str] = field(default_factory=list)
 
     def render(self) -> str:
-        sections = (("丢弃", self.dropped), ("封存", self.sealed), ("抽取失败", self.failed_chunks))
+        sections = (
+            ("丢弃", self.dropped), ("封存", self.sealed), ("孤儿", self.orphans),
+            ("时间线", self.timeline), ("自愈", self.healed), ("抽取失败", self.failed_chunks),
+        )
         return "\n".join(f"[{title}] {line}" for title, lines in sections for line in lines) or "（无异常）"
 
 
@@ -105,22 +125,42 @@ def _never(name: str) -> bool:
 # ============================================================
 #  实体消歧 —— 同类记录按正名互见合并，保持原著先后
 # ============================================================
+def _is_title(record: Any) -> bool:
+    """这条记录的 name 写的是称号（本段不知其本名）：只有人物记录有此标记，旧版缓存一律视为本名。"""
+    return bool(getattr(record, "name_is_title", False))
+
+
+def _titles_of(record: Any) -> list[str]:
+    return list(getattr(record, "titles", ()))
+
+
 @dataclass
 class _Group:
     records: list[Any] = field(default_factory=list)
     primary: set[str] = field(default_factory=set)  # 成员记录的正名
-    every: set[str] = field(default_factory=set)  # 正名 ∪ 别名
+    every: set[str] = field(default_factory=set)  # 正名 ∪ 称号 ∪ 别名
 
     @property
     def name(self) -> str:
-        """正名投票：各块记录里最常作 name 的那个，同票取先出现者（Counter 保序）。"""
-        return Counter(_clean([r.name])[0] for r in self.records).most_common(1)[0][0]
+        """
+        本名投票：只在知道本名的记录里投——只以称号出场的记录写的是称号，票数再多也不能篡位成主键；
+        整组都只知称号时才退回全体投票。同票取先出现者（Counter 保序）。
+        """
+        voters = [r for r in self.records if not _is_title(r)] or self.records
+        return Counter(_clean([r.name])[0] for r in voters).most_common(1)[0][0]
+
+    @property
+    def titles(self) -> tuple[str, ...]:
+        """称号 = 全组 titles ∪ 只知称号的记录的 name（去掉本名）。"""
+        names = _union([[r.name for r in self.records if _is_title(r)], *(_titles_of(r) for r in self.records)])
+        return tuple(n for n in names if n != self.name)
 
     @property
     def aliases(self) -> tuple[str, ...]:
-        """别名 = 其余成员记录的正名 ∪ 全部别名：「萧峰」并入「乔峰」之后仍是它的一个称呼。"""
-        names = _union([[r.name for r in self.records], *(r.aliases for r in self.records)])
-        return tuple(n for n in names if n != self.name)
+        """别名 = 其余知道本名的记录的 name ∪ 全部别名（去掉本名与称号）：「萧峰」并入「乔峰」之后仍是它的一个称呼。"""
+        taken = {self.name, *self.titles}
+        names = _union([[r.name for r in self.records if not _is_title(r)], *(r.aliases for r in self.records)])
+        return tuple(n for n in names if n not in taken)
 
     def absorb(self, other: _Group) -> None:
         self.records.extend(other.records)
@@ -142,10 +182,12 @@ def _group(records: Iterable[Any], generic: Callable[[str], bool], report: Assem
             report.dropped.append(f"「{name[0]}」是泛称或描述，不成实体")
             continue
         record.aliases = [a for a in _clean(record.aliases) if not generic(a)]
-        aliases = [a for a in record.aliases if a != name[0]]
+        if hasattr(record, "titles"):
+            record.titles = [t for t in _clean(record.titles) if not generic(t)]
+        others = [a for a in (*record.aliases, *_titles_of(record)) if a != name[0]]
         hits = [
             g for g in groups
-            if name[0] in g.every or any(len(a) >= 2 and a in g.primary for a in aliases)
+            if name[0] in g.every or any(len(a) >= 2 and a in g.primary for a in others)
         ]
         target = hits[0] if hits else _Group()
         for extra in hits[1:]:
@@ -155,7 +197,7 @@ def _group(records: Iterable[Any], generic: Callable[[str], bool], report: Assem
             groups.append(target)
         target.records.append(record)
         target.primary.add(name[0])
-        target.every |= {name[0], *aliases}
+        target.every |= {name[0], *others}
     suffix = _HONORIFIC if generic is _person_generic else _ART_SUFFIX if generic is _art_generic else None
     return _fold_suffixes(groups, suffix) if suffix else groups
 
@@ -166,7 +208,7 @@ _ART_SUFFIX = re.compile(r"(?<=.)(?:剑法|法)$")  # 「一阳指法」并入�
 def _fold_suffixes(groups: list[_Group], suffix: re.Pattern[str]) -> list[_Group]:
     """
     「玄悲禅师」并入「玄悲」、「一阳指法」并入「一阳指」：只在词干本身是另一组的正名时才并——
-    「章虚道人」「降龙十八掌」的词干不是任何实体，它们就是全名。
+    「章虚道人」「降龙十八掌」的词干不是任何实体，它们就是全名。折叠只作用于正名，称号与别名原样保留。
     """
     by_name = {n: g for g in groups for n in g.primary}
     kept: list[_Group] = []
@@ -205,6 +247,15 @@ def _land(names: Iterable[str], idx: _Index, *, owner: str, misses: list[str]) -
     return tuple(landed)
 
 
+def _label(any_id: str) -> str:
+    """实体 id 的显示名：id 恒为「种类:正名」。"""
+    return any_id.split(":", 1)[1]
+
+
+def _because(note: str) -> str:
+    return f"：{note}" if note else ""
+
+
 class _Index:
     """名称 → id。正名优先；别名只在同类中无歧义时才收录；都不中时退而求唯一的包含匹配（「剑湖宫外」落到「剑湖宫」），多义不猜。"""
 
@@ -233,6 +284,44 @@ class _Index:
 
 
 # ============================================================
+#  时间线 —— T=0 之后的状态变化是证据，不是状态：只用来否决被时间线污染的开篇状态
+# ============================================================
+@dataclass
+class _Timeline:
+    learned: dict[tuple[str, str], str] = field(default_factory=dict)  # (人物, 武学) → 事件转述
+    obtained: dict[tuple[str, str], str] = field(default_factory=dict)  # (物品, 人物) → 事件转述
+    died: dict[str, str] = field(default_factory=dict)  # 人物 → 事件转述
+
+    @classmethod
+    def read(
+        cls, extractions: Sequence[ChunkExtraction], chr_i: _Index, art_i: _Index, itm_i: _Index,
+        report: AssemblyReport,
+    ) -> _Timeline:
+        """全书事件按原著先后落地：主角落到人物，宾语落到武学 / 物品；落不了地的事件证明不了任何事，丢弃。"""
+        timeline = cls()
+        for raw in (ev for e in extractions for ev in e.events):
+            if raw.kind is None:
+                report.dropped.append(f"事件「{raw.subject} — {raw.object or ''}」的种类无法识别")
+                continue
+            what = f"{raw.subject}{raw.kind.value}{raw.object or ''}"
+            if (who := chr_i.get(raw.subject)) is None:
+                report.dropped.append(f"事件「{what}」的人物不在本体之中")
+                continue
+            note = raw.note.strip()
+            if raw.kind is CanonEventKind.DIED:
+                timeline.died.setdefault(who, note)
+                continue
+            learned = raw.kind is CanonEventKind.LEARNED
+            if (thing := (art_i if learned else itm_i).get(raw.object)) is None:
+                report.dropped.append(f"事件「{what}」的{'武学' if learned else '物品'}不在本体之中")
+            elif learned:
+                timeline.learned.setdefault((who, thing), note)
+            else:
+                timeline.obtained.setdefault((thing, who), note)
+        return timeline
+
+
+# ============================================================
 #  组装
 # ============================================================
 class BlueprintAssembler:
@@ -245,14 +334,14 @@ class BlueprintAssembler:
         loc_i = _Index(EntityKind.LOCATION, loc_g)
         chr_i = _Index(EntityKind.CHARACTER, chr_g)
         art_i = _Index(EntityKind.MARTIAL_ART, art_g)
+        itm_i = _Index(EntityKind.ITEM, itm_g)  # 全部物品都可被引用：无处安放者是否留下，要看有没有武学需要它
+        timeline = _Timeline.read(extractions, chr_i, art_i, itm_i, report)
 
         locations = self._locations(loc_g, loc_i, report)
-        characters = [self._character(g, loc_i, art_i, report) for g in chr_g]
-        # 物品可能因无处安放而不存在：先定案物品，再只为落地的物品建索引——否则武学前置会指向一件被丢弃的秘籍
-        landed = [(g, i) for g in itm_g if (i := self._item(g, chr_i, loc_i, report)) is not None]
-        items = [i for _, i in landed]
-        itm_i = _Index(EntityKind.ITEM, [g for g, _ in landed])
+        characters = [self._character(g, loc_i, art_i, timeline, report) for g in chr_g]
+        placed = {entity_id(EntityKind.ITEM, g.name): self._place(g, chr_i, loc_i, timeline, report) for g in itm_g}
         arts = self._martial_arts(art_g, art_i, itm_i, loc_i, report)
+        items = self._items(itm_g, placed, arts, report)
         relations = self._relations(extractions, chr_i, report)
         blueprint = WorldBlueprint(
             locations=tuple(locations),
@@ -308,9 +397,12 @@ class BlueprintAssembler:
             for g in groups
         ]
 
-    # ---- 人物：首次登场即开篇状态 ----
+    # ---- 人物：首次登场即开篇状态，后文事件否决被时间线污染的部分 ----
     @staticmethod
-    def _character(g: _Group, loc_i: _Index, art_i: _Index, report: AssemblyReport) -> Character:
+    def _character(
+        g: _Group, loc_i: _Index, art_i: _Index, timeline: _Timeline, report: AssemblyReport
+    ) -> Character:
+        cid = entity_id(EntityKind.CHARACTER, g.name)
         where = _first(r.location for r in g.records)
         location_id = loc_i.get(where)
         if where and location_id is None:
@@ -321,12 +413,20 @@ class BlueprintAssembler:
                 report.dropped.append(f"{g.name} 所会的未知武学「{name}」")
             elif sid not in skills:
                 skills.append(sid)
+        for sid in [s for s in skills if (cid, s) in timeline.learned]:
+            report.timeline.append(f"{g.name} 开篇时尚未习得「{_label(sid)}」（后文习得{_because(timeline.learned[cid, sid])}）")
+            skills.remove(sid)
+        status = _first((r.status for r in g.records), CharacterStatus.ALIVE)
+        if cid in timeline.died and status is CharacterStatus.DECEASED:
+            report.timeline.append(f"{g.name} 开篇时健在（后文身故{_because(timeline.died[cid])}）")
+            status = CharacterStatus.ALIVE
         return Character(
-            id=entity_id(EntityKind.CHARACTER, g.name),
+            id=cid,
             true_name=g.name,
+            titles=g.titles,
             aliases=g.aliases,
             faction=str(_first(r.faction for r in g.records) or "")[:NAME_CHARS],
-            status=_first((r.status for r in g.records), CharacterStatus.ALIVE),
+            status=status,
             # 境界看不出时由图谱证据定下限：身负武学或身在门派者至少三流；两样都无从考证的才算不入流（未知 ≠ 最弱）
             tier=_first((r.tier for r in g.records), Tier.THIRD if skills or _first(r.faction for r in g.records) else Tier.NONE),
             disposition=_first((r.disposition for r in g.records), Disposition.NEUTRAL),
@@ -335,42 +435,43 @@ class BlueprintAssembler:
             description=str(_first(r.description for r in g.records) or "")[:DESC_CHARS],
         )
 
-    # ---- 武学：前置落地，落不了地即封存；成环即封存并断环 ----
+    # ---- 武学：两道门落地，落不了地即封存；根基成环即封存并断环 ----
     @staticmethod
     def _martial_arts(
         groups: Sequence[_Group], art_i: _Index, itm_i: _Index, loc_i: _Index, report: AssemblyReport
     ) -> list[MartialArt]:
-        prereqs: dict[str, tuple[Acquisition, Practice]] = {}
+        gates: dict[str, tuple[Acquisition, Practice]] = {}
         for g in groups:
             aid = entity_id(EntityKind.MARTIAL_ART, g.name)
-            raw = [r.prerequisites for r in g.records]
+            acq = [r.acquisition for r in g.records]
+            prac = [r.practice for r in g.records]
             unresolved: list[str] = []
-            skills = _land(_union(p.skills for p in raw), art_i, owner=aid, misses=unresolved)
-            items = _land(_union(p.items for p in raw), itm_i, owner=aid, misses=unresolved)
-            place_name = _first(p.location for p in raw)
+            skills = _land(_union(p.skills for p in prac), art_i, owner=aid, misses=unresolved)
+            items = _land(_union(a.items for a in acq), itm_i, owner=aid, misses=unresolved)
+            place_name = _first(a.location for a in acq)
             place = loc_i.get(place_name)
             if place_name and place is None:
                 unresolved.append(place_name)
-            conflicts = _land(_union(p.conflicts for p in raw), art_i, owner=aid, misses=[])  # 相冲之功不在本体即无从相冲，丢弃无害
-            # 前置是武学的静态属性而非随时间变化的状态：境界门槛取最严的一条；任何一段写明可凭典籍自悟才算自悟
-            min_tier = max((p.min_tier for p in raw), key=lambda t: t.rank)
-            self_study = any(p.transmission is Transmission.SELF for p in raw)
+            conflicts = _land(_union(p.conflicts for p in prac), art_i, owner=aid, misses=[])  # 相冲之功不在本体即无从相冲，丢弃无害
+            # 两道门是武学的静态属性而非随时间变化的状态：境界门槛取最严的一条；任何一段写明可凭典籍自悟才算自悟
+            min_tier = max((p.min_tier for p in prac), key=lambda t: t.rank)
+            self_study = any(a.transmission is Transmission.SELF for a in acq)
             transmission = Transmission.SELF if self_study else Transmission.TEACHER
             if transmission is Transmission.SELF and not items:
                 report.dropped.append(f"{g.name} 写作自悟却未载明典籍，改为须师传")
                 transmission = Transmission.TEACHER
             sealed = bool(unresolved)
             if sealed:
-                report.sealed.append(f"{g.name}：前置「{'、'.join(unresolved)}」不在本体之中")
-            prereqs[aid] = (
+                report.sealed.append(f"{g.name}：获取 / 修炼要求「{'、'.join(unresolved)}」不在本体之中")
+            gates[aid] = (
                 Acquisition(items=items, location_id=place, transmission=transmission, sealed=sealed),
                 Practice(skills=skills, min_tier=min_tier, conflicts=conflicts),
             )
-        while cycle := prerequisite_cycle({k: v[1].skills for k, v in prereqs.items()}):
-            report.sealed.append(f"前置成环：{' → '.join(cycle)}")
+        while cycle := prerequisite_cycle({k: v[1].skills for k, v in gates.items()}):
+            report.sealed.append(f"根基成环：{' → '.join(cycle)}")
             for aid in set(cycle):
-                acq, practice = prereqs[aid]
-                prereqs[aid] = (acq.model_copy(update={"sealed": True}), practice.model_copy(update={"skills": ()}))
+                acq_gate, practice = gates[aid]
+                gates[aid] = (acq_gate.model_copy(update={"sealed": True}), practice.model_copy(update={"skills": ()}))
         return [
             MartialArt(
                 id=entity_id(EntityKind.MARTIAL_ART, g.name),
@@ -380,29 +481,65 @@ class BlueprintAssembler:
                 kind=str(_first(r.kind for r in g.records) or "")[:NAME_CHARS],
                 tier=_first((r.tier for r in g.records), Tier.THIRD),
                 description=str(_first(r.description for r in g.records) or "")[:DESC_CHARS],
-                acquisition=prereqs[entity_id(EntityKind.MARTIAL_ART, g.name)][0],
-                practice=prereqs[entity_id(EntityKind.MARTIAL_ART, g.name)][1],
+                acquisition=gates[entity_id(EntityKind.MARTIAL_ART, g.name)][0],
+                practice=gates[entity_id(EntityKind.MARTIAL_ART, g.name)][1],
             )
             for g in groups
         ]
 
-    # ---- 物品：唯一归属，无处安放即不存在 ----
+    # ---- 物品：唯一归属；后文才得到者不作开篇物主 ----
     @staticmethod
-    def _item(g: _Group, chr_i: _Index, loc_i: _Index, report: AssemblyReport) -> Item | None:
-        owner = chr_i.get(_first(r.owner for r in g.records))
-        where = loc_i.get(_first(r.location for r in g.records))
-        if owner is None and where is None:
-            report.dropped.append(f"物品「{g.name}」既无可落地的物主也无可落地的所在")
-            return None
-        return Item(
-            id=entity_id(EntityKind.ITEM, g.name),
-            name=g.name,
-            aliases=g.aliases,
-            kind=str(_first(r.kind for r in g.records) or "")[:NAME_CHARS],
-            description=str(_first(r.description for r in g.records) or "")[:DESC_CHARS],
-            owner_id=owner,
-            location_id=where,
-        )
+    def _place(
+        g: _Group, chr_i: _Index, loc_i: _Index, timeline: _Timeline, report: AssemblyReport
+    ) -> tuple[str | None, str | None]:
+        """（物主, 所在）：物主按原著先后取第一个写明的候选，被"后文才得到"否决的跳过、取下一个，没有就无主。"""
+        iid = entity_id(EntityKind.ITEM, g.name)
+        owner: str | None = None
+        vetoed: list[str] = []
+        for name in (r.owner for r in g.records if r.owner not in (None, "")):
+            landed = chr_i.get(name)
+            if landed is not None and (iid, landed) in timeline.obtained:
+                if landed not in vetoed:
+                    vetoed.append(landed)
+                continue
+            owner = landed
+            break
+        for who in vetoed:
+            report.timeline.append(f"「{g.name}」开篇时不归{_label(who)}所有（后文才得到{_because(timeline.obtained[iid, who])}）")
+        return owner, loc_i.get(_first(r.location for r in g.records))
+
+    @staticmethod
+    def _items(
+        groups: Sequence[_Group], placed: dict[str, tuple[str | None, str | None]], arts: Sequence[MartialArt],
+        report: AssemblyReport,
+    ) -> list[Item]:
+        """
+        无处安放的物品默认不存在；唯独被某门武学获取要求引用的留作孤儿（下落不明）——丢掉它，那门武学只能封存，
+        留下它，自愈代理还能据常识为它找个去处。
+        """
+        needed: dict[str, list[str]] = {}
+        for art in arts:
+            for iid in art.acquisition.items:
+                needed.setdefault(iid, []).append(art.name)
+        items: list[Item] = []
+        for g in groups:
+            iid = entity_id(EntityKind.ITEM, g.name)
+            owner, where = placed[iid]
+            if owner is None and where is None:
+                if iid not in needed:
+                    report.dropped.append(f"物品「{g.name}」既无可落地的物主也无可落地的所在")
+                    continue
+                report.orphans.append(f"「{g.name}」下落不明，为「{'、'.join(needed[iid])}」所需——待自愈")
+            items.append(Item(
+                id=iid,
+                name=g.name,
+                aliases=g.aliases,
+                kind=str(_first(r.kind for r in g.records) or "")[:NAME_CHARS],
+                description=str(_first(r.description for r in g.records) or "")[:DESC_CHARS],
+                owner_id=owner,
+                location_id=where,
+            ))
+        return items
 
     # ---- 关系：两端都须是本体人物；去重、去自环 ----
     @staticmethod
