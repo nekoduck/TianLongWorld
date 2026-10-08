@@ -164,6 +164,16 @@ async def test_rest_is_offered_first_when_hurt_and_safe() -> None:
     assert "调息疗伤" not in every_label(*(await scene("loc:无量山", WOUNDED, grudge)))  # 仇人在侧
 
 
+async def test_rare_directions_hold_at_most_two_seats() -> None:
+    friend = RelationChanged(character_id="chr:辛双清", attitude=Attitude.FRIENDLY, cause="敌人之敌")
+    bruised = HealthChanged(delta=-30, cause="与龚光杰交手", source_id="chr:龚光杰")  # 轻伤：可疗、也还练得动
+    state, snap = await scene("loc:无量山", friend, bruised)
+    assert {"拾起玉佩", "调息疗伤", "向辛双清求教无量剑法"} <= set(every_label(state, snap))  # 三个稀缺方向都可行
+    categories = [o.category for o in OptionGenerator().generate(state, snap)]
+    assert categories[:2] == [OptionCategory.RECOVER, OptionCategory.CULTIVATE]
+    assert OptionCategory.ACQUIRE not in categories and len(categories) == 4  # 第三个稀缺方向让位给探索 / 交涉 / 战斗
+
+
 async def test_dead_men_have_no_options() -> None:
     from dataclasses import replace
 

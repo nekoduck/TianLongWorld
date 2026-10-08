@@ -5,7 +5,7 @@ TLBB-Engine（engine/）：Python 3.12+ + FastAPI WebSocket + Pydantic v2 + Post
 <directory>
 backend/ - FastAPI 服务：前后端协议、内存会话、记忆仓储（GraphRAG 接口地基）、导演管线（RAG 上下文注入）、大模型适配 (3子目录: app/director 导演管线, app/llm 大模型适配, tests 用例)
 frontend/ - React SPA：三段式沉浸 UI、打字机叙事、死亡锁死 (3子目录: src/api 后端门面, src/hooks 状态机与打字机, src/components 视图)
-engine/ - TLBB-Engine 下一代后端：DDD + CQRS + 事件溯源 + Graph RAG，原著播种、事件流折叠、图谱裁决、流式叙事 (4子目录: app/domain 本体·事件·聚合·裁决·端口, app/application 总线·解析·选项·叙事·编排, app/infrastructure 播种管道·持久化·大模型, app/presentation WebSocket；另有 data/source_text 原著, tests 用例)
+engine/ - TLBB-Engine 下一代后端：DDD + CQRS + 事件溯源 + Graph RAG，原著播种（T=0 锚点 + 图谱自愈）、事件流折叠（渐进式状态）、图谱裁决 + 地下城主模糊裁决、流式叙事 (4子目录: app/domain 本体·渐进式状态·战斗护栏·事件·聚合·裁决·端口, app/application 总线·解析·地下城主·选项·叙事·编排, app/infrastructure 播种管道·图谱自愈·持久化·大模型, app/presentation WebSocket；另有 data/source_text 原著, tests 用例)
 </directory>
 
 <config>
@@ -14,7 +14,7 @@ backend/.env.example - 大模型、会话与上下文配置模板（HISTORY_TURN
 frontend/package.json - 前端依赖与脚本（dev / dev:mock / build）
 frontend/vite.config.ts - Vite 插件与 /api → :8000 开发代理
 engine/requirements.txt - 引擎运行依赖（fastapi / uvicorn / pydantic-settings / httpx2 / asyncpg / neo4j / qdrant-client）
-engine/.env.example - 引擎配置模板：大模型四选一且意图 / 叙事 / 抽取三职责各配模型与思考档位（附实测推荐的 Gemini 组合）、EVENT_STORE / GRAPH_BACKEND / QDRANT_URL 各自 memory 或生产实现、MEMORY_RECALL_K 1~10、播种参数；默认全内存 + mock 零依赖可跑
+engine/.env.example - 引擎配置模板：大模型四选一且意图 / 叙事 / 地下城主 / 抽取四职责各配模型与思考档位（附推荐的 Gemini 组合）、EVENT_STORE / GRAPH_BACKEND / QDRANT_URL 各自 memory 或生产实现、MEMORY_RECALL_K 1~10、播种参数；默认全内存 + mock 零依赖可跑
 engine/docker-compose.yml - 引擎三件套后端 postgres:16 + neo4j:5.26 + qdrant
 </config>
 
@@ -70,19 +70,25 @@ engine/docker-compose.yml - 引擎三件套后端 postgres:16 + neo4j:5.26 + qdr
 <engine_architecture>
 TLBB-Engine 一回合（engine/app/application/handlers.py）：
   WebSocket 帧 → CommandBus → TurnPipeline
-    命令侧（玩家锁内串行）：重放 PostgreSQL 事件流 → Player 聚合（evolve 纯函数折叠，无状态表）→ 投影检查点自愈
+    命令侧（玩家锁内串行）：重放 PostgreSQL 事件流（decode_event 上抛旧账）→ Player 聚合（evolve 纯函数折叠，熟练度与气血只做加法，无状态表）→ 投影检查点自愈
       → Neo4j 局部真理快照 → [Parse] 自由文本经 WorldviewGuard + 意图解析器（选项点选按快照重算核验，不经大模型）
-      → [Validate] domain/rules 纯函数裁决（物理看快照、逻辑看聚合，驳回落为 ActionFailed）→ [Event] 乐观并发追加 → 同步投影 Neo4j 覆盖层
+      → [Validate] domain/rules 纯函数裁决（物理看快照、逻辑看聚合与火候，驳回落为 ActionFailed；出手由 combat 圈出可裁区间）
+      → [Resolve] 胜负未定才请地下城主（ResolutionAgent）在区间里提议 → [Event] 领域 settle 钳位定案、乐观并发追加 → 同步投影 Neo4j 覆盖层
     查询侧（无锁并行）：新快照 ∥ Qdrant 召回 → turn_resolved（事实白描）→ [Options] 合法边 3~4 个选项 ∥ [Render] Hard Prompt 流式叙事 ∥ 记忆写入 → turn_completed
 
 关键决策：
-- 世界播种：原著 TXT → 语料清洗（去水印、去序跋）→ 大模型逐块抽取名称级记录（描述防抄）→ 组装器确定性定案（泛称与描述不成实体、正名互见才合并且跨块投票、
-  首次登场即开篇、落不了地即丢弃、前置落不了地即封存）→ WorldBlueprint → 参数化 Cypher；引擎不凭空捏造地点人物武功。
-  当前入库：前 40 块（第一回至第九回）的 v5 蓝图与逐块抽取记录（engine/data/world/）；抽取器可换、契约不变——
-  export / ingest 让大模型之外的抽取器（子代理、人工）经同一道闸门入缓存
-- 逻辑死线：境界是有序等级，对决只比高下与性情；好感只来自物归原主与敌人之敌，武功只来自肯教之人或原著典籍且前置逐条核验，兵器不改境界
+- 世界播种：原著 TXT → 语料清洗（去水印、去序跋）→ 大模型逐块抽取名称级记录（时间锚点 T=0：开篇之后的变化只进 events，描述防抄）
+  → 组装器确定性定案（泛称与描述不成实体、正名互见才合并、本名只在知本名的记录里投票、events 否决被时间线污染的开篇状态、
+  落不了地即丢弃、门径落不了地即封存、被武学引用却无处安放的物品留作孤儿）→ 图谱自愈（据原著常识安放孤儿，provenance=推断，过闸门、可审阅）
+  → WorldBlueprint（图谱正典）→ 参数化 Cypher；引擎不凭空捏造地点人物武功，推断永远与原著分得清。
+  当前入库：前 40 块（第一回至第九回）的 v6 蓝图、逐块抽取记录与自愈缓存（engine/data/world/）；抽取器与自愈者可换、契约不变——
+  export / ingest 让大模型之外的抽取器与自愈者（子代理、人工）经同一道闸门入缓存
+- 语义本体：人物以本名 true_name 为主键（称号 titles、别名 aliases 只作指称）；武学分获取要求（门径）与修炼要求（根基）两道门
+- 渐进式状态：武学等级 = Σ SkillPracticed 熟练度 × 悟性系数 → 火候（火候不到境界打折）；气血 = Σ HealthChanged（钳位）→ 伤势；拿到秘籍不等于学会
+- 逻辑死线 + 模糊裁决：境界是有序等级；出手不再一锤定生死——境界差 × 性情 × 伤势圈出可裁区间，地下城主在区间里挑结局与扣减，
+  越级取胜与非极端找死的毙命不在区间里；好感只来自物归原主与敌人之敌，武功只来自肯教之人或原著典籍且两道门逐条核验，兵器不改境界
 - 平行世界：一位玩家 = 一条事件流 = 一个聚合；Neo4j 正典只读，每个世界一层可抹去重放的覆盖层（HELD_BY {world} 等）
-- 大模型三职责皆无状态且无写端口：抽取原著、解析意图、渲染文本；它宣称的任何结果都改不了已入账的事件
+- 大模型四职责皆无状态且无写端口：抽取原著（含自愈推断）、解析意图、地下城主提议、渲染文本；提议必经领域闸门，散文（速写、叙事）不入事件与记忆
 - 每个端口都有内存实现，与生产实现共跑契约测试；内存图谱复用领域 evolve，与 Neo4j 快照逐字段相等
 </engine_architecture>
 

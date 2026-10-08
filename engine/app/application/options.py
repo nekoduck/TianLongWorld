@@ -56,6 +56,7 @@ class ActionOption(BaseModel):
 # 稀缺的机缘排在前面（疗伤最急）；寻常的三类按快照版本轮换起点，让相邻回合的选项不总是同一副面孔
 _RARE = (OptionCategory.RECOVER, OptionCategory.CULTIVATE, OptionCategory.ACQUIRE)
 _COMMON = (OptionCategory.EXPLORE, OptionCategory.SOCIAL, OptionCategory.COMBAT)
+_RARE_SEATS = 2  # 首轮里稀缺方向最多占的席位：疗伤、修习、取物同时可行时，第三个让位给寻常方向
 
 # 候选：方向、意图、标签。标签可以是一个函数——有些措辞取决于裁决给出的凭借（修习凭的是谁、是什么）
 type _Label = str | Callable[[rules.Approval], str]
@@ -97,7 +98,8 @@ class OptionGenerator:
                 pools[category].append(ActionOption.of(category, text, intent))
 
         shift = snap.version % len(_COMMON)
-        order = [*_RARE, *_COMMON[shift:], *_COMMON[:shift]]
+        rare = [c for c in _RARE if pools[c]]
+        order = [*rare[:_RARE_SEATS], *_COMMON[shift:], *_COMMON[:shift], *rare[_RARE_SEATS:]]
         cursors = {c: snap.version % len(pools[c]) if pools[c] else 0 for c in order}
         picked: list[ActionOption] = []
         limit = self._max  # 第一轮每个方向至多一个；仍不足 min 个时，再一轮轮从各方向补到 min 为止
