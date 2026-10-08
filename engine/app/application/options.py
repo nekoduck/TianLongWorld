@@ -124,7 +124,7 @@ class OptionGenerator:
             teachers = sorted((c for c in snap.characters if art.id in c.skill_ids),
                               key=lambda c: c.attitude is not Attitude.FRIENDLY)  # 肯教的人排在前面
             mentor = teachers[0] if teachers else None
-            text = art.prerequisites.items[0] if art.prerequisites.items else None
+            text = art.acquisition.items[0] if art.acquisition.items else None
             label = f"向{mentor.name}求教{art.name}" if mentor else f"参悟{snap.label(text)}，修习{art.name}"
             yield ActionOption.of(OptionCategory.CULTIVATE, label,
                                   intent(action_type=ActionType.LEARN, skill_used=art.name,

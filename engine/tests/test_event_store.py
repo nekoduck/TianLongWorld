@@ -2,18 +2,19 @@
 [INPUT]: 依赖 app.infrastructure.persistence 的 InMemoryEventStore / PostgresEventStore，依赖 tests/conftest 的 PG_DSN
 [OUTPUT]: 事件账本契约测试：同一组用例在内存实现与真实 PostgreSQL（设置 TLBB_TEST_POSTGRES_DSN 时）上共跑
 [POS]: tests 的里氏替换证明：两种账本对上层不可区分——原子追加、乐观并发、版本连续、JSONB 往返；
-       另验证 PostgreSQL 由触发器守住"只追加"，历史在数据库层面不可篡改
+       另验证 PostgreSQL 由触发器守住"只追加"，历史在数据库层面不可篡改；库里的旧词汇（SkillLearned）读出时被上抛为现行事件
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
 import asyncio
+import json
 from collections.abc import AsyncIterator
 from uuid import uuid4
 
 import asyncpg
 import pytest
 
-from app.domain.events import Conversed, Moved, PlayerSpawned
+from app.domain.events import LEGACY_MASTERY_POINTS, Conversed, Moved, PlayerSpawned, SkillPracticed
 from app.domain.ports import EventStore
 from app.errors import ConcurrencyError
 from app.infrastructure.persistence.memory_event_store import InMemoryEventStore
@@ -88,6 +89,31 @@ async def test_postgres_history_is_append_only() -> None:
             await conn.execute("TRUNCATE domain_events")
         payload = await conn.fetchval("SELECT payload->>'location_id' FROM domain_events WHERE stream_id = $1", sid)
         assert payload == "loc:无量山"  # JSONB：可以直接在库里按字段查询事件
+    finally:
+        await conn.close()
+        await pg.close()
+
+
+@pytest.mark.postgres
+async def test_postgres_upcasts_legacy_vocabulary_on_read() -> None:
+    if not PG_DSN:
+        pytest.skip("未设置 TLBB_TEST_POSTGRES_DSN")
+    pg = await PostgresEventStore.connect(PG_DSN)
+    sid = stream()
+    await pg.append(sid, [SPAWN], expected_version=0)
+    legacy = {"type": "SkillLearned", "skill_id": "art:一阳指", "source_id": "chr:段正淳"}  # 旧版引擎写下的"获得即学会"
+    conn = await asyncpg.connect(PG_DSN)
+    try:
+        await conn.execute(
+            "INSERT INTO domain_events (stream_id, version, event_id, event_type, payload) VALUES ($1, 2, $2, $3, $4::jsonb)",
+            sid, uuid4(), "SkillLearned", json.dumps(legacy),
+        )
+        loaded = await pg.load(sid)
+        assert loaded[1].event == SkillPracticed(
+            skill_id="art:一阳指", proficiency_gained=LEGACY_MASTERY_POINTS, source_id="chr:段正淳"
+        )
+        stored = await conn.fetchval("SELECT event_type FROM domain_events WHERE stream_id = $1 AND version = 2", sid)
+        assert stored == "SkillLearned"  # 账本里的字节一字未改
     finally:
         await conn.close()
         await pg.close()

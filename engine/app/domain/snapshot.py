@@ -1,6 +1,8 @@
 """
-[INPUT]: 依赖 pydantic v2 的 BaseModel，依赖 domain/models 的 Tier / Disposition / Attitude / RelationKind / Prerequisites
-[OUTPUT]: 对外提供 局部真理快照 LocalSnapshot（集合字段构造即按固定键排序、referenced_ids 列出名称表须覆盖的 id）及其视图 LocationView / ExitView / CharacterView / BondView / ItemView / SkillView
+[INPUT]: 依赖 pydantic v2 的 BaseModel，依赖 domain/models 的 Tier / Disposition / Attitude / RelationKind / Acquisition / Practice，
+         依赖 domain/progression 的 MAX_HP / Mastery / Vitality / mastery_of / vitality
+[OUTPUT]: 对外提供 局部真理快照 LocalSnapshot（集合字段构造即按固定键排序、referenced_ids 列出名称表须覆盖的 id、玩家的熟练度 / 悟性 / 气血
+          及现算的 mastery / vitality）及其视图 LocationView / ExitView / CharacterView（含称号）/ BondView / ItemView / SkillView（获取要求 + 修炼要求）
 [POS]: domain 的读模型（CQRS 查询侧）：图谱投影在"玩家此刻所在之处"的一个切片。
        裁决规则只凭它判定物理事实（出口、在场者、物品所在），叙事大模型只凭它落笔（Hard Prompt），选项生成器只遍历它的合法边；
        快照之外的世界对这一回合不存在——这是杜绝幻觉的边界
@@ -12,7 +14,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from app.domain.models import Attitude, Disposition, Prerequisites, RelationKind, Tier
+from app.domain.models import Acquisition, Attitude, Disposition, Practice, RelationKind, Tier
+from app.domain.progression import MAX_HP, Mastery, Vitality, mastery_of, vitality
 
 
 def _get(x: Any, name: str) -> Any:
@@ -70,7 +73,8 @@ class SkillView(_Named):
     kind: str = ""
     faction: str = ""
     description: str = ""
-    prerequisites: Prerequisites = Prerequisites()
+    acquisition: Acquisition = Acquisition()
+    practice: Practice = Practice()
 
 
 class ItemView(_Named):
@@ -81,6 +85,9 @@ class ItemView(_Named):
 
 
 class CharacterView(_Named):
+    """name 是本名；titles 是江湖称号——玩家喊「恶贯满盈」也能落到段延庆身上。"""
+
+    titles: tuple[str, ...] = ()
     faction: str = ""
     tier: Tier
     disposition: Disposition
@@ -95,6 +102,10 @@ class CharacterView(_Named):
     def _order(cls, data: Any) -> Any:
         return _canonical(data, {"skill_ids": str, "bonds": lambda b: (_get(b, "other_id"), _get(b, "kind"))})
 
+    @property
+    def names(self) -> tuple[str, ...]:
+        return (self.name, *self.titles, *self.aliases)
+
     def bond_with(self, other_id: str) -> RelationKind | None:
         return next((b.kind for b in self.bonds if b.other_id == other_id), None)
 
@@ -102,7 +113,8 @@ class CharacterView(_Named):
 class LocalSnapshot(_View):
     """
     version 是投影检查点：等于玩家事件流的版本时，快照与真相一致。
-    labels 覆盖快照里出现的每一个 id（含前置条件引用的远方地点与典籍），渲染文字时无需再查图。
+    labels 覆盖快照里出现的每一个 id（含获取 / 修炼要求引用的远方地点与典籍），渲染文字时无需再查图。
+    玩家的渐进式状态只投影原始数值（熟练度之和、悟性、气血），火候与伤势与聚合根经同一套 progression 现算——两边不可能各说各话。
     """
 
     player_id: str
@@ -114,7 +126,9 @@ class LocalSnapshot(_View):
     characters: tuple[CharacterView, ...] = ()  # 在场之人（已故者不在场）
     items: tuple[ItemView, ...] = ()  # 可见之物：地上、在场者身上、玩家行囊
     skills: tuple[SkillView, ...] = ()  # 此情此景可知的武学：玩家所会 ∪ 在场者所会 ∪ 行囊典籍所载
-    player_skills: tuple[str, ...] = ()
+    player_practice: dict[str, int] = {}  # 武学 → 熟练度之和
+    player_aptitude: float = 1.0
+    player_hp: int = MAX_HP
     labels: dict[str, str] = {}
 
     @model_validator(mode="before")
@@ -125,8 +139,20 @@ class LocalSnapshot(_View):
 
         return _canonical(data, {
             "exits": lambda e: (_get(e, "to_id"), _get(e, "label")),
-            "characters": by_id, "items": by_id, "skills": by_id, "player_skills": str,
+            "characters": by_id, "items": by_id, "skills": by_id,
         })
+
+    @property
+    def player_skills(self) -> tuple[str, ...]:
+        """玩家已入门的武学，按 id 排序。"""
+        return tuple(sorted(skill for skill, points in self.player_practice.items() if points > 0))
+
+    def mastery(self, skill_id: str) -> Mastery | None:
+        return mastery_of(self.player_practice.get(skill_id, 0), self.player_aptitude)
+
+    @property
+    def vitality(self) -> Vitality:
+        return vitality(self.player_hp)
 
     def referenced_ids(self) -> set[str]:
         """快照里出现的全部 id（含前置条件指向的远方地点与典籍、物主、羁绊另一端）：labels 必须覆盖它们。"""
@@ -136,8 +162,8 @@ class LocalSnapshot(_View):
         for c in self.characters:
             ids |= {c.id, *c.skill_ids, *(b.other_id for b in c.bonds)}
         for s in self.skills:
-            p = s.prerequisites
-            ids |= {*p.skills, *p.items, *p.conflicts, *([p.location_id] if p.location_id else [])}
+            a, p = s.acquisition, s.practice
+            ids |= {*p.skills, *a.items, *p.conflicts, *([a.location_id] if a.location_id else [])}
         return ids
 
     def character(self, character_id: str) -> CharacterView | None:

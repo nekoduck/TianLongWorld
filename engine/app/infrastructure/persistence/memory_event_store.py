@@ -1,8 +1,8 @@
 """
-[INPUT]: 依赖 domain/ports 的 EventStore，依赖 domain/events 的 DomainEvent / EventEnvelope / EVENT_ADAPTER，依赖 app.errors 的 ConcurrencyError
+[INPUT]: 依赖 domain/ports 的 EventStore，依赖 domain/events 的 DomainEvent / EventEnvelope / EVENT_ADAPTER / decode_event，依赖 app.errors 的 ConcurrencyError
 [OUTPUT]: 对外提供 InMemoryEventStore —— EventStore 的进程内实现
 [POS]: persistence 的零依赖事件账本，供测试与离线开发使用；与 PostgresEventStore 同守一份契约（tests/test_event_store.py 双实现共跑）：
-       原子追加、乐观并发、版本从 1 严格连续；事件经 JSON 往返后才入账，与 JSONB 实现一样拒收不可序列化的事件
+       原子追加、乐观并发、版本从 1 严格连续；事件经 JSON 往返（decode_event，与生产实现同一个读出入口）后才入账，与 JSONB 实现一样拒收不可序列化的事件
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -11,7 +11,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from app.domain.events import EVENT_ADAPTER, DomainEvent, EventEnvelope
+from app.domain.events import EVENT_ADAPTER, DomainEvent, EventEnvelope, decode_event
 from app.domain.ports import EventStore
 from app.errors import ConcurrencyError
 
@@ -33,7 +33,7 @@ class InMemoryEventStore(EventStore):
                     version=expected_version + offset,
                     event_id=uuid4(),
                     recorded_at=now,
-                    event=EVENT_ADAPTER.validate_json(EVENT_ADAPTER.dump_json(event)),  # type: ignore[arg-type]
+                    event=decode_event(EVENT_ADAPTER.dump_json(event)),  # type: ignore[arg-type]
                 )
                 for offset, event in enumerate(events, start=1)
             ]

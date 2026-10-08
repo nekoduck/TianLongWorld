@@ -1,10 +1,12 @@
 """
 [INPUT]: 依赖 neo4j 的 AsyncGraphDatabase / AsyncDriver / AsyncManagedTransaction，依赖 domain/ports 的 WorldReader / WorldProjector / WorldSeeder，
-         依赖 domain/events 的领域事件，依赖 domain/models 的 Attitude / CharacterStatus / EntityKind / Prerequisites / kind_of / WorldBlueprint，依赖 domain/snapshot 的视图，
+         依赖 domain/events 的领域事件，依赖 domain/combat 的 CombatOutcome，依赖 domain/progression 的 MAX_HP，
+         依赖 domain/models 的 Attitude / CharacterStatus / EntityKind / Acquisition / Practice / kind_of / WorldBlueprint，依赖 domain/snapshot 的视图，
          依赖 infrastructure/cypher 的 compile_blueprint / CANON_LABELS，依赖 app.errors 的 ProjectionError
 [OUTPUT]: 对外提供 Neo4jWorldGraph（connect / close + 图谱三端口 + stale_canon 旧纪元残留检查）
 [POS]: persistence 的生产图谱快照。正典 = 播种写入的节点与硬性边，永不被事件改写；
-       平行世界 = 以玩家为锚的覆盖层：(:Player) 节点（name / alive / version 检查点）、LOCATED_IN（所在）、KNOWS_SKILL（所学）、
+       平行世界 = 以玩家为锚的覆盖层：(:Player) 节点（name / alive / version 检查点 / aptitude 悟性 / hp 气血）、LOCATED_IN（所在）、
+       KNOWS_SKILL {proficiency}（所学及熟练度之和——SkillPracticed 在边上做加法，与 evolve 的 reduce 同构）、
        SUBDUED（制住之人）、(:Character)-[:REGARDS {attitude}]->(:Player)（人情）、(:Item)-[:HELD_BY {world}]->(持有者)（易手之物）。
        物品此刻的持有者 = 本世界的 HELD_BY，否则正典的 canon_holder——覆盖层可整体抹去并从事件流重放重建。
        每种事件一个投影函数（开闭）；投影在单个写事务内推进检查点，版本不超过检查点的事件被跳过（幂等，可安全重试）
@@ -17,20 +19,22 @@ from typing import Any
 
 from neo4j import AsyncDriver, AsyncGraphDatabase, AsyncManagedTransaction
 
+from app.domain.combat import CombatOutcome
 from app.domain.events import (
-    CombatOutcome,
     DomainEvent,
     EventEnvelope,
+    HealthChanged,
     ItemTransferred,
     Moved,
     PlayerDied,
     PlayerSpawned,
     RelationChanged,
     SkillExecuted,
-    SkillLearned,
+    SkillPracticed,
 )
-from app.domain.models import Attitude, CharacterStatus, EntityKind, Prerequisites, WorldBlueprint, kind_of
+from app.domain.models import Acquisition, Attitude, CharacterStatus, EntityKind, Practice, WorldBlueprint, kind_of
 from app.domain.ports import WorldProjector, WorldReader, WorldSeeder
+from app.domain.progression import MAX_HP
 from app.domain.snapshot import BondView, CharacterView, ExitView, ItemView, LocalSnapshot, LocationView, SkillView
 from app.errors import ProjectionError
 from app.infrastructure.cypher import CANON_LABELS, compile_blueprint
@@ -63,8 +67,11 @@ MERGE (p)-[:LOCATED_IN]->(l)
 
 
 async def _spawned(tx: _Tx, pid: str, e: PlayerSpawned) -> None:
-    await tx.run("MERGE (p:Player {id: $pid}) SET p.name = $name, p.alive = true, p.death_cause = null",
-                 pid=pid, name=e.name)
+    await tx.run(
+        "MERGE (p:Player {id: $pid}) "
+        "SET p.name = $name, p.alive = true, p.death_cause = null, p.aptitude = $aptitude, p.hp = $hp",
+        pid=pid, name=e.name, aptitude=e.aptitude, hp=MAX_HP,
+    )
     await tx.run(_RELOCATE, pid=pid, loc=e.location_id)
 
 
@@ -87,13 +94,25 @@ async def _transferred(tx: _Tx, pid: str, e: ItemTransferred) -> None:
     )
 
 
-async def _learned(tx: _Tx, pid: str, e: SkillLearned) -> None:
-    await tx.run("MATCH (p:Player {id: $pid}) MATCH (a:MartialArt {id: $art}) MERGE (p)-[:KNOWS_SKILL]->(a)",
-                 pid=pid, art=e.skill_id)
+async def _practiced(tx: _Tx, pid: str, e: SkillPracticed) -> None:
+    await tx.run(
+        "MATCH (p:Player {id: $pid}) MATCH (a:MartialArt {id: $art}) "
+        "MERGE (p)-[k:KNOWS_SKILL]->(a) SET k.proficiency = coalesce(k.proficiency, 0) + $gained",
+        pid=pid, art=e.skill_id, gained=e.proficiency_gained,
+    )
+
+
+async def _health(tx: _Tx, pid: str, e: HealthChanged) -> None:
+    await tx.run(
+        "MATCH (p:Player {id: $pid}) "
+        "WITH p, coalesce(p.hp, $max) + $delta AS hp "
+        "SET p.hp = CASE WHEN hp < 0 THEN 0 WHEN hp > $max THEN $max ELSE hp END",
+        pid=pid, delta=e.delta, max=MAX_HP,
+    )
 
 
 async def _executed(tx: _Tx, pid: str, e: SkillExecuted) -> None:
-    if e.outcome is CombatOutcome.PREVAILED:
+    if e.outcome is CombatOutcome.SUCCESS:
         await tx.run("MATCH (p:Player {id: $pid}) MATCH (c:Character {id: $cid}) MERGE (p)-[:SUBDUED]->(c)",
                      pid=pid, cid=e.target_id)
 
@@ -118,8 +137,9 @@ _PROJECTORS: dict[str, _Projector] = {
     "PlayerSpawned": _spawned,
     "Moved": _moved,
     "ItemTransferred": _transferred,
-    "SkillLearned": _learned,
+    "SkillPracticed": _practiced,
     "SkillExecuted": _executed,
+    "HealthChanged": _health,
     "RelationChanged": _regarded,
     "PlayerDied": _died,
     "Conversed": _nothing,
@@ -133,8 +153,9 @@ _PROJECTORS: dict[str, _Projector] = {
 _Q_PLAYER = """
 MATCH (p:Player {id: $pid})-[:LOCATED_IN]->(l:Location)
 RETURN p.name AS name, p.alive AS alive, coalesce(p.version, 0) AS version,
+       coalesce(p.aptitude, 1.0) AS aptitude, coalesce(p.hp, $max_hp) AS hp,
        l {.id, .name, .region, .description} AS location,
-       COLLECT { MATCH (p)-[:KNOWS_SKILL]->(a:MartialArt) RETURN a.id } AS skills,
+       COLLECT { MATCH (p)-[k:KNOWS_SKILL]->(a:MartialArt) RETURN {id: a.id, points: k.proficiency} } AS practice,
        COLLECT { MATCH (p)-[:SUBDUED]->(c:Character) RETURN c.id } AS subdued,
        COLLECT { MATCH (l)-[e:CONNECTS_TO]->(d:Location) RETURN {label: e.label, to_id: d.id, to_name: d.name} } AS exits
 """
@@ -143,7 +164,7 @@ _Q_CHARACTERS = """
 MATCH (c:Character)-[:LOCATED_IN]->(:Location {id: $loc})
 WHERE c.status = $alive
 OPTIONAL MATCH (c)-[r:REGARDS]->(:Player {id: $pid})
-RETURN c {.id, .name, .aliases, .faction, .tier, .disposition, .description} AS c,
+RETURN c {.id, .name, .titles, .aliases, .faction, .tier, .disposition, .description} AS c,
        r.attitude AS attitude,
        COLLECT { MATCH (c)-[:KNOWS_SKILL]->(a:MartialArt) RETURN a.id } AS skills,
        COLLECT { MATCH (c)-[h:HAS_RELATION]-(o:Character) RETURN {other_id: o.id, kind: h.kind} } AS bonds
@@ -168,11 +189,11 @@ OPTIONAL MATCH (i)-[:BELONGS_TO]->(o:Character)
 RETURN i {.id, .name, .aliases, .kind, .description} AS item, h.id AS holder_id, o.id AS owner_id
 """
 
-_ART = "a {.id, .name, .aliases, .tier, .kind, .faction, .description, .prerequisites} AS a"
+_ART = "a {.id, .name, .aliases, .tier, .kind, .faction, .description, .acquisition, .practice} AS a"
 _Q_SKILLS = f"""
 MATCH (a:MartialArt) WHERE a.id IN $ids RETURN {_ART}
 UNION
-MATCH (a:MartialArt)-[:REQUIRES]->(i:Item) WHERE i.id IN $inventory RETURN {_ART}
+MATCH (a:MartialArt)-[:REQUIRES {{as: 'item'}}]->(i:Item) WHERE i.id IN $inventory RETURN {_ART}
 """
 
 _Q_LABELS = "\nUNION ALL\n".join(
@@ -292,7 +313,7 @@ async def _labels_tx(tx: _Tx, ids: list[str]) -> dict[str, str]:
 
 
 async def _snapshot_tx(tx: _Tx, player_id: str) -> LocalSnapshot:
-    head = await (await tx.run(_Q_PLAYER, pid=player_id)).single()
+    head = await (await tx.run(_Q_PLAYER, pid=player_id, max_hp=MAX_HP)).single()
     if head is None:
         raise ProjectionError(f"图谱中没有 {player_id} 的覆盖层")
     loc = head["location"]
@@ -302,7 +323,8 @@ async def _snapshot_tx(tx: _Tx, player_id: str) -> LocalSnapshot:
     async for r in await tx.run(_Q_CHARACTERS, loc=loc["id"], pid=player_id, alive=CharacterStatus.ALIVE.value):
         c = r["c"]
         characters.append(CharacterView(
-            id=c["id"], name=c["name"], aliases=tuple(c["aliases"] or ()), faction=c["faction"] or "",
+            id=c["id"], name=c["name"], titles=tuple(c["titles"] or ()), aliases=tuple(c["aliases"] or ()),
+            faction=c["faction"] or "",
             tier=c["tier"], disposition=c["disposition"], description=c["description"] or "",
             subdued=c["id"] in subdued, attitude=r["attitude"] or Attitude.NEUTRAL,
             skill_ids=r["skills"], bonds=[BondView(**b) for b in r["bonds"]],
@@ -318,12 +340,14 @@ async def _snapshot_tx(tx: _Tx, player_id: str) -> LocalSnapshot:
     ]
 
     inventory = [i.id for i in items if i.holder_id == player_id]
-    wanted = sorted({*head["skills"], *(s for c in characters for s in c.skill_ids)})
+    practice = {row["id"]: int(row["points"] or 0) for row in head["practice"]}
+    wanted = sorted({*practice, *(s for c in characters for s in c.skill_ids)})
     skills = [
         SkillView(
             id=a["id"], name=a["name"], aliases=tuple(a["aliases"] or ()), tier=a["tier"], kind=a["kind"] or "",
             faction=a["faction"] or "", description=a["description"] or "",
-            prerequisites=Prerequisites.model_validate_json(a["prerequisites"]),
+            acquisition=Acquisition.model_validate_json(a["acquisition"]),
+            practice=Practice.model_validate_json(a["practice"]),
         )
         async for a in _column(await tx.run(_Q_SKILLS, ids=wanted, inventory=inventory), "a")
     ]
@@ -339,6 +363,8 @@ async def _snapshot_tx(tx: _Tx, player_id: str) -> LocalSnapshot:
         characters=characters,
         items=items,
         skills=skills,
-        player_skills=head["skills"],
+        player_practice=practice,
+        player_aptitude=float(head["aptitude"]),
+        player_hp=int(head["hp"]),
     )
     return snapshot.model_copy(update={"labels": await _labels_tx(tx, sorted(snapshot.referenced_ids()))})

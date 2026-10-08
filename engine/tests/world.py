@@ -1,13 +1,15 @@
 """
 [INPUT]: 依赖 app.domain.models 的本体类型
-[OUTPUT]: 对外提供 WORLD —— 测试用的微型原著蓝图（四地、七人、七门武学、四件物品、三条关系）
+[OUTPUT]: 对外提供 WORLD —— 测试用的微型原著蓝图（四地、九人、七门武学、四件物品、四条关系）
 [POS]: tests 的世界夹具。它是测试替身而非引擎数据：生产世界只能由原著解析管道产出。
-       设计成一条可走通的"逻辑死线"：攻左子穆得辛双清好感 → 拜师无量剑法；拾玉佩、下崖取卷轴、自悟北冥神功；
-       制住左子穆夺剑；物归原主得段正淳信任 → 学一阳指；六脉神剑无人可教——天降神兵此路不通
+       设计成一条可走通的"逻辑死线"：拾玉佩、下崖取卷轴、自悟北冥神功并参照卷轴练到略有小成（境界二流）；
+       制住左子穆夺剑；物归原主得段正淳信任 → 拜师一阳指；六脉神剑无人可教——天降神兵此路不通。
+       另有两处专为新本体与模糊裁决而设：段延庆以本名为主键、「恶贯满盈」只是称号；狠辣的龚光杰让徒手寻衅落得重伤逃脱
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
 from app.domain.models import (
+    Acquisition,
     Character,
     CharacterRelation,
     CharacterStatus,
@@ -15,7 +17,7 @@ from app.domain.models import (
     Item,
     Location,
     MartialArt,
-    Prerequisites,
+    Practice,
     RelationKind,
     Tier,
     Transmission,
@@ -34,36 +36,43 @@ WORLD = WorldBlueprint(
                  exits={"西归": "loc:大理城"}),
     ),
     characters=(
-        Character(id="chr:段誉", name="段誉", aliases=("段公子",), faction="大理段氏", tier=Tier.NONE,
+        Character(id="chr:段誉", true_name="段誉", aliases=("段公子",), faction="大理段氏", tier=Tier.NONE,
                   disposition=Disposition.MERCIFUL, location_id="loc:大理城"),
-        Character(id="chr:段正淳", name="段正淳", aliases=("镇南王", "段王爷"), faction="大理段氏", tier=Tier.FIRST,
-                  disposition=Disposition.MERCIFUL, location_id="loc:大理城", skills=("art:一阳指",)),
-        Character(id="chr:左子穆", name="左子穆", faction="无量剑东宗", tier=Tier.THIRD,
+        Character(id="chr:段正淳", true_name="段正淳", titles=("镇南王",), aliases=("段王爷",), faction="大理段氏",
+                  tier=Tier.FIRST, disposition=Disposition.MERCIFUL, location_id="loc:大理城", skills=("art:一阳指",)),
+        Character(id="chr:段延庆", true_name="段延庆", titles=("恶贯满盈",), aliases=("延庆太子",), faction="四大恶人",
+                  tier=Tier.PEERLESS, disposition=Disposition.RUTHLESS, location_id="loc:大理城",
+                  skills=("art:一阳指",)),
+        Character(id="chr:左子穆", true_name="左子穆", faction="无量剑东宗", tier=Tier.THIRD,
                   location_id="loc:无量山", skills=("art:无量剑法",)),
-        Character(id="chr:辛双清", name="辛双清", faction="无量剑西宗", tier=Tier.THIRD,
+        Character(id="chr:龚光杰", true_name="龚光杰", faction="无量剑东宗", tier=Tier.THIRD,
+                  disposition=Disposition.RUTHLESS, location_id="loc:无量山", skills=("art:无量剑法",)),
+        Character(id="chr:辛双清", true_name="辛双清", faction="无量剑西宗", tier=Tier.THIRD,
                   location_id="loc:无量山", skills=("art:无量剑法",)),
-        Character(id="chr:南海鳄神", name="南海鳄神", aliases=("岳老三",), faction="四大恶人", tier=Tier.FIRST,
+        Character(id="chr:南海鳄神", true_name="南海鳄神", aliases=("岳老三",), faction="四大恶人", tier=Tier.FIRST,
                   disposition=Disposition.RUTHLESS, location_id="loc:无量山"),
-        Character(id="chr:乔峰", name="乔峰", aliases=("乔帮主",), faction="丐帮", tier=Tier.PEERLESS,
+        Character(id="chr:乔峰", true_name="乔峰", aliases=("乔帮主",), faction="丐帮", tier=Tier.PEERLESS,
                   location_id="loc:无锡城", skills=("art:降龙十八掌",)),
-        Character(id="chr:汪剑通", name="汪剑通", faction="丐帮", tier=Tier.FIRST, status=CharacterStatus.DECEASED,
-                  location_id="loc:无锡城"),
+        Character(id="chr:汪剑通", true_name="汪剑通", faction="丐帮", tier=Tier.FIRST,
+                  status=CharacterStatus.DECEASED, location_id="loc:无锡城"),
     ),
     martial_arts=(
         MartialArt(id="art:一阳指", name="一阳指", faction="大理段氏", kind="指法", tier=Tier.FIRST,
-                   prerequisites=Prerequisites(min_tier=Tier.SECOND)),
+                   practice=Practice(min_tier=Tier.SECOND)),
         MartialArt(id="art:无量剑法", name="无量剑法", faction="无量剑", kind="剑法", tier=Tier.THIRD),
         MartialArt(id="art:北冥神功", name="北冥神功", kind="内功", tier=Tier.FIRST,
-                   prerequisites=Prerequisites(items=("itm:北冥神功卷轴",), location_id="loc:无量玉洞",
-                                               conflicts=("art:化功大法",), transmission=Transmission.SELF)),
+                   acquisition=Acquisition(items=("itm:北冥神功卷轴",), location_id="loc:无量玉洞",
+                                           transmission=Transmission.SELF),
+                   practice=Practice(conflicts=("art:化功大法",))),
         MartialArt(id="art:凌波微步", name="凌波微步", kind="身法", tier=Tier.SECOND,
-                   prerequisites=Prerequisites(skills=("art:北冥神功",), items=("itm:北冥神功卷轴",),
-                                               location_id="loc:无量玉洞", transmission=Transmission.SELF)),
+                   acquisition=Acquisition(items=("itm:北冥神功卷轴",), location_id="loc:无量玉洞",
+                                           transmission=Transmission.SELF),
+                   practice=Practice(skills=("art:北冥神功",))),
         MartialArt(id="art:降龙十八掌", name="降龙十八掌", faction="丐帮", kind="掌法", tier=Tier.PEERLESS,
-                   prerequisites=Prerequisites(min_tier=Tier.FIRST)),
+                   practice=Practice(min_tier=Tier.FIRST)),
         MartialArt(id="art:化功大法", name="化功大法", faction="星宿派", kind="内功", tier=Tier.FIRST),
         MartialArt(id="art:六脉神剑", name="六脉神剑", faction="大理段氏", kind="剑气", tier=Tier.PEERLESS,
-                   prerequisites=Prerequisites(skills=("art:一阳指",), min_tier=Tier.FIRST)),
+                   practice=Practice(skills=("art:一阳指",), min_tier=Tier.FIRST)),
     ),
     items=(
         Item(id="itm:北冥神功卷轴", name="北冥神功卷轴", aliases=("卷轴",), kind="秘籍", location_id="loc:无量玉洞"),
@@ -75,6 +84,7 @@ WORLD = WorldBlueprint(
     relations=(
         CharacterRelation(source_id="chr:段誉", target_id="chr:段正淳", kind=RelationKind.KIN, note="父子"),
         CharacterRelation(source_id="chr:左子穆", target_id="chr:辛双清", kind=RelationKind.ENEMY, note="东西宗相争"),
+        CharacterRelation(source_id="chr:左子穆", target_id="chr:龚光杰", kind=RelationKind.MENTOR, note="东宗掌门与弟子"),
         CharacterRelation(source_id="chr:汪剑通", target_id="chr:乔峰", kind=RelationKind.MENTOR, note="传位"),
     ),
 )

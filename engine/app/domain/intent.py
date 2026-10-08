@@ -1,6 +1,6 @@
 """
 [INPUT]: 依赖 pydantic v2 的 BaseModel / field_validator，依赖 enum 的 StrEnum
-[OUTPUT]: 对外提供 ActionType（含 INVALID 的系统指令集）、PlayerIntent（结构化意图）
+[OUTPUT]: 对外提供 ActionType（含 REST 调息与 INVALID 的系统指令集）、PlayerIntent（结构化意图）
 [POS]: domain 的命令语言——玩家的华丽描写被降维后的唯一形状。定义在 domain 而非 application：
        裁决规则（rules.py）与聚合根消费它，领域层不得反向依赖应用层；application/intent_parser.py 负责产出它
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -23,7 +23,8 @@ class ActionType(StrEnum):
     ATTACK = "ATTACK"  # 出手（可带武学与兵器）
     TAKE = "TAKE"  # 取物：地上之物，或已被制住之人身上之物
     GIVE = "GIVE"  # 赠物：把随身之物交给在场之人
-    LEARN = "LEARN"  # 修习武学：师传或自悟
+    LEARN = "LEARN"  # 修习武学：未入门则求门径（师传 / 自悟），已入门则精进（名师点拨 / 参照典籍 / 闭门苦练）
+    REST = "REST"  # 调息疗伤：恢复气血
     INVALID = "INVALID"  # 违背世界观或无法落地的操作
 
 

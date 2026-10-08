@@ -1,5 +1,5 @@
 """
-[INPUT]: 依赖 asyncpg 的连接池与 UniqueViolationError，依赖 domain/ports 的 EventStore，依赖 domain/events 的 EVENT_ADAPTER / EventEnvelope，
+[INPUT]: 依赖 asyncpg 的连接池与 UniqueViolationError，依赖 domain/ports 的 EventStore，依赖 domain/events 的 EVENT_ADAPTER / EventEnvelope / decode_event（读出即上抛旧账），
          依赖 app.errors 的 ConcurrencyError
 [OUTPUT]: 对外提供 PostgresEventStore（connect / init_schema / append / load / close）与 SCHEMA_SQL
 [POS]: persistence 的生产事件账本：PostgreSQL 一张只追加的 domain_events 表，领域事件以 JSONB 存放。
@@ -14,7 +14,7 @@ from uuid import uuid4
 
 import asyncpg
 
-from app.domain.events import EVENT_ADAPTER, DomainEvent, EventEnvelope
+from app.domain.events import EVENT_ADAPTER, DomainEvent, EventEnvelope, decode_event
 from app.domain.ports import EventStore
 from app.errors import ConcurrencyError
 
@@ -113,7 +113,7 @@ class PostgresEventStore(EventStore):
                 version=row["version"],
                 event_id=row["event_id"],
                 recorded_at=row["recorded_at"],
-                event=EVENT_ADAPTER.validate_json(row["payload"]),
+                event=decode_event(row["payload"]),
             )
             for row in sorted(rows, key=lambda r: r["version"])
         ]
@@ -127,7 +127,7 @@ class PostgresEventStore(EventStore):
                 version=row["version"],
                 event_id=row["event_id"],
                 recorded_at=row["recorded_at"],
-                event=EVENT_ADAPTER.validate_json(row["payload"]),
+                event=decode_event(row["payload"]),
             )
             for row in rows
         ]

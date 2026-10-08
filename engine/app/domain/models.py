@@ -1,10 +1,12 @@
 """
 [INPUT]: 依赖 pydantic v2 的 BaseModel / Field / model_validator，依赖 enum 的 StrEnum
-[OUTPUT]: 对外提供 本体枚举 EntityKind / Tier / Disposition / CharacterStatus / Attitude / RelationKind / Transmission、
-          entity_id() / kind_of() 标识工具、图谱节点 Location / Character / MartialArt / Item、前置条件 Prerequisites、
-          关系边 CharacterRelation、原著蓝图 WorldBlueprint（引用完整性 + 前置无环 + 物品唯一归属的最后闸门）
+[OUTPUT]: 对外提供 本体枚举 EntityKind / Tier / Disposition / CharacterStatus / Attitude / RelationKind / Transmission / Provenance、
+          entity_id() / kind_of() 标识工具、图谱节点 Location / Character（true_name 本名为主键 + titles 称号 + aliases 别名）/ MartialArt / Item、
+          武学的获取要求 Acquisition 与修炼要求 Practice、关系边 CharacterRelation、原著蓝图 WorldBlueprint（引用完整性 + 根基无环的最后闸门）
 [POS]: domain 的世界本体：原著解析管道的产物形状、Neo4j 图谱的节点与边的来源、裁决规则读取的事实；
-       这里只有"世界是什么"，没有"世界此刻怎样"——后者属于事件流（events.py）与聚合根（aggregates.py）
+       这里只有"世界是什么"，没有"世界此刻怎样"——后者属于事件流（events.py）与聚合根（aggregates.py）。
+       语义本体对齐：人物的主键是本名而不是江湖上最响的那个称呼（段延庆不叫「恶贯满盈」）；武学把"门径从何而来"（获取）
+       与"根基够不够"（修炼）分开，入门与精进各守各的门；物品可以下落不明（孤儿），由播种期的自愈代理据常识安放并标明来历
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -97,6 +99,13 @@ class Transmission(StrEnum):
     SELF = "自悟"  # 凭 items 中的典籍自行参悟，无需师父
 
 
+class Provenance(StrEnum):
+    """一条事实的来历：原著明写，还是自愈代理据常识补全。推断可审阅、可推翻，永远与原著分得清。"""
+
+    CANON = "原著"
+    INFERRED = "推断"
+
+
 # ============================================================
 #  图谱节点
 # ============================================================
@@ -104,43 +113,67 @@ class _Entity(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     id: str
-    name: str = Field(min_length=1, max_length=NAME_CHARS)
     aliases: tuple[str, ...] = ()
     description: str = Field(default="", max_length=DESC_CHARS)
+
+
+class _Named(_Entity):
+    """地点、武学、物品：一个名字就是正名。"""
+
+    name: str = Field(min_length=1, max_length=NAME_CHARS)
 
     @property
     def names(self) -> tuple[str, ...]:
         return (self.name, *self.aliases)
 
 
-class Location(_Entity):
+class Location(_Named):
     region: str = Field(default="", max_length=NAME_CHARS)
     exits: dict[str, str] = Field(default_factory=dict)  # 出入口映射：出口标签 → 目标地点 id（CONNECTS_TO 的来源）
 
 
 class Character(_Entity):
+    """
+    人物的三种名字各司其职：true_name 是本名（姓名或法号），也是主键——id 恒为 chr:{true_name}；
+    titles 是江湖称号与绰号（「恶贯满盈」「南海鳄神」）；aliases 是化名、旧称、封号（「延庆太子」）。
+    三者都能被玩家用来指称此人，但只有本名决定"他是谁"：称呼再响，也不能篡位成主键。
+    """
+
+    true_name: str = Field(min_length=1, max_length=NAME_CHARS)
+    titles: tuple[str, ...] = ()
     faction: str = Field(default="", max_length=NAME_CHARS)  # 阵营 / 门派（BELONGS_TO → Faction）
     status: CharacterStatus = CharacterStatus.ALIVE
     tier: Tier = Tier.NONE
     disposition: Disposition = Disposition.NEUTRAL
-    location_id: str | None = None  # 开篇所在（LOCATED_IN）；None 表示不在任何场景中
-    skills: tuple[str, ...] = ()  # 所会武学（KNOWS_SKILL）
+    location_id: str | None = None  # T=0 时所在（LOCATED_IN）；None 表示不在任何场景中
+    skills: tuple[str, ...] = ()  # T=0 时已身负的武学（KNOWS_SKILL）
+
+    @property
+    def name(self) -> str:
+        """显示名即本名：与地点、武学、物品一样有 name，调用方无需区分实体种类（里氏替换）。"""
+        return self.true_name
+
+    @property
+    def names(self) -> tuple[str, ...]:
+        return (self.true_name, *self.titles, *self.aliases)
 
 
-class Prerequisites(BaseModel):
-    """
-    修习一门武学的前置依赖字典。宁严勿宽：每一条都是硬性条件，裁决规则逐条核验，缺一不可。
-    sealed 表示原著中的前置无法在本体里落地（引用了不存在的典籍或地点、或前置成环）——宁可失传，不可滥传。
-    """
-
+# ============================================================
+#  武学的两道门 —— 获取要求管"门径从何而来"，修炼要求管"根基够不够"
+# ============================================================
+class _Requirement(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    skills: tuple[str, ...] = ()  # 须先通晓的武学（REQUIRES → MartialArt）
-    items: tuple[str, ...] = ()  # 须随身携带之物：秘籍、图谱、信物（REQUIRES → Item）
-    location_id: str | None = None  # 须身处此地方可修习（REQUIRES → Location）
-    min_tier: Tier = Tier.NONE  # 修习者须已达到的境界
-    conflicts: tuple[str, ...] = ()  # 身负其一即不可修习的相冲武学（CONFLICTS_WITH）
+
+class Acquisition(_Requirement):
+    """
+    获取要求：得其门径（入门）的条件。宁严勿宽，逐条核验、缺一不可。
+    sealed 表示原著中的门径无法在本体里落地（引用了不存在的典籍或地点、或根基成环）——宁可失传，不可滥传。
+    """
+
     transmission: Transmission = Transmission.TEACHER
+    items: tuple[str, ...] = ()  # 自悟所凭、或入门须持之物：秘籍、图谱、信物（REQUIRES {as: item} → Item）
+    location_id: str | None = None  # 须身处此地方得门径：典籍所藏、传功之所（REQUIRES {as: place} → Location）
     sealed: bool = False
 
     @model_validator(mode="after")
@@ -150,33 +183,43 @@ class Prerequisites(BaseModel):
         return self
 
 
-class MartialArt(_Entity):
+class Practice(_Requirement):
+    """修炼要求：入门那一刻与此后每一次精进都须满足的根基。"""
+
+    skills: tuple[str, ...] = ()  # 须先练出根基的武学（REQUIRES {as: skill} → MartialArt）；火候门槛由 progression 定
+    min_tier: Tier = Tier.NONE  # 修炼者须已达到的境界
+    conflicts: tuple[str, ...] = ()  # 身负其一即不可修炼的相冲武学（CONFLICTS_WITH）
+
+
+class MartialArt(_Named):
     faction: str = Field(default="", max_length=NAME_CHARS)
     kind: str = Field(default="", max_length=NAME_CHARS)  # 内功 / 掌法 / 指法 / 剑法 / 身法……只供叙事
-    tier: Tier = Tier.THIRD
-    prerequisites: Prerequisites = Prerequisites()
+    tier: Tier = Tier.THIRD  # 此功练到融会贯通时的境界上限；火候不到则打折扣（progression.effective_tier）
+    acquisition: Acquisition = Acquisition()
+    practice: Practice = Practice()
 
 
-class Item(_Entity):
+class Item(_Named):
     """
-    唯一性归属：一件物品至多一位物主（BELONGS_TO），且恰有一个物理所在。
+    唯一性归属：一件物品至多一位物主（BELONGS_TO），至多一个物理所在（LOCATED_IN）。
     location_id 为空时由物主随身携带；不为空时静置于该地（物主可以不在身边——失物、藏宝）。
+    两者皆空即下落不明（孤儿）：原著提到它、却没写它在哪——它存在于本体，却不在任何场景中，
+    直到自愈代理（infrastructure/graph_linter.py）据常识为它安放一处，并把 provenance 记为推断。
     """
 
     kind: str = Field(default="", max_length=NAME_CHARS)  # 兵器 / 秘籍 / 信物 / 丹药……只供叙事
     owner_id: str | None = None
     location_id: str | None = None
-
-    @model_validator(mode="after")
-    def _must_exist_somewhere(self) -> Self:
-        if self.owner_id is None and self.location_id is None:
-            raise ValueError(f"物品 {self.id} 既无物主也无所在，不存在于世界之中")
-        return self
+    provenance: Provenance = Provenance.CANON  # 物主与所在的来历
 
     @property
-    def canon_holder(self) -> str:
-        """开篇时此物的物理持有者：静置之地优先，否则是随身携带的物主。"""
-        return self.location_id or self.owner_id  # type: ignore[return-value]  # 校验器保证二者其一非空
+    def lost(self) -> bool:
+        return self.owner_id is None and self.location_id is None
+
+    @property
+    def canon_holder(self) -> str | None:
+        """T=0 时此物的物理持有者：静置之地优先，否则是随身携带的物主；下落不明者为 None。"""
+        return self.location_id or self.owner_id
 
 
 class CharacterRelation(BaseModel):
@@ -207,7 +250,7 @@ class WorldBlueprint(BaseModel):
             raise ValueError("原著蓝图不自洽：\n" + "\n".join(errors))
         return self
 
-    def entities(self) -> Iterable[_Entity]:
+    def entities(self) -> Iterable[Location | Character | MartialArt | Item]:
         yield from self.locations
         yield from self.characters
         yield from self.martial_arts
@@ -222,6 +265,9 @@ def _integrity_errors(bp: WorldBlueprint) -> list[str]:
         if entity.id in ids[kind]:
             errors.append(f"重复的实体 id：{entity.id}")
         ids[kind].add(entity.id)
+    for ch in bp.characters:
+        if ch.id != entity_id(EntityKind.CHARACTER, ch.true_name):
+            errors.append(f"人物主键须是本名：{ch.id} ≠ chr:{ch.true_name}")
 
     def need(ref: str | None, kind: EntityKind, where: str) -> None:
         if ref is not None and ref not in ids[kind]:
@@ -235,12 +281,11 @@ def _integrity_errors(bp: WorldBlueprint) -> list[str]:
         for skill in ch.skills:
             need(skill, EntityKind.MARTIAL_ART, ch.id)
     for art in bp.martial_arts:
-        p = art.prerequisites
-        for skill in (*p.skills, *p.conflicts):
+        for skill in (*art.practice.skills, *art.practice.conflicts):
             need(skill, EntityKind.MARTIAL_ART, art.id)
-        for text in p.items:
+        for text in art.acquisition.items:
             need(text, EntityKind.ITEM, art.id)
-        need(p.location_id, EntityKind.LOCATION, art.id)
+        need(art.acquisition.location_id, EntityKind.LOCATION, art.id)
     for item in bp.items:
         need(item.owner_id, EntityKind.CHARACTER, item.id)
         need(item.location_id, EntityKind.LOCATION, item.id)
@@ -248,14 +293,14 @@ def _integrity_errors(bp: WorldBlueprint) -> list[str]:
         need(rel.source_id, EntityKind.CHARACTER, "关系边")
         need(rel.target_id, EntityKind.CHARACTER, "关系边")
 
-    cycle = prerequisite_cycle({art.id: art.prerequisites.skills for art in bp.martial_arts})
+    cycle = prerequisite_cycle({art.id: art.practice.skills for art in bp.martial_arts})
     if cycle:
-        errors.append(f"武学前置成环：{' → '.join(cycle)}")
+        errors.append(f"武学根基成环：{' → '.join(cycle)}")
     return errors
 
 
 def prerequisite_cycle(graph: dict[str, tuple[str, ...]]) -> list[str]:
-    """前置依赖图里的任意一个环（深度优先三色标记）；无环返回空表。环中的武学永远学不成，必须在蓝图层面拒收。"""
+    """根基依赖图里的任意一个环（深度优先三色标记）；无环返回空表。环中的武学永远学不成，必须在蓝图层面拒收。"""
     white, grey, black = 0, 1, 2
     color = dict.fromkeys(graph, white)
     stack: list[str] = []

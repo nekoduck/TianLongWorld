@@ -3,7 +3,8 @@
          依赖 domain/models 的本体与 WorldBlueprint，依赖 domain/snapshot 的视图，依赖 app.errors 的 ProjectionError
 [OUTPUT]: 对外提供 InMemoryWorldGraph —— 图谱三端口的进程内实现
 [POS]: persistence 的零依赖图谱：正典是一份 WorldBlueprint 的索引，每个平行世界的覆盖层就是一个 PlayerState——
-       投影直接复用领域的 evolve 折叠（投影与聚合根同构，无第二套状态机）；
+       投影直接复用领域的 evolve 折叠（投影与聚合根同构，无第二套状态机：熟练度、气血、悟性都原样投进快照）；
+       下落不明的物品没有持有者，因而不出现在任何快照里；
        与 Neo4jWorldGraph 同守一份契约（tests/test_world_graph.py 双实现共跑，快照逐字段相等）
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -82,7 +83,7 @@ class InMemoryWorldGraph(WorldReader, WorldProjector, WorldSeeder):
                 out[any_id] = entity.name
         return out
 
-    def _holder(self, state: PlayerState, item_id: str) -> str:
+    def _holder(self, state: PlayerState, item_id: str) -> str | None:
         return state.item_holders.get(item_id) or self._items[item_id].canon_holder
 
     async def local_snapshot(self, player_id: str) -> LocalSnapshot:
@@ -102,14 +103,14 @@ class InMemoryWorldGraph(WorldReader, WorldProjector, WorldSeeder):
         items = [
             ItemView(
                 id=i.id, name=i.name, aliases=i.aliases, kind=i.kind, description=i.description,
-                holder_id=self._holder(st, i.id), owner_id=i.owner_id,
+                holder_id=holder, owner_id=i.owner_id,
             )
             for i in self._items.values()
-            if self._holder(st, i.id) in holders
+            if (holder := self._holder(st, i.id)) is not None and holder in holders
         ]
         inventory = {i.id for i in items if i.holder_id == player_id}
         wanted = set(st.skills) | {s for c in present for s in c.skills}
-        wanted |= {a.id for a in self._arts.values() if inventory & set(a.prerequisites.items)}
+        wanted |= {a.id for a in self._arts.values() if inventory & set(a.acquisition.items)}
 
         snapshot = LocalSnapshot(
             player_id=player_id,
@@ -120,7 +121,7 @@ class InMemoryWorldGraph(WorldReader, WorldProjector, WorldSeeder):
             exits=[ExitView(label=k, to_id=v, to_name=self._locations[v].name) for k, v in loc.exits.items()],
             characters=[
                 CharacterView(
-                    id=c.id, name=c.name, aliases=c.aliases, faction=c.faction, tier=c.tier,
+                    id=c.id, name=c.true_name, titles=c.titles, aliases=c.aliases, faction=c.faction, tier=c.tier,
                     disposition=c.disposition, description=c.description,
                     subdued=c.id in st.subdued, attitude=st.attitude_of(c.id),
                     skill_ids=c.skills, bonds=bonds.get(c.id, []),
@@ -131,11 +132,13 @@ class InMemoryWorldGraph(WorldReader, WorldProjector, WorldSeeder):
             skills=[
                 SkillView(
                     id=a.id, name=a.name, aliases=a.aliases, tier=a.tier, kind=a.kind, faction=a.faction,
-                    description=a.description, prerequisites=a.prerequisites,
+                    description=a.description, acquisition=a.acquisition, practice=a.practice,
                 )
                 for a in (self._arts[s] for s in wanted)
             ],
-            player_skills=st.skills,
+            player_practice=dict(st.practice),
+            player_aptitude=st.aptitude,
+            player_hp=st.hp,
         )
         return snapshot.model_copy(update={"labels": await self.labels(snapshot.referenced_ids())})
 
