@@ -1,0 +1,25 @@
+# TLBB-Engine 的三件套后端：事件账本 / 图谱快照 / 长线记忆
+# 用法：docker compose up -d，然后把 engine/.env 切到 postgres / neo4j / http://localhost:6333
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: tlbb
+      POSTGRES_PASSWORD: tlbb
+      POSTGRES_DB: tlbb
+    ports: ["5432:5432"]
+    volumes: [pg-data:/var/lib/postgresql/data]
+  neo4j:
+    image: neo4j:5.26-community  # 快照查询用到 CALL () {} 作用域子句，须 5.23+
+    environment:
+      NEO4J_AUTH: neo4j/tlbb-neo4j
+    ports: ["7474:7474", "7687:7687"]
+    volumes: [neo4j-data:/data]
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    ports: ["6333:6333"]
+    volumes: [qdrant-data:/qdrant/storage]
+volumes:
+  pg-data:
+  neo4j-data:
+  qdrant-data:

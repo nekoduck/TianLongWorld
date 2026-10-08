@@ -17,3 +17,8 @@ dist/
 .DS_Store
 .idea/
 .vscode/
+
+# TLBB-Engine：原著受著作权保护，播种产物由原著派生，均不入库
+engine/data/source_text/*.txt
+engine/data/world/*
+!engine/data/world/README.md

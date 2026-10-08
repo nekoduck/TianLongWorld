@@ -1,9 +1,11 @@
 # 天龙八部：平行世界 - 导演大模型驱动的极简文本武侠沙盒，语义标签无数值，作死即永久死亡
 Python 3.10+ + FastAPI + Pydantic v2 + pydantic-settings + httpx2 | React 19 + TypeScript 7 + Vite 8 + Tailwind CSS v4
+TLBB-Engine（engine/）：Python 3.12+ + FastAPI WebSocket + Pydantic v2 + PostgreSQL 16（asyncpg，JSONB 事件账本）+ Neo4j 5.23+（图谱快照）+ Qdrant（长线记忆）
 
 <directory>
 backend/ - FastAPI 服务：前后端协议、内存会话、记忆仓储（GraphRAG 接口地基）、导演管线（RAG 上下文注入）、大模型适配 (3子目录: app/director 导演管线, app/llm 大模型适配, tests 用例)
 frontend/ - React SPA：三段式沉浸 UI、打字机叙事、死亡锁死 (3子目录: src/api 后端门面, src/hooks 状态机与打字机, src/components 视图)
+engine/ - TLBB-Engine 下一代后端：DDD + CQRS + 事件溯源 + Graph RAG，原著播种、事件流折叠、图谱裁决、流式叙事 (4子目录: app/domain 本体·事件·聚合·裁决·端口, app/application 总线·解析·选项·叙事·编排, app/infrastructure 播种管道·持久化·大模型, app/presentation WebSocket；另有 data/source_text 原著, tests 用例)
 </directory>
 
 <config>
@@ -11,6 +13,9 @@ backend/requirements.txt - 运行依赖（fastapi / uvicorn / pydantic-settings 
 backend/.env.example - 大模型、会话与上下文配置模板（HISTORY_TURNS 滑动窗口 3~5、GRAPH_LIMIT 关系网行数 1~30、SEMANTIC_TOP_K 语义检索条数 1~10），复制为 backend/.env 生效（.env 存放密钥，永不入库）；默认 mock 零密钥可跑，推荐 gemini
 frontend/package.json - 前端依赖与脚本（dev / dev:mock / build）
 frontend/vite.config.ts - Vite 插件与 /api → :8000 开发代理
+engine/requirements.txt - 引擎运行依赖（fastapi / uvicorn / pydantic-settings / httpx2 / asyncpg / neo4j / qdrant-client）
+engine/.env.example - 引擎配置模板：大模型四选一、EVENT_STORE / GRAPH_BACKEND / QDRANT_URL 各自 memory 或生产实现、MEMORY_RECALL_K 1~10、播种参数；默认全内存 + mock 零依赖可跑
+engine/docker-compose.yml - 引擎三件套后端 postgres:16 + neo4j:5.26 + qdrant
 </config>
 
 <architecture>
@@ -61,5 +66,21 @@ frontend/vite.config.ts - Vite 插件与 /api → :8000 开发代理
   满员时绝顶高手优先留下；开局种子点名的高手按开局地点登记，规则层的生死判定不依赖大模型记得写出他们
 - 协议单一来源：backend/app/schemas.py 定义形状，frontend/src/types.ts 逐字段镜像
 </architecture>
+
+<engine_architecture>
+TLBB-Engine 一回合（engine/app/application/handlers.py）：
+  WebSocket 帧 → CommandBus → TurnPipeline
+    命令侧（玩家锁内串行）：重放 PostgreSQL 事件流 → Player 聚合（evolve 纯函数折叠，无状态表）→ 投影检查点自愈
+      → Neo4j 局部真理快照 → [Parse] 自由文本经 WorldviewGuard + 意图解析器（选项点选按快照重算核验，不经大模型）
+      → [Validate] domain/rules 纯函数裁决（物理看快照、逻辑看聚合，驳回落为 ActionFailed）→ [Event] 乐观并发追加 → 同步投影 Neo4j 覆盖层
+    查询侧（无锁并行）：新快照 ∥ Qdrant 召回 → turn_resolved（事实白描）→ [Options] 合法边 3~4 个选项 ∥ [Render] Hard Prompt 流式叙事 ∥ 记忆写入 → turn_completed
+
+关键决策：
+- 世界播种：原著 TXT → 大模型逐块抽取名称级记录 → 组装器确定性定案（正名互见才合并、首次登场即开篇、落不了地即丢弃、前置落不了地即封存）→ WorldBlueprint → 参数化 Cypher；引擎不凭空捏造地点人物武功
+- 逻辑死线：境界是有序等级，对决只比高下与性情；好感只来自物归原主与敌人之敌，武功只来自肯教之人或原著典籍且前置逐条核验，兵器不改境界
+- 平行世界：一位玩家 = 一条事件流 = 一个聚合；Neo4j 正典只读，每个世界一层可抹去重放的覆盖层（HELD_BY {world} 等）
+- 大模型三职责皆无状态且无写端口：抽取原著、解析意图、渲染文本；它宣称的任何结果都改不了已入账的事件
+- 每个端口都有内存实现，与生产实现共跑契约测试；内存图谱复用领域 evolve，与 Neo4j 快照逐字段相等
+</engine_architecture>
 
 法则: 极简·稳定·导航·版本精确
