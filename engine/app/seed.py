@@ -254,6 +254,7 @@ def main(argv: list[str] | None = None) -> None:
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("httpx2").setLevel(logging.WARNING)
+    logging.getLogger("neo4j").setLevel(logging.WARNING)  # 约束已存在之类的服务器通知不是进度
     settings = get_settings()
 
     if args.command == "export":

@@ -245,11 +245,13 @@ def _orphan_block(names: dict[str, str], orphan: Orphan) -> str:
 
 
 def _candidate_block(bp: WorldBlueprint, names: dict[str, str]) -> str:
+    """题面里的候选与闸门认的候选是同一份（_candidates）：列给自愈者看的，就是它能选、闸门会认的。"""
+    candidates = _candidates(bp)
     lines = ["地点："]
-    for loc in bp.locations:
+    for loc in (e for e in candidates if isinstance(e, Location)):
         lines.append(f"- {loc.name}（区域：{loc.region or '未载'}）" + (f"：{loc.description}" if loc.description else ""))
     lines.append("人物（本名）：")
-    for c in (c for c in bp.characters if c.status is CharacterStatus.ALIVE):
+    for c in (e for e in candidates if isinstance(e, Character)):
         facts = [
             *([f"称号：{'、'.join(c.titles)}"] if c.titles else []),
             *([f"门派：{c.faction}"] if c.faction else []),

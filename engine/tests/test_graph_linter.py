@@ -92,6 +92,8 @@ def test_holders_out_of_any_players_reach_are_not_candidates() -> None:
         with pytest.raises(ValueError, match="不在候选"):
             validate_placement(WorldBlueprint.model_validate(bp.model_dump()), Placement(item="一阳指穴道谱诀", holder=holder))
     assert {"藏经阁", "无崖子"}.isdisjoint(candidate_names(bp)) and "大理城" in candidate_names(bp)
+    brief = heal_brief(bp, *lint(bp))
+    assert "藏经阁" not in brief and "无崖子" not in brief  # 题面与闸门同一份候选：列出来的才选得上
 
 
 def test_brief_escapes_markup_and_lists_candidates() -> None:
