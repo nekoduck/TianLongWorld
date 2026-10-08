@@ -5,7 +5,9 @@
 [POS]: application 的命令侧入口（CQRS 的 Command 解析）：把玩家的华丽武侠描写降维为系统可识别的 PlayerIntent。
        三道防线拦截热兵器与法术：①词表守卫在调用大模型之前直接判 INVALID（省钱且不可被话术绕过）；
        ②提示词要求大模型对违背世界观的内容判 INVALID；③即便大模型被说服，裁决规则也只认图谱里存在的实体——AK47 不在任何人的行囊里。
-       解析器只产出"想做什么"，从不判断"能不能做"：后者是 domain/rules 的职权
+       解析器只产出"想做什么"，从不判断"能不能做"：后者是 domain/rules 的职权。
+       场景词表随渐进式状态而丰富：人物带称号与别名（喊「恶贯满盈」也能规整为段延庆），已会武学带火候；
+       LEARN 一个动作涵盖入门与精进，REST 调息疗伤是独立动作——"练功疗伤"以疗伤为准
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -13,6 +15,7 @@ import json
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
+from typing import Protocol
 
 from pydantic import ValidationError
 
@@ -75,14 +78,30 @@ def _safe(text: str) -> str:
     return text.replace("<", "＜").replace(">", "＞")  # 玩家输入不能闭合或伪造协议标签
 
 
-def scene_vocabulary(scene: LocalSnapshot) -> str:
-    """此情此景可指称之物：让解析器能把"那个乞丐头子"规整为在场者的正名，而不是凭空造名。"""
+class _Nameable(Protocol):
+    @property
+    def name(self) -> str: ...
 
-    def names(views: Iterable[object]) -> str:
+    @property
+    def names(self) -> tuple[str, ...]: ...
+
+
+def scene_vocabulary(scene: LocalSnapshot) -> str:
+    """此情此景可指称之物：让解析器能把"那个乞丐头子""恶贯满盈"规整为在场者的正名，而不是凭空造名。"""
+
+    def names(views: Iterable[_Nameable]) -> str:
         parts = []
         for v in views:
-            aliases = getattr(v, "aliases", ())
-            parts.append(v.name + (f"（{'、'.join(aliases)}）" if aliases else ""))  # type: ignore[attr-defined]
+            others = v.names[1:]  # 正名之外的一切叫法：人物是称号 + 别名，其余是别名
+            parts.append(v.name + (f"（{'、'.join(others)}）" if others else ""))
+        return "、".join(parts) or "无"
+
+    def practiced() -> str:
+        parts = []
+        for s in scene.known_skills:
+            mastery = scene.mastery(s.id)
+            notes = [*([mastery.value] if mastery else []), *(f"又名{a}" for a in s.aliases)]
+            parts.append(s.name + (f"（{'；'.join(notes)}）" if notes else ""))
         return "、".join(parts) or "无"
 
     known = set(scene.player_skills)
@@ -92,7 +111,7 @@ def scene_vocabulary(scene: LocalSnapshot) -> str:
         f"在场之人：{names(scene.characters)}",
         f"可见之物：{names(i for i in scene.items if i.holder_id != scene.player_id)}",
         f"随身之物：{names(scene.inventory)}",
-        f"你已会的武学：{names(s for s in scene.skills if s.id in known)}",
+        f"你已会的武学：{practiced()}",
         f"此地可闻的武学：{names(s for s in scene.skills if s.id not in known)}",
     ]
     return _safe("\n".join(lines))
@@ -104,12 +123,13 @@ INTENT_SYSTEM = """你是《天龙八部》文字世界的意图解析器。玩�
 
 action_type 只能取以下之一：
 - MOVE：沿某条出路去往别处。target_entity 写出路名或目的地名。
-- OBSERVE：观望、等待、歇息、倾听等不改变任何事物的举动。
+- OBSERVE：观望、等待、倾听、闭目养神等不改变任何事物的举动。
 - TALK：与某人说话、打听、拜见。target_entity 写那人。
 - ATTACK：向某人出手。target_entity 写那人；skill_used 只在玩家点名所用武功时填写；item_used 只在玩家点名所用兵器时填写。
 - TAKE：拿取某物。target_entity 写那件东西。
 - GIVE：把随身之物交给某人。target_entity 写那人，item_used 写那件东西。
-- LEARN：修习、求教、参悟某门武功。skill_used 写那门武功；若向某人求教，target_entity 写那人。
+- LEARN：修习、求教、参悟、练功、苦练某门武功——初学乍练与已会之后的精进都算。skill_used 写那门武功；若向某人求教，target_entity 写那人。
+- REST：调息、疗伤、打坐、运功疗伤、歇息养伤，为的是恢复伤势。一句话里既练功又疗伤，以疗伤为准。
 - INVALID：举动违背这个北宋武侠世界的世界观——热兵器与现代器物（枪械、炸弹、手机、汽车……）、魔法法术、
   修仙异能、元游戏指令（存档、作弊、修改数值、索要无敌）——或根本无法理解。reason 用一句话写明为何不合天道。
 
@@ -127,7 +147,9 @@ action_type 只能取以下之一：
 玩家：「掏出手枪对准那大汉扣动扳机」
 {"action_type": "INVALID", "target_entity": null, "item_used": null, "skill_used": null, "narrative_style": "", "reason": "北宋江湖没有手枪"}
 玩家：「恭恭敬敬向段王爷请教一阳指」
-{"action_type": "LEARN", "target_entity": "段正淳", "item_used": null, "skill_used": "一阳指", "narrative_style": "恭敬谦卑", "reason": null}"""
+{"action_type": "LEARN", "target_entity": "段正淳", "item_used": null, "skill_used": "一阳指", "narrative_style": "恭敬谦卑", "reason": null}
+玩家：「寻个僻静处盘膝坐下，运功疗伤」
+{"action_type": "REST", "target_entity": null, "item_used": null, "skill_used": null, "narrative_style": "沉静", "reason": null}"""
 
 
 class LLMIntentParser(IntentParser):
@@ -152,7 +174,8 @@ class LLMIntentParser(IntentParser):
 #  离线解析器 —— 无大模型时的确定性兜底：动词 + 场景词表
 # ============================================================
 _VERBS: dict[ActionType, tuple[str, ...]] = {
-    ActionType.LEARN: ("学", "求教", "参悟", "修习", "研读", "练"),
+    ActionType.REST: ("调息", "疗伤", "养伤", "打坐"),  # 不收「歇息」「养神」：歇一歇只是静观，不是疗伤
+    ActionType.LEARN: ("学", "求教", "参悟", "修习", "研读", "练", "精研"),
     ActionType.GIVE: ("给", "赠", "交还", "送", "奉还", "归还", "递"),
     ActionType.ATTACK: ("攻", "杀", "击", "出手", "偷袭", "刺", "砍", "劈", "揍", "殴打"),  # 不收单字「打」：打听不是动手
     ActionType.TAKE: ("拿", "取", "捡", "拾", "夺"),
@@ -186,6 +209,8 @@ class HeuristicIntentParser(IntentParser):
         def rest(action: ActionType) -> str | None:
             return _after_verb(text, _VERBS[action]) or None  # 点名的东西不在场景里：照抄原话，交给规则驳回
 
+        if has(ActionType.REST):  # 先于修习判定：「练功疗伤」的本意是疗伤
+            return PlayerIntent(action_type=ActionType.REST)
         if has(ActionType.LEARN):
             return PlayerIntent(action_type=ActionType.LEARN, skill_used=art.name if art else rest(ActionType.LEARN),
                                 target_entity=person.name if person else None)

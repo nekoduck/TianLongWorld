@@ -1,9 +1,12 @@
 """
-[INPUT]: 依赖 domain/events 的全部领域事件，依赖 domain/combat 的 CombatOutcome，依赖 domain/intent 的 ActionType，依赖 domain/models 的 Attitude / EntityKind / kind_of
-[OUTPUT]: 对外提供 describe(event, labels, player_name) —— 一条领域事件的确定性白描（一句话）
-[POS]: application 的事实渲染器：把事件翻成人话，供三处消费——回合结果帧里的 facts、叙事 Prompt 里的 <settled_facts>、
+[INPUT]: 依赖 domain/events 的全部领域事件，依赖 domain/combat 的 CombatOutcome，依赖 domain/intent 的 ActionType，依赖 domain/models 的 Attitude / EntityKind / kind_of，
+         依赖 domain/snapshot 的 LocalSnapshot / CharacterView
+[OUTPUT]: 对外提供 describe(event, labels, player_name) —— 一条领域事件的确定性白描（一句话）；
+          titled(character) —— 「段延庆（恶贯满盈）」式的称呼；known_arts(snapshot) —— 「北冥神功（略有小成）」式的武学与火候
+[POS]: application 的事实渲染器：把事件与快照翻成人话。describe 供三处消费——回合结果帧里的 facts、叙事 Prompt 里的 <settled_facts>、
        长线记忆的向量语料。它只读事件与名称表，不经大模型：记忆里存的是这里的白描而非大模型的散文，幻觉因此进不了记忆；
-       也不写数值——熟练度与气血的涨落只说"有所精进""受了伤"，到了哪一步由快照里的火候与伤势去说
+       也不写数值——熟练度与气血的涨落只说"有所精进""受了伤"，到了哪一步由快照里的火候与伤势去说。
+       titled / known_arts 是称呼与火候的唯一写法：状态栏、叙事 Hard Prompt 与地下城主的战况简报共用，三处说法不会各执一词
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -25,6 +28,7 @@ from app.domain.events import (
 )
 from app.domain.intent import ActionType
 from app.domain.models import Attitude, EntityKind, kind_of
+from app.domain.snapshot import CharacterView, LocalSnapshot
 
 _OUTCOME = {
     CombatOutcome.SUCCESS: "将其制住",
@@ -89,3 +93,18 @@ def describe(event: DomainEvent, labels: Mapping[str, str], player_name: str) ->
         case PlayerDied(cause=cause):
             return f"{me}殒命：{cause}。"
     raise TypeError(f"未知的领域事件：{type(event).__name__}")
+
+
+# ============================================================
+#  称呼与火候 —— 快照里的身份与渐进式状态，只有这一种写法
+# ============================================================
+def titled(character: CharacterView) -> str:
+    """本名在前、称号随后：「段延庆（恶贯满盈）」。别名不入称呼——它是玩家指称时的线索，不是此人的名号。"""
+    return character.name + (f"（{'、'.join(character.titles)}）" if character.titles else "")
+
+
+def known_arts(snap: LocalSnapshot) -> tuple[str, ...]:
+    """玩家已会的武学及其火候：「北冥神功（略有小成）」。火候由快照的熟练度与悟性现算，与聚合根同出一套 progression。"""
+    return tuple(
+        f"{art.name}（{mastery.value}）" if (mastery := snap.mastery(art.id)) else art.name for art in snap.known_skills
+    )

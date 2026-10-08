@@ -1,7 +1,8 @@
 """
 [INPUT]: 依赖 app.config 的 Settings / LLMRole，依赖 llm 包内 AnthropicClient / GeminiClient / OpenAICompatClient，依赖 application/ports 的 LLMClient
 [OUTPUT]: 对外提供 build_llm(settings, role) —— 按 LLM_PROVIDER 与该职责的（模型, 思考档位）装配 LLMClient；mock 返回 None（由组合根换上离线实现）
-[POS]: llm 包的唯一装配点，被 container.py（意图 / 叙事两种职责）与 seed.py（抽取职责）调用；配置缺失在启动期就失败，而非等到第一位玩家出招
+[POS]: llm 包的唯一装配点，四种职责各取各的（模型, 思考档位）：container.py 装配意图 / 叙事 / 地下城主三种在线职责，seed.py 装配离线的抽取职责；
+       配置缺失在启动期就失败，而非等到第一位玩家出招
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 

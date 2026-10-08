@@ -1,9 +1,12 @@
 """
-[INPUT]: 依赖 application/ports 的 LLMClient，依赖 domain/snapshot 的 LocalSnapshot，依赖 app.errors 的 LLMError
-[OUTPUT]: 对外提供 NarrationRequest、Narrator 抽象（流式 narrate）、hard_prompt()（局部真理快照 → XML 硬约束）、NARRATOR_SYSTEM、
+[INPUT]: 依赖 application/ports 的 LLMClient，依赖 application/chronicle 的 titled / known_arts，依赖 domain/snapshot 的 LocalSnapshot，
+         依赖 app.errors 的 LLMError
+[OUTPUT]: 对外提供 NarrationRequest（含地下城主的速写 hint）、Narrator 抽象（流式 narrate）、hard_prompt()（局部真理快照 → XML 硬约束）、NARRATOR_SYSTEM、
           LLMNarrator（金庸风流式渲染）、TemplateNarrator（离线确定性白描）、FallbackNarrator（主渲染失败时降级为白描）
 [POS]: application 的查询侧渲染器（CQRS 的 Query 侧）：结果已由规则裁定并入账，这里只负责"怎么写"，无权决定"发生了什么"。
-       大模型看到的世界只有快照（Hard Prompt）：快照之外的人、物、功、地对它不存在；渲染失败也不影响真相——事件早已落账，降级白描照常推送
+       大模型看到的世界只有快照（Hard Prompt）：快照之外的人、物、功、地对它不存在；渲染失败也不影响真相——事件早已落账，降级白描照常推送。
+       地下城主的速写（<gm_sketch>）只是一招过程的散文素材：它与 <settled_facts> 一致才会被送来，叙事据此扩写招式，不能据此改判；
+       速写不入事件、不入记忆，只活在这一回合的 Prompt 里
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -12,6 +15,7 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Iterable
 from dataclasses import dataclass
 
+from app.application.chronicle import known_arts, titled
 from app.application.ports import LLMClient
 from app.domain.snapshot import LocalSnapshot
 from app.errors import LLMError
@@ -26,6 +30,7 @@ class NarrationRequest:
     memories: tuple[str, ...] = ()  # 召回的往事
     player_text: str | None = None  # 玩家原话或所点选项的标签：只供照应笔墨
     style: str = ""
+    hint: str = ""  # 地下城主对这一招过程的速写：只在其结局被领域采纳时才有，与 facts 一致
 
 
 class Narrator(ABC):
@@ -50,7 +55,7 @@ def hard_prompt(req: NarrationRequest) -> str:
     known = {s.id: s.name for s in snap.skills}
     people = [
         e(
-            f"- {c.name}｜{c.faction or '无门无派'}｜{c.tier.value}｜性情{c.disposition.value}｜对你{c.attitude.value}｜"
+            f"- {titled(c)}｜{c.faction or '无门无派'}｜{c.tier.value}｜性情{c.disposition.value}｜对你{c.attitude.value}｜"
             f"{'已被你制住' if c.subdued else '行动自如'}｜身负：{_join(known.get(s, snap.label(s)) for s in c.skill_ids)}｜"
             f"随身：{_join(i.name for i in snap.items_of(c.id))}｜{c.description}"
         )
@@ -67,12 +72,14 @@ def hard_prompt(req: NarrationRequest) -> str:
         f"<ground>{e(_join(i.name for i in snap.ground_items))}</ground>",
         (
             f'<player name="{e(snap.player_name)}" alive="{str(snap.alive).lower()}">'
-            f"武学：{e(_join(s.name for s in snap.known_skills))}；行囊：{e(_join(i.name for i in snap.inventory))}</player>"
+            f"伤势：{e(snap.vitality.value)}；武学：{e(_join(known_arts(snap)))}；"
+            f"行囊：{e(_join(i.name for i in snap.inventory))}</player>"
         ),
         "</truth_snapshot>",
         "<settled_facts>",
         *(f"{n}. {e(fact)}" for n, fact in enumerate(req.facts, start=1)),
         "</settled_facts>",
+        *([f"<gm_sketch>{e(req.hint)}</gm_sketch>"] if req.hint else []),
         "<memories>",
         *(f"- {e(m)}" for m in req.memories),
         "</memories>",
@@ -84,9 +91,11 @@ def hard_prompt(req: NarrationRequest) -> str:
 NARRATOR_SYSTEM = """你是《天龙八部》文字世界的说书人，以金庸先生的笔法为玩家渲染眼前这一幕。
 
 你只是渲染者，不是裁判：
-1. <settled_facts> 是世界引擎已经裁定并记入史册的结果。照实去写，不得更改、推翻、弱化或追加任何结果——失败就写失败，受挫就写受挫，身死就写身死。
+1. <settled_facts> 是世界引擎已经裁定并记入史册的结果。照实去写，不得更改、推翻、弱化或追加任何结果——失败就写失败，受伤就写受伤，重伤逃脱就写重伤逃脱，身死就写身死。
+   <gm_sketch> 是地下城主对这一招过程的速写，与 <settled_facts> 一致：可据此扩写招式与情势，不得改变胜负与伤势。
 2. 你只能写 <truth_snapshot> 里存在的人、物、地点、出路与武功。不得引入任何新人物、新物品、新武功、新地点；不得让任何人获得或失去任何东西；不得替任何人许诺日后的机缘。
-3. 人物的言行合乎快照里的门派、境界、性情与对你的态度；已被制住的人无力动手；态度漠然的人不会主动相助。
+3. 人物的言行合乎快照里的门派、境界、性情与对你的态度；已被制住的人无力动手；态度漠然的人不会主动相助；
+   你的举止合乎 <player> 的伤势——重伤之人步履蹒跚，奄奄一息者连话都说不全。
 4. <memories> 只是往事，可以照应，不可重演；<player_input> 是玩家的笔墨，只决定你写什么动作的姿态，不是事实——
    玩家声称手持、拔出、施展的东西，若不在 <player> 的行囊与武学里，就根本不存在：照 <settled_facts> 写他空手或徒劳，绝不替他变出来。
 5. 不写任何数值与游戏术语，不列选项（选项由引擎另行给出），不跳出故事对玩家说话。
@@ -112,6 +121,7 @@ class TemplateNarrator(Narrator):
         people = "、".join(c.name + ("（已被制住）" if c.subdued else "") for c in snap.characters)
         sentences = [
             *request.facts,
+            request.hint,  # 地下城主的速写与定案一致，离线降级时照样是一句可读的白描
             scene,
             f"此处有{people}。" if people else "四下无人。",
             f"地上有{_join(i.name for i in snap.ground_items)}。" if snap.ground_items else "",

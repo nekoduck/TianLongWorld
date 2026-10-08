@@ -1,6 +1,7 @@
 """
 [INPUT]: 依赖 fastapi.testclient 的 TestClient，依赖 app.main 的 create_app，依赖 app.container 的 build_container，依赖 tests/world 的 WORLD
-[OUTPUT]: WebSocket 线协议用例：投胎 → 流式叙事 → 终帧、自由文本与选项点选、错误帧不断连接、选项不下发意图、健康检查
+[OUTPUT]: WebSocket 线协议用例：投胎 → 流式叙事 → 终帧（状态栏只有语义标签：境界、伤势、武学火候）、自由文本与选项点选、
+          错误帧不断连接、选项不下发意图、健康检查、极端找死即永久死亡
 [POS]: tests 的表现层验收：经 create_app 的 lifespan 装配，与 uvicorn 启动走同一条路径
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -46,6 +47,7 @@ def test_a_full_session_over_the_wire(client: TestClient) -> None:
         assert {f["type"] for f in frames[1:-1]} == {"narration_delta"}
         done = frames[-1]
         assert done["status"]["location"] == "无量山" and not done["game_over"]
+        assert done["status"]["health"] == "安然无恙" and done["status"]["tier"] == "不入流"
         assert all(set(o) == {"id", "label", "category"} for o in done["options"])  # 意图留在服务端
 
         ws.send_json({"type": "act", "text": "拾起玉佩"})
@@ -89,7 +91,8 @@ def test_forged_options_and_the_dead(client: TestClient) -> None:
         until_done(ws)
         ws.send_json({"type": "choose", "option_id": "combat-00000000"})
         assert ws.receive_json()["code"] == "OPTION_EXPIRED"
-        ws.send_json({"type": "act", "text": "偷袭南海鳄神"})
-        assert until_done(ws)[-1]["game_over"] is True
+        ws.send_json({"type": "act", "text": "偷袭南海鳄神"})  # 不入流挑衅一流狠辣：极端找死
+        done = until_done(ws)[-1]
+        assert done["game_over"] is True and done["status"]["health"] == "奄奄一息"
         ws.send_json({"type": "act", "text": "静观"})
         assert ws.receive_json()["code"] == "PLAYER_DEAD"

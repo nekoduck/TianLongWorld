@@ -1,8 +1,9 @@
 """
 [INPUT]: 依赖 pydantic 的 Field、pydantic-settings 的 BaseSettings，读取进程环境变量与 engine/.env
-[OUTPUT]: 对外提供 Settings 配置模型（含 llm_profile 按职责取模型与思考档位）、LLMRole 三种职责、Thinking 档位、ENGINE_ROOT 工程根路径、get_settings() 进程级单例
+[OUTPUT]: 对外提供 Settings 配置模型（含 llm_profile 按职责取模型与思考档位）、LLMRole 四种职责、Thinking 档位、ENGINE_ROOT 工程根路径、get_settings() 进程级单例
 [POS]: 引擎的唯一配置入口，被 container.py（装配四类后端与大模型）、infrastructure/llm/factory.py（厂商选型）与 seed.py（语料与产物路径）消费；
-       每一类存储都有 memory 实现：零依赖即可跑通整条管线，生产环境逐项切到 postgres / neo4j / qdrant
+       每一类存储都有 memory 实现：零依赖即可跑通整条管线，生产环境逐项切到 postgres / neo4j / qdrant；
+       大模型的每种职责都可单独选型——地下城主在命令侧同步裁决，它的模型直接决定出手回合的延迟
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -20,11 +21,15 @@ type Thinking = Literal["", "minimal", "low", "medium", "high"]
 
 
 class LLMRole(StrEnum):
-    """大模型在引擎里的三种无状态职责，各有各的取舍：解析要快、叙事要忠于快照且文笔好、抽取要准（离线、一次成型）。"""
+    """
+    大模型在引擎里的四种无状态职责，各有各的取舍：解析要快、叙事要忠于快照且文笔好、抽取要准（离线、一次成型）、
+    裁决要快且守区间（命令侧同步调用，只能在领域圈出的可裁区间里提议，失灵即由规则裁决）。
+    """
 
     INTENT = "intent"
     NARRATION = "narration"
     EXTRACTION = "extraction"
+    RESOLUTION = "resolution"
 
 
 class Settings(BaseSettings):
@@ -39,7 +44,7 @@ class Settings(BaseSettings):
     llm_temperature: float | None = None  # None = 不下发（Claude 新模型拒收采样参数）
     llm_timeout: float = 120.0
     llm_max_tokens: int = 16000
-    # 缺省档：三种职责未单独配置时共用。思考档位映射为 Gemini 的 thinkingLevel / Anthropic 的 effort，openai 兼容端忽略
+    # 缺省档：各职责未单独配置时共用。思考档位映射为 Gemini 的 thinkingLevel / Anthropic 的 effort，openai 兼容端忽略
     llm_model: str = ""
     llm_thinking: Thinking = ""
     # 按职责覆盖：留空即退回缺省档
@@ -49,6 +54,8 @@ class Settings(BaseSettings):
     llm_narration_thinking: Thinking = ""
     llm_extraction_model: str = ""
     llm_extraction_thinking: Thinking = ""
+    llm_resolution_model: str = ""
+    llm_resolution_thinking: Thinking = ""
 
     # ------------------------------------------------------------------
     #  事件账本（PostgreSQL JSONB）

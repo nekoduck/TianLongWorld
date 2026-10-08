@@ -3,7 +3,8 @@
 [OUTPUT]: 对外提供 客户端帧 SpawnFrame / ResumeFrame / ActFrame / ChooseFrame 与 CLIENT_FRAME 判别联合解析器、
           to_command()（帧 → 命令）、to_frame()（回合消息 → 服务端 JSON 帧）、error_frame()、ProtocolError
 [POS]: presentation 的线协议：WebSocket 上传什么、回什么只在这里定义。服务端帧：session / turn_resolved / narration_delta /
-       turn_completed / error。选项只下发 id、标签与方向，意图留在服务端——前端无从伪造指令，只能点选
+       turn_completed / error。选项只下发 id、标签与方向，意图留在服务端——前端无从伪造指令，只能点选；
+       turn_completed 的 status 只有语义标签（境界 tier、伤势 health、武学连同火候），熟练度与气血的整数从不下发
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 

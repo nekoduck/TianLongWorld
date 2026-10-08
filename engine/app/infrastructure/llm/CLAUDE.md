@@ -10,7 +10,7 @@ schema.py: portable_schema——内联 $defs（拒绝递归）、剥离厂商不
 anthropic.py: AnthropicClient，POST /v1/messages；output_config.format 原生结构化输出、可选 output_config.effort；temperature 未配置一律不下发（Claude 新模型拒收采样参数）；流式解析 content_block_delta.text_delta；stop_reason 为 refusal / max_tokens 收敛为 LLMError
 gemini.py: GeminiClient，generateContent + responseJsonSchema 结构化输出，streamGenerateContent?alt=sse 流式，可选 thinkingConfig.thinkingLevel（Gemini 3 系；部分型号不收 minimal，由配置负责选对）；x-goog-api-key 头而非 URL 传密钥；过滤 thought 片段，拒答类 finishReason 与 blockReason 收敛为 LLMError，一次性补全遇 MAX_TOKENS 截断即报错（半截 JSON 不必等到解析才发现）
 openai_compat.py: OpenAICompatClient，Chat Completions；只在需要结构化输出时开 json_object（叙事是散文），不用严格 json_schema 模式（与可选字段契约不兼容）；流式读 choices[0].delta.content，content_filter 收敛为 LLMError
-factory.py: build_llm(settings, role) 唯一装配点，按职责取（模型, 思考档位）：Gemini 映射为 thinkingLevel、Anthropic 映射为 effort（minimal 按 low）、openai 兼容端忽略；mock 返回 None 交由组合根换上离线实现；真实厂商缺 LLM_API_KEY 或该职责的模型启动即抛错
+factory.py: build_llm(settings, role) 唯一装配点，四种职责（意图 / 叙事 / 地下城主 / 抽取）各取（模型, 思考档位）：Gemini 映射为 thinkingLevel、Anthropic 映射为 effort（minimal 按 low）、openai 兼容端忽略；mock 返回 None 交由组合根换上离线实现；真实厂商缺 LLM_API_KEY 或该职责的模型启动即抛错
 __init__.py: 包标识
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md

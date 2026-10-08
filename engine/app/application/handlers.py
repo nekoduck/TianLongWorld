@@ -1,16 +1,20 @@
 """
 [INPUT]: 依赖 application/bus 的命令、回合消息与 CommandHandler，依赖 application/intent_parser 的 IntentParser，
-         依赖 application/options 的 OptionGenerator，依赖 application/narrator 的 Narrator / NarrationRequest，
-         依赖 application/projections 的 ProjectionCoordinator，依赖 application/chronicle 的 describe，
-         依赖 domain/aggregates 的 Player，依赖 domain/ports 的 EventStore / WorldReader / NarrativeMemory / MemoryRecord，依赖 domain/rules 的 player_tier，
+         依赖 application/resolution_agent 的 Resolver / Resolution，依赖 application/options 的 OptionGenerator，
+         依赖 application/narrator 的 Narrator / NarrationRequest，依赖 application/projections 的 ProjectionCoordinator，
+         依赖 application/chronicle 的 describe / known_arts，依赖 domain/aggregates 的 Player，依赖 domain/events 的 SkillExecuted，
+         依赖 domain/ports 的 EventStore / WorldReader / NarrativeMemory / MemoryRecord，依赖 domain/rules 的 stakes / player_tier，
          依赖 app.errors 的 OptionExpiredError / ProjectionError / UnknownPlayerError / WorldNotSeededError
 [OUTPUT]: 对外提供 TurnPipeline（一回合的完整生命周期）与四个命令处理器 SpawnPlayerHandler / ResumePlayerHandler / SubmitTextHandler /
           ChooseOptionHandler，以及 register_handlers()（把它们挂上总线）
 [POS]: application 的 CQRS 游戏环路：
-       命令侧（持玩家锁，串行）：重放事件流 → 自愈投影 → 局部快照 → [Parse] 解析意图（选项点选不经大模型）→ [Validate] 规则裁决 →
-                                 [Event] 追加事件（乐观并发）→ 同步投影图谱；
+       命令侧（持玩家锁，串行）：重放事件流 → 自愈投影 → 局部快照 → [Parse] 解析意图（选项点选不经大模型）→
+                                 [Validate] rules.stakes 圈出可裁区间 → [Resolve] 胜负未定（contested）才请地下城主在区间里提议 →
+                                 [Event] Player.decide 携提议定案（combat.settle 钳进区间）→ 追加事件（乐观并发）→ 同步投影图谱；
        查询侧（无锁，并行）：新快照 ∥ 记忆召回 → 推送结果白描 → [Options] 选项生成 ∥ [Render] 叙事流式渲染 ∥ 记忆写入 → 推送终帧。
-       大模型在命令侧只解析、在查询侧只渲染，二者之间隔着不可变的事件流——它说什么都改不了已入账的结果
+       大模型在命令侧解析意图、在可裁区间里提议，在查询侧只渲染；领域的定案隔在中间——它说什么都越不过区间，更改不了已入账的结果。
+       地下城主的招式速写只在其结局被采纳时（SkillExecuted.outcome 等于提议的结局）经 NarrationRequest 传给渲染器：
+       它是散文，不入事件、不入记忆；结局未被采纳，速写与定案不符，当场作废
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -35,17 +39,18 @@ from app.application.bus import (
     TurnMessage,
     TurnResolved,
 )
-from app.application.chronicle import describe
+from app.application.chronicle import describe, known_arts
 from app.application.intent_parser import IntentParser
 from app.application.narrator import NarrationRequest, Narrator
 from app.application.options import ActionOption, OptionGenerator
 from app.application.projections import ProjectionCoordinator
+from app.application.resolution_agent import Resolution, Resolver
 from app.domain.aggregates import Player
-from app.domain.events import EventEnvelope
+from app.domain.events import DomainEvent, EventEnvelope, SkillExecuted
 from app.domain.intent import PlayerIntent
 from app.domain.models import EntityKind, entity_id
 from app.domain.ports import EventStore, MemoryRecord, NarrativeMemory, WorldReader
-from app.domain.rules import player_tier
+from app.domain.rules import player_tier, stakes
 from app.domain.snapshot import LocalSnapshot
 from app.errors import OptionExpiredError, ProjectionError, UnknownPlayerError, WorldNotSeededError
 
@@ -63,6 +68,7 @@ class TurnPipeline:
         coordinator: ProjectionCoordinator,
         memory: NarrativeMemory,
         parser: IntentParser,
+        resolver: Resolver,
         options: OptionGenerator,
         narrator: Narrator,
         recall_k: int = 4,
@@ -72,6 +78,7 @@ class TurnPipeline:
         self._coordinator = coordinator
         self._memory = memory
         self.parser = parser
+        self._resolver = resolver
         self.options = options
         self._narrator = narrator
         self._recall_k = recall_k
@@ -130,12 +137,18 @@ class TurnPipeline:
             player.ensure_alive()
             before = await self.snapshot(player)
             intent, said = await source(player, before)  # [Parse]
-            events = player.decide(intent, before)  # [Validate] 纯函数裁决
+            at_stake = stakes(intent, player.state, before)  # [Validate] 只有获准的出手才有赌注（可裁区间）
+            resolution = (  # [Resolve] 胜负未定才请地下城主；它只提议，失灵即空提议
+                await self._resolver.resolve(at_stake, before, player.state, said)
+                if at_stake is not None and at_stake.contested else None
+            )
+            events = player.decide(intent, before, resolution.proposal if resolution else None)  # 领域定案
             envelopes = await self._store.append(player_id, events, player.version) if events else []  # [Event]
             for envelope in envelopes:
                 player.apply(envelope.event)
             await self._coordinator.publish(player_id, envelopes)
-        async for message in self._render(player, envelopes, intent, said, labels=before.labels):
+        sketch = _adopted_sketch(resolution, events)
+        async for message in self._render(player, envelopes, intent, said, labels=before.labels, hint=sketch):
             yield message
 
     # ============================================================
@@ -149,6 +162,7 @@ class TurnPipeline:
         said: str | None,
         *,
         labels: dict[str, str],
+        hint: str = "",
     ) -> AsyncIterator[TurnMessage]:
         first_new = envelopes[0].version if envelopes else player.version + 1
         snap, memories = await asyncio.gather(
@@ -172,6 +186,7 @@ class TurnPipeline:
                 memories=tuple(m.text for m in memories),
                 player_text=said,
                 style=intent.narrative_style if intent else "",
+                hint=hint,
             )
             async for chunk in self._narrator.narrate(request):  # [Render] 流式
                 parts.append(chunk)
@@ -188,10 +203,11 @@ class TurnPipeline:
                 name=state.name,
                 location=snap.location.name,
                 tier=player_tier(state, snap).value,
+                health=state.vitality.value,
                 alive=state.alive,
                 death_cause=state.death_cause,
                 inventory=tuple(i.name for i in snap.inventory),
-                skills=tuple(s.name for s in snap.known_skills),
+                skills=known_arts(snap),
             ),
             game_over=not state.alive,
         )
@@ -199,6 +215,15 @@ class TurnPipeline:
 
 async def _nothing() -> list[MemoryRecord]:
     return []
+
+
+def _adopted_sketch(resolution: Resolution | None, events: Sequence[DomainEvent]) -> str:
+    """地下城主的速写只配它被采纳的结局：入账的 SkillExecuted 与它提议的结局不符（被钳回确定性裁决），速写就与定案矛盾，作废。"""
+    if resolution is None or resolution.proposal is None or not resolution.narrative_hint:
+        return ""
+    executed = next((e for e in events if isinstance(e, SkillExecuted)), None)
+    adopted = executed is not None and executed.outcome is resolution.proposal.outcome
+    return resolution.narrative_hint if adopted else ""
 
 
 # ============================================================
