@@ -269,14 +269,20 @@ def test_placements_without_kinship_are_flagged_for_review() -> None:
 
 
 def test_seed_cli_heals_from_cache_exports_and_ingests(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """engine/.env 配着付费大模型也一样：不带 --use-llm，整条自愈链路（导出 → 子代理作答 → 入缓存 → 套用）一次也不装配它。"""
     from app import seed
     from app.config import Settings
 
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "书.txt").write_text("一 青衫磊落险峰行\n段誉道：好。", encoding="utf-8")
-    settings = Settings(_env_file=None, llm_provider="mock", source_text_dir=tmp_path / "src",  # type: ignore[call-arg]
-                        world_dir=tmp_path / "world", extraction_chunk_chars=1000)
+    settings = Settings(_env_file=None, llm_provider="gemini", llm_api_key="g", llm_model="pro",  # type: ignore[call-arg]
+                        source_text_dir=tmp_path / "src", world_dir=tmp_path / "world", extraction_chunk_chars=1000)
     monkeypatch.setattr(seed, "get_settings", lambda: settings)
+
+    def paid(*_: object) -> None:
+        raise AssertionError("自愈不得装配付费大模型")
+
+    monkeypatch.setattr(seed, "build_llm", paid)
     chunk = chunk_text(load_corpus(tmp_path / "src")[0], 1000)[0]
     store_extraction(settings.world_dir / "cache", chunk, json.dumps({
         "locations": [{"name": "大理城"}, {"name": "天龙寺", "exits": [{"label": "下山", "destination": "大理城"}]}],
@@ -309,9 +315,11 @@ def test_seed_cli_heals_from_cache_exports_and_ingests(tmp_path: Path, monkeypat
     seed.main(["assemble"])  # 重新组装：缓存里的安放零费用自动套用
     assert item_of(blueprint(), SCROLL.id).location_id == "loc:天龙寺"
     before = blueprint()
-    seed.main(["heal"])  # mock：只套缓存，已套用的不重复、不报过期
+    seed.main(["heal"])  # 只套缓存，已套用的不重复、不报过期
     assert blueprint() == before
     assert "已过期" not in (settings.world_dir / "report.txt").read_text(encoding="utf-8")
+    with pytest.raises(AssertionError, match="付费大模型"):
+        seed.main(["heal", "--use-llm"])  # 显式要求才装配——上面那一长串一次也没走到这里
 
 
 # ============================================================

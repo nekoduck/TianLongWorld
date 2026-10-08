@@ -2,7 +2,7 @@
 > L2 | 父级: engine/app/CLAUDE.md
 
 基础设施层：实现 domain 与 application 拥有的端口，并承载 World Seeding 管道。这里是唯一允许出现 asyncpg / neo4j / qdrant-client / HTTP 的地方。
-播种分四段且彼此解耦：大模型读书抽取（非确定）→ 组装器定案（确定）→ 图谱自愈（据常识安放孤儿，经闸门、标明推断）→ Cypher 编译（确定）；
+播种分四段且彼此解耦：抽取器读书（非确定；本项目由 Claude 子代理经 export / ingest 担任，付费大模型只在 seed --use-llm 时上场）→ 组装器定案（确定）→ 图谱自愈（据常识安放孤儿，经闸门、标明推断）→ Cypher 编译（确定）；
 中间表示 WorldBlueprint 是正典，Neo4j 与内存图谱都只是它的投影——一切修补（含自愈）都作用于蓝图，再经 seeder 写图，绝不直接改图。
 
 成员清单

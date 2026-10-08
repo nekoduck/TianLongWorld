@@ -1,12 +1,13 @@
 """
-[INPUT]: 依赖 app.config 的 Settings / LLMRole（读 engine/.env 的真实配置），依赖 app.infrastructure.llm.factory 的 build_llm，
+[INPUT]: 依赖 app.config 的 Settings / LLMRole（读 engine/.env 的真实配置），依赖 app.infrastructure.llm 的 build_llm 与 CallBudget，
          依赖 app.application 的 LLMIntentParser / LLMNarrator / LLMResolutionAgent，依赖 app.domain.rules 的 stakes，
          依赖 app.infrastructure.knowledge_extractor 的抽取管道，
          依赖 tests/test_rules 的 scene() 快照工厂，依赖 tests/fixtures/sample_passage.txt（自撰梗概，非原著文本）
-[OUTPUT]: 真实大模型回归用例（标记 live，设置 TLBB_TEST_LIVE_LLM=1 才跑，会产生费用）：四种职责各走一遍真实厂商——
-          意图解析把华丽描写降维且规整为正名、叙事流式且分片、结构化抽取被厂商接受并能组装成蓝图、
-          地下城主对龚光杰一战给出区间内的结局（而非失灵退回规则）
-[POS]: tests 的提示词与厂商契约护栏：改动提示词、schema 规整或换模型之后跑一次，确认真实模型仍守协议
+[OUTPUT]: 真实大模型回归用例（标记 live，设置 TLBB_TEST_LIVE_LLM=1 才跑，会产生费用）：运行期三职责各走一遍真实厂商——
+          意图解析把华丽描写降维且规整为正名、叙事流式且分片、地下城主对龚光杰一战给出区间内的结局（而非失灵退回规则）；
+          结构化抽取被厂商接受并能组装成蓝图——抽取由 Claude 子代理承担，这一例另须 TLBB_TEST_LIVE_EXTRACTION=1
+[POS]: tests 的提示词与厂商契约护栏：改动提示词、schema 规整或换模型之后跑一次，确认真实模型仍守协议；
+       整场共用一份保险丝（至多 LIVE_CALLS 次请求），一次回归的花费有顶
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -23,18 +24,21 @@ from app.config import LLMRole, Settings
 from app.domain.intent import ActionType, PlayerIntent
 from app.domain.rules import stakes
 from app.infrastructure.knowledge_extractor import LLMKnowledgeExtractor, SeedingPipeline, SourceDocument
+from app.infrastructure.llm.budget import CallBudget
 from app.infrastructure.llm.factory import build_llm
 from tests.test_rules import scene
 
 pytestmark = pytest.mark.live
 
 SAMPLE = Path(__file__).parent / "fixtures" / "sample_passage.txt"
+LIVE_CALLS = 20  # 四句意图 + 叙事 + 地下城主（含重采样）用不满：多出来的请求只可能来自失控
+FUSE = CallBudget(LIVE_CALLS)
 
 
 def client(role: LLMRole) -> LLMClient:
     if os.environ.get("TLBB_TEST_LIVE_LLM") != "1":
         pytest.skip("未设置 TLBB_TEST_LIVE_LLM=1")
-    llm = build_llm(Settings(), role)
+    llm = build_llm(Settings(), role, FUSE)
     if llm is None:
         pytest.skip("engine/.env 的 LLM_PROVIDER 是 mock")
     return llm
@@ -75,6 +79,8 @@ async def test_live_game_master_rules_inside_the_rails() -> None:
 
 
 async def test_live_extraction_is_accepted_and_assembles() -> None:
+    if os.environ.get("TLBB_TEST_LIVE_EXTRACTION") != "1":
+        pytest.skip("抽取由 Claude 子代理承担，不调用付费大模型；确需验证厂商抽取契约时另设 TLBB_TEST_LIVE_EXTRACTION=1")
     pipeline = SeedingPipeline(LLMKnowledgeExtractor(client(LLMRole.EXTRACTION)))
     result = await pipeline.run([SourceDocument(SAMPLE.name, SAMPLE.read_text(encoding="utf-8"))])
     bp = result.blueprint

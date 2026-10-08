@@ -2,11 +2,11 @@
 [INPUT]: 依赖 app.config 的 Settings，依赖 infrastructure/knowledge_extractor 的 load_corpus / LLMKnowledgeExtractor / CachedExtractor / SeedingPipeline，
          依赖 infrastructure/graph_linter 的 GraphHealer / LLMPlacementOracle / lint / heal_brief / ingest_placements / HEALER_SYSTEM，
          依赖 infrastructure/cypher 的 compile_blueprint / render_script，依赖 infrastructure/persistence/neo4j_graph 的 Neo4jWorldGraph，
-         依赖 infrastructure/llm/factory 的 build_llm（抽取职责，自愈同用），依赖 domain/models 的 WorldBlueprint
-[OUTPUT]: 对外提供 命令行入口 main()：`python -m app.seed extract [--max-chunks N] [--apply] [--reset] [--allow-partial]`、
+         依赖 infrastructure/llm/factory 的 build_llm 与 budget 的 CallBudget（抽取职责，自愈同用，只在 --use-llm 时装配），依赖 domain/models 的 WorldBlueprint
+[OUTPUT]: 对外提供 命令行入口 main()：`python -m app.seed extract --use-llm [--max-chunks N] [--apply] [--reset] [--allow-partial]`、
           `python -m app.seed assemble [--prompt-version V] [--max-chunks N]`、`python -m app.seed export --out DIR [--max-chunks N] [--all]`、
           `python -m app.seed ingest --index I --file F [--source S]`、
-          `python -m app.seed heal [--apply] [--reset] [--retry-null] [--export DIR | --ingest FILE --by NAME]`、
+          `python -m app.seed heal [--apply] [--reset] [--retry-null] [--export DIR | --ingest FILE --by NAME | --use-llm]`、
           `python -m app.seed apply [--reset]` 与 `python -m app.seed script`
 [POS]: World Seeding 的操作面：extract 读 data/source_text 的原著，经大模型抽取、确定性组装，写出 data/world/ 下的
        blueprint.json（中间表示）、seed.cypher（可交给 cypher-shell 审阅或导入）与 report.txt（丢弃 / 封存 / 孤儿 / 时间线 / 自愈明细）——
@@ -16,7 +16,9 @@
        heal 为蓝图里下落不明的孤儿物品推断安放：配了真实大模型就问它，离线时只套缓存，export / ingest 让子代理或人工作答；
        写回蓝图而不是直接改图——蓝图是正典，Neo4j 只是它的投影（--apply 时经同一个 seeder MERGE 进去）；
        export / ingest 让大模型之外的抽取器接手：export 导出抽取铁律与待抽的块，ingest 把外部抽取器的产出经同一道闸门写入缓存；
-       apply 把 blueprint.json 写进 Neo4j。抽取与写图分离：重新播种无需重新读书，蓝图可以人工审阅后再落图
+       apply 把 blueprint.json 写进 Neo4j。抽取与写图分离：重新播种无需重新读书，蓝图可以人工审阅后再落图。
+       花钱的路要显式走：本项目的抽取与自愈由 Claude 子代理经 export / ingest 完成（2026-10 实测跑空过两次 Gemini 预付额度），
+       extract 不带 --use-llm 即拒绝并指路，heal 不带 --use-llm 只套缓存；带了也有 LLM_CALL_LIMIT 保险丝兜底
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -55,6 +57,7 @@ from app.infrastructure.knowledge_extractor import (
     naming_reference,
     store_extraction,
 )
+from app.infrastructure.llm.budget import CallBudget
 from app.infrastructure.llm.factory import build_llm
 from app.infrastructure.persistence.neo4j_graph import Neo4jWorldGraph
 
@@ -77,8 +80,20 @@ def _load_blueprint(settings: Settings) -> WorldBlueprint:
 # ============================================================
 #  抽取与组装
 # ============================================================
-async def extract(settings: Settings, *, max_chunks: int | None, allow_partial: bool = False) -> WorldBlueprint:
-    llm = build_llm(settings, LLMRole.EXTRACTION)
+OFFLINE_EXTRACTION = """原著抽取由 Claude 子代理完成，不调用付费大模型：
+  python -m app.seed export --out DIR                 # 导出抽取铁律、跨块命名参考与待抽的块
+  （子代理照 EXTRACTION_SYSTEM.txt 逐块作答，每块一个 JSON 文件）
+  python -m app.seed ingest --index I --file F        # 逐块经同一道闸门入缓存
+  python -m app.seed assemble                         # 零费用组装蓝图
+确需调用 engine/.env 配置的大模型（会产生费用），加 --use-llm"""
+
+
+async def extract(
+    settings: Settings, *, max_chunks: int | None, allow_partial: bool = False, use_llm: bool = False
+) -> WorldBlueprint:
+    if not use_llm:
+        raise SystemExit(OFFLINE_EXTRACTION)
+    llm = build_llm(settings, LLMRole.EXTRACTION, CallBudget(settings.llm_call_limit))
     if llm is None:
         raise SystemExit("原著解析需要真实大模型：请在 engine/.env 配置 LLM_PROVIDER / LLM_API_KEY / LLM_EXTRACTION_MODEL")
     model, thinking = settings.llm_profile(LLMRole.EXTRACTION)
@@ -173,7 +188,7 @@ def ingest(settings: Settings, index: int, file: Path, *, source: str | None) ->
 # ============================================================
 async def heal(
     settings: Settings, *, export_dir: Path | None = None, ingest_file: Path | None = None, by: str | None = None,
-    retry_null: bool = False,
+    retry_null: bool = False, use_llm: bool = False,
 ) -> WorldBlueprint:
     blueprint = _load_blueprint(settings)
     cache = _healing_cache(settings)
@@ -192,15 +207,16 @@ async def heal(
         except ExtractionError as exc:
             raise SystemExit(str(exc)) from exc
         print(f"已入自愈缓存 {len(accepted)} 条（推断者 {by}）：{[p.item for p in accepted]}")
-    elif (llm := build_llm(settings, LLMRole.EXTRACTION)) is not None:
+    elif use_llm and (llm := build_llm(settings, LLMRole.EXTRACTION, CallBudget(settings.llm_call_limit))) is not None:
         model, _ = settings.llm_profile(LLMRole.EXTRACTION)
         oracle = LLMPlacementOracle(llm, model_name=f"{settings.llm_provider}/{model}")
         print(f"自愈模型：{settings.llm_provider} / {model}（只问缓存里还没有答案的孤儿）")
     else:
-        print("LLM_PROVIDER=mock：只套用自愈缓存；尚无答案的孤儿可用 heal --export DIR 交给子代理或人工，再 heal --ingest FILE --by NAME 入缓存")
+        print("只套用自愈缓存（自愈由 Claude 子代理作答，不调用付费大模型）：尚无答案的孤儿用 heal --export DIR 交给子代理，"
+              "再 heal --ingest FILE --by NAME 入缓存；确需调用 engine/.env 配置的大模型（会产生费用）加 --use-llm")
     result = await GraphHealer(oracle, cache, retry_null=retry_null).heal(blueprint)
     if isinstance(oracle, LLMPlacementOracle) and oracle.halted is not None:
-        print(f"自愈模型不可用（{oracle.halted}）：尚无答案的孤儿这次没有问成，额度恢复后重跑 heal 即可")
+        print(f"自愈模型不可用（{oracle.halted}）：尚无答案的孤儿这次没有问成，改用 heal --export / --ingest 交给子代理")
     _write_blueprint(settings, result.blueprint)
     _rewrite_healing_section(settings.world_dir / "report.txt", [*result.healed, *result.unresolved])
     print(f"自愈完成：生效的安放 {len(result.placements)} 条，仍下落不明 {len(lint(result.blueprint))} 件；已写回蓝图与 seed.cypher")
@@ -244,6 +260,7 @@ def main(argv: list[str] | None = None) -> None:
     ex.add_argument("--apply", action="store_true", help="抽取完成后立即写入 Neo4j")
     ex.add_argument("--reset", action="store_true", help="写图前清空旧的正典与全部平行世界")
     ex.add_argument("--allow-partial", action="store_true", help="有文本块抽取失败时仍写出蓝图（默认拒绝，以免残缺蓝图覆盖完整蓝图）")
+    ex.add_argument("--use-llm", action="store_true", help="调用 engine/.env 配置的大模型抽取（会产生费用；本项目由 Claude 子代理经 export / ingest 抽取）")
     ap = sub.add_parser("apply", help="把 data/world/blueprint.json 写入 Neo4j")
     ap.add_argument("--reset", action="store_true", help="写图前清空旧的正典与全部平行世界")
     asm = sub.add_parser("assemble", help="只读缓存零费用重新组装蓝图（不调用大模型）")
@@ -258,13 +275,14 @@ def main(argv: list[str] | None = None) -> None:
     ing.add_argument("--file", type=Path, required=True, help="抽取结果 JSON 文件（容忍围栏与寒暄）")
     ing.add_argument("--source", default=None, help="多部原著时指明块所属的文件名")
     hl = sub.add_parser(
-        "heal", help="图谱自愈：为被武学引用却下落不明的物品据原著常识推断安放，写回蓝图（配了真实大模型才发起推断，离线只套缓存）"
+        "heal", help="图谱自愈：为被武学引用却下落不明的物品据原著常识推断安放，写回蓝图（默认只套缓存，新推断经 --export / --ingest 交给子代理）"
     )
     hl.add_argument("--apply", action="store_true", help="自愈后把蓝图写入 Neo4j（推断的 LOCATED_IN / BELONGS_TO 边带 provenance=推断）")
     hl.add_argument("--reset", action="store_true", help="写图前清空旧的正典与全部平行世界")
     who = hl.add_mutually_exclusive_group()
     who.add_argument("--export", type=Path, default=None, metavar="DIR", help="导出自愈铁律与全部孤儿的题面，交给子代理或人工作答")
     who.add_argument("--ingest", type=Path, default=None, metavar="FILE", help="外部自愈者的作答（JSON 对象或数组，容忍围栏）校验后入自愈缓存，再按缓存自愈")
+    who.add_argument("--use-llm", action="store_true", help="调用 engine/.env 配置的大模型推断（会产生费用；本项目由 Claude 子代理经 --export / --ingest 作答）")
     hl.add_argument("--by", default=None, metavar="NAME", help="--ingest 的推断者署名，如 claude-subagent 或人名")
     hl.add_argument("--retry-null", action="store_true", help="重新询问缓存里已被判为无从推断的孤儿（默认沿用判词，不重复付费）")
     sub.add_parser("script", help="由 blueprint.json 重新生成 seed.cypher")
@@ -286,7 +304,9 @@ def main(argv: list[str] | None = None) -> None:
 
     async def run() -> None:
         if args.command == "extract":
-            blueprint = await extract(settings, max_chunks=args.max_chunks, allow_partial=args.allow_partial)
+            blueprint = await extract(
+                settings, max_chunks=args.max_chunks, allow_partial=args.allow_partial, use_llm=args.use_llm
+            )
             if args.apply:
                 await apply(settings, blueprint, reset=args.reset)
             return
@@ -295,7 +315,7 @@ def main(argv: list[str] | None = None) -> None:
             return
         if args.command == "heal":
             healed = await heal(settings, export_dir=args.export, ingest_file=args.ingest, by=args.by,
-                                retry_null=args.retry_null)
+                                retry_null=args.retry_null, use_llm=args.use_llm)
             if args.apply and args.export is None:
                 await apply(settings, healed, reset=args.reset)
             return

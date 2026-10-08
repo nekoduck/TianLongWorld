@@ -475,8 +475,15 @@ def test_seed_cli_exports_pending_chunks_and_ingests_external_results(tmp_path: 
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "书.txt").write_text("一 青衫磊落险峰行\n段誉道：好。\n二 玉壁月华明\n钟灵道：是。", encoding="utf-8")
     settings = Settings(_env_file=None, source_text_dir=tmp_path / "src", world_dir=tmp_path / "world",  # type: ignore[call-arg]
-                        extraction_chunk_chars=1000)
+                        extraction_chunk_chars=1000, llm_provider="gemini", llm_api_key="g", llm_model="pro")
     monkeypatch.setattr(seed, "get_settings", lambda: settings)
+
+    def paid(*_: object) -> None:
+        raise AssertionError("抽取不得装配付费大模型")
+
+    monkeypatch.setattr(seed, "build_llm", paid)
+    with pytest.raises(SystemExit, match="Claude 子代理"):  # 配着 Gemini 也不花钱：不带 --use-llm 即拒绝并指路
+        seed.main(["extract"])
     (tmp_path / "world").mkdir()  # 过时的旧蓝图（主键不是本名）：重抽正是为了替换它，不能被它拦住，只是不给命名参考
     (tmp_path / "world" / "blueprint.json").write_text('{"characters": [{"id": "chr:恶贯满盈", "true_name": "段延庆"}]}', "utf-8")
     seed.main(["export", "--out", str(tmp_path / "jobs")])
@@ -487,6 +494,8 @@ def test_seed_cli_exports_pending_chunks_and_ingests_external_results(tmp_path: 
     assert sorted(p.name for p in (tmp_path / "jobs2").iterdir()) == ["EXTRACTION_SYSTEM.txt", "chunk-001.txt"]
     with pytest.raises(SystemExit, match="无法唯一确定"):
         seed.main(["ingest", "--index", "9", "--file", str(tmp_path / "out.json")])
+    with pytest.raises(AssertionError, match="付费大模型"):
+        seed.main(["extract", "--use-llm"])  # 显式要求才装配
 
 
 async def test_cached_extractor_reassembles_for_free_and_cleans_legacy_records(tmp_path: Path) -> None:

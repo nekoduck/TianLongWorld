@@ -3,7 +3,7 @@
          依赖 infrastructure 的事件账本、图谱、记忆与大模型工厂的全部实现
 [OUTPUT]: 对外提供 Container（总线 + 流水线 + 投影协调者 + 播种器 + 关闭钩子）、build_container()（按配置装配整个引擎）
 [POS]: 引擎唯一的组合根（依赖注入）：只有这里知道"端口背后是谁"。四类后端各自二选一（memory / 生产实现），大模型缺席时
-       换上离线解析器、规则裁决与白描说书人；意图解析、地下城主与叙事渲染按职责各取一套（模型, 思考档位）；其余模块只依赖抽象，互不 new 对方。
+       换上离线解析器、规则裁决与白描说书人；意图解析、地下城主与叙事渲染按职责各取一套（模型, 思考档位）、共用一份调用次数保险丝（LLM_CALL_LIMIT）；其余模块只依赖抽象，互不 new 对方。
        测试经 blueprint / llm / resolver 参数注入替身，与生产走同一条装配路径
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -23,6 +23,7 @@ from app.application.resolution_agent import CanonicalResolver, LLMResolutionAge
 from app.config import LLMRole, Settings
 from app.domain.models import WorldBlueprint
 from app.domain.ports import EventStore, WorldProjector, WorldReader, WorldSeeder
+from app.infrastructure.llm.budget import CallBudget
 from app.infrastructure.llm.factory import build_llm
 from app.infrastructure.persistence.memory_event_store import InMemoryEventStore
 from app.infrastructure.persistence.memory_graph import InMemoryWorldGraph
@@ -97,12 +98,14 @@ async def build_container(
     )
     closers.append(memory.close)
 
-    # 意图、地下城主与叙事各用各的模型：解析要快，裁决要快且守区间（命令侧同步等它），叙事要忠于快照
-    reader_llm = llm if llm is not None else build_llm(settings, LLMRole.INTENT)
-    writer_llm = llm if llm is not None else build_llm(settings, LLMRole.NARRATION)
+    # 意图、地下城主与叙事各用各的模型：解析要快，裁决要快且守区间（命令侧同步等它），叙事要忠于快照；
+    # 三者共用一份调用次数保险丝——省下来的是同一笔钱
+    fuse = CallBudget(settings.llm_call_limit)
+    reader_llm = llm if llm is not None else build_llm(settings, LLMRole.INTENT, fuse)
+    writer_llm = llm if llm is not None else build_llm(settings, LLMRole.NARRATION, fuse)
     parser: IntentParser = LLMIntentParser(reader_llm) if reader_llm else HeuristicIntentParser()
     if resolver is None:
-        judge_llm = llm if llm is not None else build_llm(settings, LLMRole.RESOLUTION)
+        judge_llm = llm if llm is not None else build_llm(settings, LLMRole.RESOLUTION, fuse)
         resolver = (
             LLMResolutionAgent(judge_llm, budget=settings.llm_resolution_budget) if judge_llm else CanonicalResolver()
         )

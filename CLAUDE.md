@@ -14,7 +14,7 @@ backend/.env.example - 大模型、会话与上下文配置模板（HISTORY_TURN
 frontend/package.json - 前端依赖与脚本（dev / dev:mock / build）
 frontend/vite.config.ts - Vite 插件与 /api → :8000 开发代理
 engine/requirements.txt - 引擎运行依赖（fastapi / uvicorn / pydantic-settings / httpx2 / asyncpg / neo4j / qdrant-client）
-engine/.env.example - 引擎配置模板：大模型四选一且意图 / 叙事 / 地下城主 / 抽取四职责各配模型与思考档位（附推荐的 Gemini 组合）、EVENT_STORE / GRAPH_BACKEND / QDRANT_URL 各自 memory 或生产实现、MEMORY_RECALL_K 1~10、播种参数；默认全内存 + mock 零依赖可跑
+engine/.env.example - 引擎配置模板：大模型四选一且意图 / 叙事 / 地下城主 / 抽取四职责各配模型与思考档位（附推荐的 Gemini 组合）、LLM_CALL_LIMIT 调用次数保险丝、EVENT_STORE / GRAPH_BACKEND / QDRANT_URL 各自 memory 或生产实现、MEMORY_RECALL_K 1~10、播种参数；默认全内存 + mock 零依赖可跑
 engine/docker-compose.yml - 引擎三件套后端 postgres:16 + neo4j:5.26 + qdrant
 </config>
 
@@ -89,6 +89,8 @@ TLBB-Engine 一回合（engine/app/application/handlers.py）：
   越级取胜与非极端找死的毙命不在区间里；好感只来自物归原主与敌人之敌，武功只来自肯教之人或原著典籍且两道门逐条核验，兵器不改境界
 - 平行世界：一位玩家 = 一条事件流 = 一个聚合；Neo4j 正典只读，每个世界一层可抹去重放的覆盖层（HELD_BY {world} 等）
 - 大模型四职责皆无状态且无写端口：抽取原著（含自愈推断）、解析意图、地下城主提议、渲染文本；提议必经领域闸门，散文（速写、叙事）不入事件与记忆
+- 花钱的边界：原著抽取与图谱自愈由 Claude 子代理经 export / ingest 担任，绝不调用付费大模型（seed 须显式 --use-llm 才装配，2026-10 曾两次跑空 Gemini 预付额度）；
+  付费大模型只服务运行期三职责，各职责共用每进程的调用次数保险丝 LLM_CALL_LIMIT，熔断即走各自的退路
 - 每个端口都有内存实现，与生产实现共跑契约测试；内存图谱复用领域 evolve，与 Neo4j 快照逐字段相等
 </engine_architecture>
 

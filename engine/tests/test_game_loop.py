@@ -1,5 +1,5 @@
 """
-[INPUT]: 依赖 app.application.bus 的命令与回合消息，依赖 app.container 的 build_container，依赖 tests/conftest 的 container / play / spawned_at / ScriptedLLM
+[INPUT]: 依赖 app.application.bus 的命令与回合消息，依赖 app.container 的 build_container，依赖 tests/conftest 的 container / play / spawned_at / ScriptedLLM / wire / sse
 [OUTPUT]: CQRS 游戏环路端到端用例：完整的逻辑死线剧情（入门 → 参照典籍练到略有小成 → 制敌夺剑 → 物归原主 → 拜师）、
           极端找死的永久死亡、重伤后避开仇人调息疗伤、选项点选与防伪、断线重连即重放、投影自愈、
           叙事失败不影响真相、地下城主越界的提议被钳回区间、真实三件套后端上的整局（设置 PG 与 Neo4j 环境变量时）
@@ -8,6 +8,7 @@
 """
 
 import json
+from typing import Any
 
 import pytest
 
@@ -25,7 +26,7 @@ from app.config import Settings
 from app.container import Container, build_container
 from app.domain.events import ActionFailed, HealthChanged, PlayerDied, SkillPracticed
 from app.errors import LLMError, OptionExpiredError, PlayerDeadError, UnknownPlayerError, WorldNotSeededError
-from tests.conftest import NEO4J_PASSWORD, NEO4J_URI, NEO4J_USER, PG_DSN, ScriptedLLM, kinds, play, spawned_at
+from tests.conftest import NEO4J_PASSWORD, NEO4J_URI, NEO4J_USER, PG_DSN, ScriptedLLM, kinds, play, spawned_at, sse
 from tests.world import WORLD
 
 
@@ -218,6 +219,21 @@ async def test_recalled_memories_are_distinct_and_capped(settings: Settings) -> 
             await say(container, pid, text)
         recalled = llm.calls[-1][1].split("<memories>\n")[1].split("</memories>")[0].splitlines()
         assert len(recalled) == 2 and len(set(recalled)) == 2  # 四条往事里有两条一字不差
+    finally:
+        await container.aclose()
+
+
+async def test_the_runtime_roles_share_one_call_fuse(settings: Settings, wire: Any) -> None:
+    """意图、地下城主与叙事共用一份保险丝：开场叙事用掉唯一的一次，下一句意图解析就熔断——请求发不出去，回合不写任何事件。"""
+    seen = wire(lambda r: sse({"candidates": [{"content": {"parts": [{"text": "山风猎猎。"}]}}]}))
+    gemini = settings.model_copy(update={"llm_provider": "gemini", "llm_api_key": "g", "llm_model": "flash", "llm_call_limit": 1})
+    container = await build_container(gemini, blueprint=WORLD)
+    try:
+        pid = await spawned_at(container, "无量山")
+        before = len(await container.store.load(pid))
+        with pytest.raises(LLMError, match="LLM_CALL_LIMIT=1"):
+            await say(container, pid, "捡起地上的玉佩")
+        assert len(seen) == 1 and len(await container.store.load(pid)) == before
     finally:
         await container.aclose()
 

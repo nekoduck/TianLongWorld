@@ -1,14 +1,13 @@
 """
-[INPUT]: 依赖 httpx2 的 MockTransport / AsyncClient，依赖 app.infrastructure.llm 的三家客户端、_http 与 portable_schema，依赖 app.domain.intent 的 PlayerIntent
+[INPUT]: 依赖 tests/conftest 的 wire（MockTransport 传输层），依赖 app.infrastructure.llm 的三家客户端、build_llm、CallBudget 与 portable_schema，
+         依赖 app.domain.intent 的 PlayerIntent
 [OUTPUT]: 厂商客户端单测：报文形状（结构化输出 / 不下发采样参数 / JSON 模式只在需要时开）、SSE 流式解析、拒答与截断收敛为 LLMError、
           schema 规整（内联引用、剥离约束、对象封闭、字段名不被误删、枚举保留）、缺凭证启动即失败、四职责各取各的模型与思考档位、Claude 无 minimal 档、
-          限流可重试而欠费不可重试
+          限流可重试而欠费不可重试、调用次数保险丝（各职责共用、熔断的请求发不出去且不可重试）
 [POS]: tests 的厂商边界：替换 httpx2 的传输层，不触网即可钉死三家协议的细节
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
-import json
-from collections.abc import Callable
 from typing import Any
 
 import httpx2
@@ -17,39 +16,15 @@ import pytest
 from app.config import LLMRole, Settings
 from app.domain.intent import PlayerIntent
 from app.errors import LLMError
-from app.infrastructure.llm import _http
 from app.infrastructure.llm.anthropic import AnthropicClient
+from app.infrastructure.llm.budget import CallBudget
 from app.infrastructure.llm.factory import build_llm
 from app.infrastructure.llm.gemini import GeminiClient
 from app.infrastructure.llm.openai_compat import OpenAICompatClient
 from app.infrastructure.llm.schema import portable_schema
+from tests.conftest import sse
 
 SCHEMA = PlayerIntent.model_json_schema()
-_REAL_CLIENT = httpx2.AsyncClient
-
-
-@pytest.fixture
-def wire(monkeypatch: pytest.MonkeyPatch) -> Callable[[Callable[[httpx2.Request], httpx2.Response]], list[Any]]:
-    """把 httpx2.AsyncClient 换成走 MockTransport 的真客户端：传输层之上的一切照常执行。"""
-
-    def install(handler: Callable[[httpx2.Request], httpx2.Response]) -> list[Any]:
-        seen: list[Any] = []
-
-        def recording(request: httpx2.Request) -> httpx2.Response:
-            seen.append({"url": str(request.url), "headers": request.headers, "json": json.loads(request.content)})
-            return handler(request)
-
-        monkeypatch.setattr(_http.httpx2, "AsyncClient",
-                            lambda **kw: _REAL_CLIENT(transport=httpx2.MockTransport(recording), **kw))
-        return seen
-
-    return install
-
-
-def sse(*events: dict[str, Any], done: bool = False) -> httpx2.Response:
-    body = "".join(f"event: x\ndata: {json.dumps(e, ensure_ascii=False)}\n\n" for e in events)
-    return httpx2.Response(200, text=body + ("data: [DONE]\n\n" if done else ""),
-                           headers={"content-type": "text/event-stream"})
 
 
 def anthropic() -> AnthropicClient:
@@ -167,6 +142,25 @@ async def test_each_role_gets_its_own_model_and_thinking(wire: Any) -> None:
     levels = [x["json"]["generationConfig"]["thinkingConfig"]["thinkingLevel"] for x in seen]
     assert urls == ["flash-lite:generateContent", "flash:generateContent", "pro:generateContent", "flash:generateContent"]
     assert levels == ["minimal", "low", "low", "medium"]  # 职责专属优先，留空退回缺省档（地下城主只配了思考档位）
+
+
+async def test_the_call_fuse_blows_before_a_request_leaves(wire: Any) -> None:
+    """保险丝在各职责之间共用、一次流式也算一次；熔断的那次请求根本发不出去，且不可重试——没有谁会对着它退避重试。"""
+    seen = wire(lambda r: httpx2.Response(200, json={"candidates": [{"content": {"parts": [{"text": "{}"}]}}]})
+                if "alt=sse" not in str(r.url) else sse({"candidates": [{"content": {"parts": [{"text": "山风"}]}}]}))
+    s = Settings(_env_file=None, llm_provider="gemini", llm_api_key="g", llm_model="flash")  # type: ignore[call-arg]
+    fuse = CallBudget(2)
+    intent, narration = build_llm(s, LLMRole.INTENT, fuse), build_llm(s, LLMRole.NARRATION, fuse)
+    assert intent is not None and narration is not None
+    await intent.complete("s", "u")
+    assert "".join([c async for c in narration.stream("s", "u")]) == "山风"
+    with pytest.raises(LLMError, match="LLM_CALL_LIMIT=2") as blown:
+        await intent.complete("s", "u")
+    assert not blown.value.retryable and len(seen) == 2 and fuse.spent == 2
+    unlimited = CallBudget(0)
+    for _ in range(5):
+        await build_llm(s, LLMRole.INTENT, unlimited).complete("s", "u")  # type: ignore[union-attr]
+    assert unlimited.spent == 5 and Settings(_env_file=None).llm_call_limit == 500  # type: ignore[call-arg]
 
 
 async def test_anthropic_has_no_minimal_effort(wire: Any) -> None:

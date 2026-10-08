@@ -40,20 +40,24 @@ python3.12 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 
 ## 播种：原著 → 图谱
 
+原著抽取与图谱自愈由 **Claude 子代理**完成，不调用付费大模型（2026-10 实测两次跑空了 Gemini 预付额度）：
+
 ```bash
-cp .env.example .env                       # 配置 LLM_PROVIDER / LLM_API_KEY / LLM_MODEL
 cp ~/天龙八部.txt data/source_text/        # UTF-8 或 GBK 均可，永不入库
-.venv/bin/python -m app.seed extract --max-chunks 40   # 先取开篇：既是试跑，也是世界的时间切片
-.venv/bin/python -m app.seed apply --reset             # GRAPH_BACKEND=neo4j 时写入 Neo4j
+.venv/bin/python -m app.seed export --out /tmp/jobs --max-chunks 40   # 抽取铁律 + 跨块命名参考 + 待抽的块
+# Claude 子代理照 EXTRACTION_SYSTEM.txt 逐块作答，每块一个 JSON
+.venv/bin/python -m app.seed ingest --index 0 --file chunk-000.json   # 逐块经同一道闸门（契约校验 + 防抄清洗）入缓存
+.venv/bin/python -m app.seed assemble --max-chunks 40                 # 零费用组装：先取开篇，也是世界的时间切片
+.venv/bin/python -m app.seed apply --reset                            # GRAPH_BACKEND=neo4j 时写入 Neo4j
 ```
 
-仓库里已有一份：前 40 块（第一回至第九回，大理篇）的 v6 蓝图、逐块抽取记录与自愈缓存，来历与复现方式见 [`data/world/README.md`](data/world/README.md)。
-另有 `python -m app.seed assemble`：只读缓存、零费用重新组装（组装器改了规则时用）；
-`export` / `ingest`：大模型之外的抽取器（子代理、人工）接手抽取，产出经同一道闸门入缓存——本仓库的 v6 全部 40 块就是这样由 Claude 子代理完成的。
+仓库里已有一份：前 40 块（第一回至第九回，大理篇）的 v6 蓝图、逐块抽取记录与自愈缓存，来历与复现方式见 [`data/world/README.md`](data/world/README.md)——
+v6 全部 40 块就是这样由 Claude 子代理完成的。`assemble` 也用于组装器改了规则后零费用重组。
+`extract --use-llm` / `heal --use-llm` 仍可调用 `.env` 配置的大模型（会产生费用），不带这个开关，`extract` 只会拒绝并指路，`heal` 只套缓存。
 
 ```bash
-.venv/bin/python -m app.seed heal                      # 体检孤儿物品：大模型据原著常识推断安放（离线时只套缓存）
-.venv/bin/python -m app.seed heal --export /tmp/heal   # 或交给子代理 / 人工作答……
+.venv/bin/python -m app.seed heal                      # 体检孤儿物品：只套自愈缓存（零费用）
+.venv/bin/python -m app.seed heal --export /tmp/heal   # 尚无答案的孤儿交给 Claude 子代理作答……
 .venv/bin/python -m app.seed heal --ingest answer.json --by claude-subagent   # ……经同一道闸门入缓存
 .venv/bin/python -m app.seed heal --apply              # 推断的 LOCATED_IN / BELONGS_TO（provenance=推断）经 MERGE 写进 Neo4j
 ```
@@ -64,19 +68,21 @@ cp ~/天龙八部.txt data/source_text/        # UTF-8 或 GBK 均可，永不�
 
 ## 模型选型（Gemini，2026-10 实测）
 
-大模型的三种职责取舍不同，按职责各配一套（模型, 思考档位），见 `.env.example`：
+付费大模型只服务运行期三种职责，取舍不同，按职责各配一套（模型, 思考档位），见 `.env.example`；
+各职责共用一份调用次数保险丝 `LLM_CALL_LIMIT`（每进程缺省 500 次，约两百回合；熔断后地下城主交给规则、叙事降级为白描、意图解析报错）：
 
 | 职责 | 模型 | 思考 | 实测 | 取舍 |
 | --- | --- | --- | --- | --- |
 | 意图解析 | `gemini-3.1-flash-lite` | minimal | ≈1.0s/次，6/6 正确 | 最快，且最守"把代称规整为在场者正名"的纪律 |
 | 叙事渲染 | `gemini-3.8-flash` | low | 首字 ≈1.7s，全文 ≈4.5s | 忠于快照：玩家自称"拔出袖中短剑"而行囊为空，照实写成空手；flash-lite 首字 0.9s 但会被话术带偏 |
 | 地下城主 | `gemini-3.8-flash` | low | p50 2.8s / p90 3.9s，首发采纳 42/42，速写零硬伤 | 7 组候选 × 14 场景 × 3 次实测选出：flash-lite 系快一倍但不守"仁厚者手下留情"，3.1-pro 太慢且配额紧；**3.8-flash 不收 minimal**（HTTP 400，地下城主整个退回规则）；8s 时间预算，超时交给规则 |
-| 原著抽取 / 图谱自愈 | `gemini-3.1-pro-preview` | high | 抽取 ≈35s/块；自愈 p50 7.2s，合成孤儿 4/4 选中同门候选 | 离线一次成型，准确优先；**每天 250 次请求**，抽取与自愈共用，全书须按天分批续跑 |
+| 原著抽取 / 图谱自愈 | **Claude 子代理**（export / ingest） | — | v6 全部 40 块零费用入库 | 不归付费大模型；Gemini 3.1-pro + high 的实测（抽取 ≈35s/块、自愈 p50 7.2s、每天 250 次请求）只留作对照，`--use-llm` 才会调用 |
 
 真实整局实测（29 回合，意图 / 地下城主 / 叙事零报错零降级）：非出手回合首字 p50 3.3s、终帧 5.5s；胜负未定的出手首字 p50 6.3s、终帧 8.6s——
-多出来的约 3 秒就是地下城主。改动提示词或换模型后，用 `TLBB_TEST_LIVE_LLM=1 pytest -m live` 跑一遍真实模型回归；
-地下城主与自愈的选型基准脚本在实测记录里（14 场景 × 3 次、六脉 / 降龙一对正反题各 6 遍），换提示词后照原样重跑再上线。
-真实抽取有随机波动（同一段文本偶尔漏写典籍或换一种关系类别）：全书各块的并集会补齐大部分缺口，`blueprint.json` 落图前值得人工过目。
+多出来的约 3 秒就是地下城主。改动运行期提示词或换模型后，用 `TLBB_TEST_LIVE_LLM=1 pytest -m live` 跑一遍真实模型回归
+（一次回归至多 20 次请求，不含抽取；验证厂商抽取契约另须 `TLBB_TEST_LIVE_EXTRACTION=1`）。
+地下城主的选型基准（7 组候选 × 14 场景 × 3 次）未入库，换提示词后按同样的场景与次数、逐组串行重跑——并行会把当日配额一起打光。
+抽取有随机波动（同一段文本偶尔漏写典籍或换一种关系类别）：全书各块的并集会补齐大部分缺口，`blueprint.json` 落图前值得人工过目。
 
 ## 生产后端
 
