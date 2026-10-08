@@ -18,6 +18,7 @@ from app.errors import ExtractionError, LLMError
 from app.infrastructure.blueprint_assembler import BlueprintAssembler
 from app.infrastructure.cypher import CONSTRAINTS, compile_blueprint, cypher_literal, render_script
 from app.infrastructure.knowledge_extractor import (
+    PROMPT_VERSION,
     CachedExtractor,
     Chunk,
     ChunkExtraction,
@@ -29,6 +30,7 @@ from app.infrastructure.knowledge_extractor import (
     chunk_text,
     clean_text,
     load_corpus,
+    store_extraction,
 )
 from app.infrastructure.persistence.neo4j_graph import Neo4jWorldGraph
 from tests.conftest import NEO4J_PASSWORD, NEO4J_URI, NEO4J_USER, ScriptedLLM
@@ -272,6 +274,38 @@ async def test_extractor_retries_transient_failures_then_gives_up() -> None:
     with pytest.raises(ExtractionError, match="402"):  # 欠费重试也无济于事：一次即止，不再白跑
         await LLMKnowledgeExtractor(broke, backoff=0).extract(Chunk("书", 4, "文"))
     assert len(broke.calls) == 1
+
+
+def test_store_extraction_is_the_same_gate_for_any_extractor(tmp_path: Path) -> None:
+    """外部抽取器（子代理、人工）的产出与大模型走同一道闸门：契约校验、防抄清洗、写入当前版本缓存，随后可零费用组装。"""
+    chunk = Chunk("书", 7, "那闪电貂一生之中不知已吃了几千条毒蛇，牙齿毒得很。")
+    raw = "好的，抽取如下：```json\n" + json.dumps({"items": [
+        {"name": "闪电貂", "owner": "钟灵", "description": "一生之中不知已吃了几千条毒蛇，牙齿毒得很"}
+    ]}, ensure_ascii=False) + "\n```"
+    result, blanked = store_extraction(tmp_path, chunk, raw)
+    assert blanked == 1 and result.items[0].description == ""
+    assert cache_path(tmp_path, PROMPT_VERSION, chunk).exists()
+    with pytest.raises(ExtractionError, match="不合契约"):
+        store_extraction(tmp_path, chunk, '{"characters": [{"aliases": []}]}')  # 缺 name
+
+
+def test_seed_cli_exports_pending_chunks_and_ingests_external_results(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app import seed
+    from app.config import Settings
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "书.txt").write_text("一 青衫磊落险峰行\n段誉道：好。\n二 玉壁月华明\n钟灵道：是。", encoding="utf-8")
+    settings = Settings(_env_file=None, source_text_dir=tmp_path / "src", world_dir=tmp_path / "world",  # type: ignore[call-arg]
+                        extraction_chunk_chars=1000)
+    monkeypatch.setattr(seed, "get_settings", lambda: settings)
+    seed.main(["export", "--out", str(tmp_path / "jobs")])
+    assert sorted(p.name for p in (tmp_path / "jobs").iterdir()) == ["EXTRACTION_SYSTEM.txt", "chunk-000.txt", "chunk-001.txt"]
+    (tmp_path / "out.json").write_text(json.dumps({"characters": [{"name": "段誉"}]}, ensure_ascii=False), "utf-8")
+    seed.main(["ingest", "--index", "0", "--file", str(tmp_path / "out.json")])
+    seed.main(["export", "--out", str(tmp_path / "jobs2")])  # 已入缓存的块不再导出
+    assert sorted(p.name for p in (tmp_path / "jobs2").iterdir()) == ["EXTRACTION_SYSTEM.txt", "chunk-001.txt"]
+    with pytest.raises(SystemExit, match="无法唯一确定"):
+        seed.main(["ingest", "--index", "9", "--file", str(tmp_path / "out.json")])
 
 
 async def test_cached_extractor_reassembles_for_free_and_cleans_legacy_records(tmp_path: Path) -> None:

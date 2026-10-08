@@ -6,10 +6,12 @@
           Chunk / chunk_text()（按回目与段落切块）、
           抽取契约 ChunkExtraction（Raw* 名称级记录，地点带 parent 上级）、KnowledgeExtractor 抽象与 LLMKnowledgeExtractor（结构化输出 + 退避重试 +
           照抄原文 ≥VERBATIM_CHARS 字的描述在写缓存前清空 + 按提示词版本分目录的磁盘缓存）、CachedExtractor（只读缓存、零费用重组装）、cache_path()、
+          parse_extraction() / store_extraction()（任何抽取器的产出入缓存的唯一入口：截取 JSON → 契约校验 → 防抄清洗 → 写入）、
           SeedingResult 与 SeedingPipeline（语料 → 切块 → 并发抽取 → 组装蓝图 → 编译 Cypher）
 [POS]: infrastructure 的原著解析管道（World Seeding 的前半程）：大模型在这里只做"读书抽取"这一件无状态的事，
        产出的是名称级的原始记录；实体消歧、引用落地、拓扑补全与"宁严勿宽"的封存都在 blueprint_assembler 中确定性地完成。
-       任何一个块抽取失败只记入报告，不拖垮整本书；全部失败才视为管道失败
+       任何一个块抽取失败只记入报告，不拖垮整本书；全部失败才视为管道失败。
+       缓存是抽取器之间的交换契约：大模型、子代理、人工都可以当抽取器，产出经 store_extraction 同一道闸门入缓存，组装器一视同仁
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -309,28 +311,53 @@ class LLMKnowledgeExtractor(KnowledgeExtractor):
         cached = self._cache_path(chunk)
         if cached is not None and cached.exists():
             return ChunkExtraction.model_validate_json(cached.read_text(encoding="utf-8"))
-        user = f'<chunk source="{_escape(chunk.source)}" index="{chunk.index}">\n{_escape(chunk.text)}\n</chunk>'
+        user = chunk_message(chunk)
         last_error: Exception | None = None
         for attempt in range(self._attempts):
             if attempt:
                 await asyncio.sleep(self._backoff * 2 ** (attempt - 1))
             try:
-                result = ChunkExtraction.model_validate(
-                    _json_object(await self._llm.complete(EXTRACTION_SYSTEM, user, EXTRACTION_SCHEMA))
-                )
+                result = parse_extraction(await self._llm.complete(EXTRACTION_SYSTEM, user, EXTRACTION_SCHEMA))
             except (LLMError, ValueError, ValidationError) as exc:
                 logger.warning("%s#%d 第 %d 次抽取失败：%s", chunk.source, chunk.index, attempt + 1, exc)
                 last_error = exc
                 if isinstance(exc, LLMError) and not exc.retryable:
                     break  # 欠费、鉴权失败：重试只会再失败一次
                 continue
-            if blanked := _paraphrase_only(result, chunk.text):
-                logger.info("%s#%d 有 %d 条描述照抄原文，已清空", chunk.source, chunk.index, blanked)
-            if cached is not None:
-                cached.parent.mkdir(parents=True, exist_ok=True)
-                cached.write_text(result.model_dump_json(), encoding="utf-8")
+            _sanitize_and_save(result, chunk, cached)
             return result
         raise ExtractionError(f"{chunk.source}#{chunk.index} 抽取失败：{last_error}")
+
+
+def chunk_message(chunk: Chunk) -> str:
+    """交给抽取器的那条用户消息：块文本转义后包进 <chunk> 标签。"""
+    return f'<chunk source="{_escape(chunk.source)}" index="{chunk.index}">\n{_escape(chunk.text)}\n</chunk>'
+
+
+def parse_extraction(raw: str) -> ChunkExtraction:
+    """抽取器原始输出 → 契约对象。不合契约抛 ValueError / ValidationError。"""
+    return ChunkExtraction.model_validate(_json_object(raw))
+
+
+def _sanitize_and_save(result: ChunkExtraction, chunk: Chunk, path: Path | None) -> int:
+    if blanked := _paraphrase_only(result, chunk.text):
+        logger.info("%s#%d 有 %d 条描述照抄原文，已清空", chunk.source, chunk.index, blanked)
+    if path is not None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(result.model_dump_json(), encoding="utf-8")
+    return blanked
+
+
+def store_extraction(cache_dir: Path, chunk: Chunk, raw: str, version: str = PROMPT_VERSION) -> tuple[ChunkExtraction, int]:
+    """
+    外部抽取器（子代理、人工、别家模型的离线批处理）的产出入缓存：与 LLMKnowledgeExtractor 走同一道闸门——
+    契约校验、防抄清洗、写入该版本缓存。返回（记录, 被清空的描述条数）；不合契约抛 ExtractionError。
+    """
+    try:
+        result = parse_extraction(raw)
+    except (ValueError, ValidationError) as exc:
+        raise ExtractionError(f"{chunk.source}#{chunk.index} 的抽取结果不合契约：{exc}") from exc
+    return result, _sanitize_and_save(result, chunk, cache_path(cache_dir, version, chunk))
 
 
 VERBATIM_CHARS = 16
