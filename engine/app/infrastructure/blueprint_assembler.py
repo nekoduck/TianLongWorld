@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any
 from app.domain.models import (
     DESC_CHARS,
     NAME_CHARS,
+    Acquisition,
     Character,
     CharacterRelation,
     CharacterStatus,
@@ -35,7 +36,7 @@ from app.domain.models import (
     Item,
     Location,
     MartialArt,
-    Prerequisites,
+    Practice,
     Tier,
     Transmission,
     WorldBlueprint,
@@ -322,7 +323,7 @@ class BlueprintAssembler:
                 skills.append(sid)
         return Character(
             id=entity_id(EntityKind.CHARACTER, g.name),
-            name=g.name,
+            true_name=g.name,
             aliases=g.aliases,
             faction=str(_first(r.faction for r in g.records) or "")[:NAME_CHARS],
             status=_first((r.status for r in g.records), CharacterStatus.ALIVE),
@@ -339,7 +340,7 @@ class BlueprintAssembler:
     def _martial_arts(
         groups: Sequence[_Group], art_i: _Index, itm_i: _Index, loc_i: _Index, report: AssemblyReport
     ) -> list[MartialArt]:
-        prereqs: dict[str, Prerequisites] = {}
+        prereqs: dict[str, tuple[Acquisition, Practice]] = {}
         for g in groups:
             aid = entity_id(EntityKind.MARTIAL_ART, g.name)
             raw = [r.prerequisites for r in g.records]
@@ -361,14 +362,15 @@ class BlueprintAssembler:
             sealed = bool(unresolved)
             if sealed:
                 report.sealed.append(f"{g.name}：前置「{'、'.join(unresolved)}」不在本体之中")
-            prereqs[aid] = Prerequisites(
-                skills=skills, items=items, location_id=place, min_tier=min_tier,
-                conflicts=conflicts, transmission=transmission, sealed=sealed,
+            prereqs[aid] = (
+                Acquisition(items=items, location_id=place, transmission=transmission, sealed=sealed),
+                Practice(skills=skills, min_tier=min_tier, conflicts=conflicts),
             )
-        while cycle := prerequisite_cycle({k: v.skills for k, v in prereqs.items()}):
+        while cycle := prerequisite_cycle({k: v[1].skills for k, v in prereqs.items()}):
             report.sealed.append(f"前置成环：{' → '.join(cycle)}")
             for aid in set(cycle):
-                prereqs[aid] = prereqs[aid].model_copy(update={"skills": (), "sealed": True})
+                acq, practice = prereqs[aid]
+                prereqs[aid] = (acq.model_copy(update={"sealed": True}), practice.model_copy(update={"skills": ()}))
         return [
             MartialArt(
                 id=entity_id(EntityKind.MARTIAL_ART, g.name),
@@ -378,7 +380,8 @@ class BlueprintAssembler:
                 kind=str(_first(r.kind for r in g.records) or "")[:NAME_CHARS],
                 tier=_first((r.tier for r in g.records), Tier.THIRD),
                 description=str(_first(r.description for r in g.records) or "")[:DESC_CHARS],
-                prerequisites=prereqs[entity_id(EntityKind.MARTIAL_ART, g.name)],
+                acquisition=prereqs[entity_id(EntityKind.MARTIAL_ART, g.name)][0],
+                practice=prereqs[entity_id(EntityKind.MARTIAL_ART, g.name)][1],
             )
             for g in groups
         ]
