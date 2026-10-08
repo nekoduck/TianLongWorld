@@ -1,24 +1,28 @@
 """
-[INPUT]: 依赖 app.infrastructure.knowledge_extractor（语料 / 切块 / 抽取器 / 管道）、blueprint_assembler、cypher，依赖 tests/conftest 的 ScriptedLLM，
+[INPUT]: 依赖 app.infrastructure.knowledge_extractor（语料 / 切块 / 抽取契约 v6 / 抽取器 / 管道）、blueprint_assembler、cypher，依赖 tests/conftest 的 ScriptedLLM，
          依赖 tests/world 的 WORLD，可选依赖真实 Neo4j
-[OUTPUT]: World Seeding 全链路单测：编码回退、回目切块、正名互见的实体消歧、首次登场即开篇且未知不等于最弱、前置门槛取最严、唯一包含匹配落地、悬空引用丢弃、宁严勿宽的封存、
-          道路双向、物品唯一归属、抽取器的重采样与磁盘缓存、局部失败不拖垮全书、Cypher 参数化与脚本转义；
+[OUTPUT]: World Seeding 全链路单测：编码回退、回目切块、正名互见的实体消歧、三名分立（本名只在知道本名的记录里投票，称号与别名各归其位）、
+          时间线隔离（后文事件否决开篇武学 / 物主 / 生死）、首次登场即开篇且未知不等于最弱、两道门（获取取并集与最严、修炼门槛取最严）、
+          旧缓存 prerequisites 自动升级、被引用却无处安放的物品成为孤儿、唯一包含匹配落地、悬空引用丢弃、宁严勿宽的封存、
+          道路双向、物品唯一归属、报告分节、抽取器的重采样与磁盘缓存、局部失败不拖垮全书、Cypher 参数化与脚本转义；
           设置 TLBB_TEST_NEO4J_URI 时把 seed.cypher 脚本逐句交给真实 Neo4j 执行
-[POS]: tests 的"禁止凭空捏造"证明：世界只能由原著抽取物组装而来，组装器对一切落不了地的东西说不
+[POS]: tests 的"禁止凭空捏造"证明：世界只能由原著抽取物组装而来，组装器对一切落不了地的东西说不，对一切被时间线污染的开篇状态说不
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from app.domain.models import Tier, Transmission
+from app.domain.models import CharacterStatus, Tier, Transmission
 from app.errors import ExtractionError, LLMError
-from app.infrastructure.blueprint_assembler import BlueprintAssembler
+from app.infrastructure.blueprint_assembler import AssemblyReport, BlueprintAssembler
 from app.infrastructure.cypher import CONSTRAINTS, compile_blueprint, cypher_literal, render_script
 from app.infrastructure.knowledge_extractor import (
     PROMPT_VERSION,
+    T0_ANCHOR,
     CachedExtractor,
     Chunk,
     ChunkExtraction,
@@ -166,12 +170,35 @@ def test_art_variants_fold_and_descriptions_drop() -> None:
 
 
 def test_canonical_name_is_voted_across_chunks() -> None:
+    """旧版缓存没有称号字段：退化为全体投票，其余称呼一并作别名。"""
     bp, _ = BlueprintAssembler().assemble([
         extraction(characters=[{"name": "青袍客", "aliases": ["段延庆"]}]),
         extraction(characters=[{"name": "段延庆", "aliases": ["恶贯满盈"]}]),
         extraction(characters=[{"name": "段延庆", "aliases": ["青袍客"]}]),
     ])
-    assert [(c.name, set(c.aliases)) for c in bp.characters] == [("段延庆", {"青袍客", "恶贯满盈"})]
+    assert [(c.name, set(c.aliases), c.titles) for c in bp.characters] == [("段延庆", {"青袍客", "恶贯满盈"}, ())]
+
+
+def test_true_name_is_voted_only_among_records_that_know_it() -> None:
+    """v5 的教训：段延庆在前九回多以「恶贯满盈」出场，按票数他就叫「恶贯满盈」。称号再响，也不能篡位成主键。"""
+    bp, _ = BlueprintAssembler().assemble([
+        extraction(locations=[{"name": "万劫谷"}],
+                   characters=[{"name": "恶贯满盈", "name_is_title": True, "location": "万劫谷", "tier": "绝顶"},
+                               {"name": "南海鳄神", "name_is_title": True}],
+                   relations=[{"source": "恶贯满盈", "target": "南海鳄神", "kind": "结义"}]),
+        extraction(characters=[{"name": "恶贯满盈", "name_is_title": True, "titles": ["天下第一恶人"]},
+                               {"name": "南海鳄神", "name_is_title": True, "aliases": ["岳老三"]}]),
+        extraction(characters=[{"name": "恶贯满盈", "name_is_title": True}]),
+        extraction(characters=[{"name": "段延庆", "titles": ["恶贯满盈", "爹爹"], "aliases": ["延庆太子"]}]),
+    ])
+    people = {c.id: c for c in bp.characters}
+    assert sorted(people) == ["chr:南海鳄神", "chr:段延庆"]
+    duan = people["chr:段延庆"]
+    assert duan.true_name == "段延庆" and duan.titles == ("恶贯满盈", "天下第一恶人") and duan.aliases == ("延庆太子",)
+    assert duan.location_id == "loc:万劫谷" and duan.tier is Tier.PEERLESS  # 只知称号的记录照样贡献开篇状态
+    eshen = people["chr:南海鳄神"]  # 整组都只知称号：才退回全体投票
+    assert eshen.titles == () and eshen.aliases == ("岳老三",)
+    assert [(r.source_id, r.target_id) for r in bp.relations] == [("chr:段延庆", "chr:南海鳄神")]  # 按称号点名也能落地
 
 
 def test_sub_places_connect_to_their_parent() -> None:
@@ -190,9 +217,11 @@ async def test_extractor_blanks_descriptions_copied_from_the_text(tmp_path: Path
     copied = json.dumps({"items": [
         {"name": "闪电貂", "owner": "钟灵", "description": "一生之中不知已吃了几千条毒蛇，牙齿毒得很"},
         {"name": "花鞋", "owner": "钟灵", "description": "钟灵所穿的一双绣花鞋"},
-    ]}, ensure_ascii=False)
+    ], "events": [{"subject": "钟灵", "kind": "得到物品", "object": "闪电貂", "note": "这闪电貂一生之中不知已吃了几千条毒蛇"}]},
+        ensure_ascii=False)
     result = await LLMKnowledgeExtractor(ScriptedLLM(copied), cache_dir=tmp_path, backoff=0).extract(Chunk("书", 0, source))
     assert [i.description for i in result.items] == ["", "钟灵所穿的一双绣花鞋"]
+    assert result.events[0].note == ""  # 事件的转述同样不许照抄
     assert "几千条毒蛇" not in next(tmp_path.rglob("*.json")).read_text(encoding="utf-8")  # 缓存同样干净
 
 
@@ -206,46 +235,133 @@ def test_references_land_by_unique_containment_but_never_guess() -> None:
     assert any("大理" in line for line in report.dropped)
 
 
-def test_unlandable_prerequisites_seal_the_art_and_cycles_are_broken() -> None:
+def test_unlandable_requirements_seal_the_art_and_cycles_are_broken() -> None:
     bp, report = BlueprintAssembler().assemble([
         extraction(
             locations=[{"name": "无量玉洞"}],
             items=[{"name": "北冥神功卷轴", "location": "无量玉洞"}],
             martial_arts=[
-                {"name": "北冥神功", "prerequisites": {"items": ["北冥神功卷轴"], "location": "无量玉洞",
-                                                     "transmission": "自悟", "conflicts": ["吸星大法"]}},
-                {"name": "六脉神剑", "prerequisites": {"skills": ["一阳指"], "items": ["六脉神剑剑谱"]}},
-                {"name": "甲功", "prerequisites": {"skills": ["乙功"]}},
-                {"name": "乙功", "prerequisites": {"skills": ["甲功"]}},
-                {"name": "丙功", "prerequisites": {"transmission": "自悟"}},
+                {"name": "北冥神功", "acquisition": {"items": ["北冥神功卷轴"], "location": "无量玉洞", "transmission": "自悟"},
+                 "practice": {"conflicts": ["吸星大法"]}},
+                {"name": "六脉神剑", "acquisition": {"items": ["六脉神剑剑谱"]}, "practice": {"skills": ["一阳指"]}},
+                {"name": "甲功", "practice": {"skills": ["乙功"]}},
+                {"name": "乙功", "practice": {"skills": ["甲功"]}},
+                {"name": "丙功", "acquisition": {"transmission": "自悟"}},
             ],
         )
     ])
-    arts = {a.name: a.prerequisites for a in bp.martial_arts}
+    arts = {a.name: a for a in bp.martial_arts}
     beiming = arts["北冥神功"]
-    assert not beiming.sealed and beiming.transmission is Transmission.SELF and beiming.conflicts == ()
-    assert beiming.items == ("itm:北冥神功卷轴",) and beiming.location_id == "loc:无量玉洞"
-    assert arts["六脉神剑"].sealed  # 宁可失传，不可滥传：丢掉前置会让它比原著更容易学
-    assert arts["甲功"].sealed and arts["乙功"].sealed and arts["甲功"].skills == ()
-    assert arts["丙功"].transmission is Transmission.TEACHER and not arts["丙功"].sealed
+    assert not beiming.acquisition.sealed and beiming.acquisition.transmission is Transmission.SELF
+    assert beiming.acquisition.items == ("itm:北冥神功卷轴",) and beiming.acquisition.location_id == "loc:无量玉洞"
+    assert beiming.practice.conflicts == ()  # 相冲之功不在本体即无从相冲
+    assert arts["六脉神剑"].acquisition.sealed  # 根本不存在的典籍与根基：宁可失传，不可滥传
+    assert arts["甲功"].acquisition.sealed and arts["乙功"].acquisition.sealed and arts["甲功"].practice.skills == ()
+    assert arts["丙功"].acquisition.transmission is Transmission.TEACHER and not arts["丙功"].acquisition.sealed
     assert any("六脉神剑" in s for s in report.sealed) and any("成环" in s for s in report.sealed)
+    assert any("丙功" in line and "改为须师传" in line for line in report.dropped)
+
+
+def test_referenced_but_unplaced_items_become_orphans() -> None:
+    """v5 的教训：「一阳指穴道谱诀」写明是入门之物却没写在哪——丢掉它，一阳指就只能封存。留作孤儿，等自愈代理安放。"""
+    bp, report = BlueprintAssembler().assemble([
+        extraction(
+            items=[{"name": "一阳指穴道谱诀", "kind": "秘籍"}, {"name": "钓鱼杆儿"}],
+            martial_arts=[{"name": "一阳指", "acquisition": {"items": ["一阳指穴道谱诀"]}},
+                          {"name": "六脉神剑", "acquisition": {"items": ["六脉神剑剑谱"]}}],
+        )
+    ])
+    arts = {a.name: a for a in bp.martial_arts}
+    assert not arts["一阳指"].acquisition.sealed and arts["一阳指"].acquisition.items == ("itm:一阳指穴道谱诀",)
+    assert arts["六脉神剑"].acquisition.sealed  # 引用的名字根本不是任何抽取到的物品：照旧封存
+    assert [(i.name, i.lost, i.canon_holder) for i in bp.items] == [("一阳指穴道谱诀", True, None)]  # 未被引用的钓鱼杆儿照旧丢弃
+    assert report.orphans == ["「一阳指穴道谱诀」下落不明，为「一阳指」所需——待自愈"]
+    assert any("钓鱼杆儿" in line for line in report.dropped) and not any("谱诀" in line for line in report.dropped)
+
+
+def test_legacy_prerequisites_upgrade_into_the_two_gates() -> None:
+    """v4 / v5 缓存只有一个 prerequisites：读入即拆成获取要求与修炼要求，旧缓存仍能零费用组装。"""
+    legacy = json.dumps({
+        "locations": [{"name": "无量玉洞"}],
+        "items": [{"name": "北冥神功卷轴", "location": "无量玉洞"}],
+        "martial_arts": [
+            {"name": "北冥神功", "prerequisites": {"items": ["北冥神功卷轴"], "location": "无量玉洞", "transmission": "自悟",
+                                                 "min_tier": "胡说", "conflicts": []}},
+            {"name": "凌波微步", "prerequisites": {"skills": ["北冥神功"], "min_tier": "二流", "transmission": None}},
+        ],
+    }, ensure_ascii=False)
+    raw = ChunkExtraction.model_validate_json(legacy)
+    beiming = raw.martial_arts[0]
+    assert beiming.acquisition.items == ["北冥神功卷轴"] and beiming.acquisition.location == "无量玉洞"
+    assert beiming.acquisition.transmission is Transmission.SELF and beiming.practice.min_tier is Tier.NONE  # 枚举照样宽容
+    bp, report = BlueprintAssembler().assemble([raw])
+    arts = {a.name: a for a in bp.martial_arts}
+    assert arts["凌波微步"].practice.skills == ("art:北冥神功",) and arts["凌波微步"].practice.min_tier is Tier.SECOND
+    assert arts["凌波微步"].acquisition.transmission is Transmission.TEACHER
+    assert arts["北冥神功"].acquisition.items == ("itm:北冥神功卷轴",) and not report.sealed
+
+
+def test_later_events_veto_states_polluted_by_the_timeline() -> None:
+    """
+    时间线坍缩的教训：全书的 skills 取并集，段誉开篇即身负北冥神功、凌波微步。事件是证据：后文习得的武学剔出开篇武学，
+    后文才得到的物品不认他作开篇物主（取下一个候选），后文身故者开篇健在。
+    """
+    bp, report = BlueprintAssembler().assemble([
+        extraction(locations=[{"name": "无量山"}, {"name": "无量玉洞"}],
+                   characters=[{"name": "段誉", "location": "无量山", "tier": "不入流"},
+                               {"name": "左子穆", "location": "无量山", "skills": ["无量剑法"]}],
+                   martial_arts=[{"name": "无量剑法"}]),
+        extraction(characters=[{"name": "段誉", "skills": ["北冥神功"]}, {"name": "司空玄", "status": "已故"}],
+                   martial_arts=[{"name": "北冥神功", "acquisition": {"items": ["北冥神功卷轴"], "transmission": "自悟"}}],
+                   items=[{"name": "北冥神功卷轴", "owner": "段誉", "location": "无量玉洞"},
+                          {"name": "无量剑", "owner": "段誉"}],
+                   events=[{"subject": "段誉", "kind": "习得武学", "object": "北冥神功", "note": "石洞中照卷轴自习"},
+                           {"subject": "段誉", "kind": "得到物品", "object": "北冥神功卷轴"},
+                           {"subject": "段誉", "kind": "得到物品", "object": "无量剑"},
+                           {"subject": "司空玄", "kind": "身故", "note": "跳崖"},
+                           {"subject": "段誉", "kind": "拜师", "object": "北冥神功"},
+                           {"subject": "钟灵", "kind": "身故"},
+                           {"subject": "段誉", "kind": "习得武学", "object": "六脉神剑"}]),
+        extraction(characters=[{"name": "段誉", "skills": ["北冥神功", "凌波微步"]}],
+                   martial_arts=[{"name": "凌波微步", "practice": {"skills": ["北冥神功"]}}],
+                   items=[{"name": "无量剑", "owner": "左子穆"}],
+                   events=[{"subject": "段誉", "kind": "习得武学", "object": "凌波微步"}]),
+    ])
+    people = {c.name: c for c in bp.characters}
+    assert people["段誉"].skills == () and people["段誉"].location_id == "loc:无量山"
+    assert people["左子穆"].skills == ("art:无量剑法",)  # 没有证据否决的状态原样保留
+    assert people["司空玄"].status is CharacterStatus.ALIVE
+    things = {i.name: i for i in bp.items}
+    assert things["北冥神功卷轴"].owner_id is None and things["北冥神功卷轴"].location_id == "loc:无量玉洞"
+    assert things["无量剑"].owner_id == "chr:左子穆"
+    assert len(report.timeline) == 5  # 两门武学、两件物品、一次身故
+    assert "段誉 开篇时尚未习得「北冥神功」（后文习得：石洞中照卷轴自习）" in report.timeline
+    assert "司空玄 开篇时健在（后文身故：跳崖）" in report.timeline
+    dropped = "\n".join(report.dropped)  # 证明不了任何事的事件：种类不认得、人物或宾语落不了地
+    assert "种类无法识别" in dropped and "钟灵身故" in dropped and "段誉习得武学六脉神剑" in dropped
+
+
+def test_report_renders_every_section_in_order() -> None:
+    report = AssemblyReport(dropped=["甲"], sealed=["乙"], orphans=["丙"], timeline=["丁"], healed=["戊"], failed_chunks=["己"])
+    assert report.render().split("\n") == ["[丢弃] 甲", "[封存] 乙", "[孤儿] 丙", "[时间线] 丁", "[自愈] 戊", "[抽取失败] 己"]
+    assert AssemblyReport().render() == "（无异常）"
 
 
 def test_unknown_is_not_weakest() -> None:
     """开篇一句没写武功的旁白，不能在"首次登场即开篇"里盖掉后文写明的境界；认不出的枚举值同样记为未知。"""
     bp, _ = BlueprintAssembler().assemble([
         extraction(characters=[{"name": "段正淳", "tier": None, "disposition": "天下第一好人"}],
-                   martial_arts=[{"name": "一阳指", "prerequisites": {"min_tier": "二流"}}]),
+                   martial_arts=[{"name": "一阳指", "practice": {"min_tier": "二流"}}]),
         extraction(characters=[{"name": "段正淳", "tier": "一流", "disposition": "仁厚"},
                                {"name": "朱丹臣"}, {"name": "秦红棉", "faction": "修罗刀门下"}],
-                   martial_arts=[{"name": "一阳指", "tier": "一流", "prerequisites": {"min_tier": "三流"}}]),
+                   martial_arts=[{"name": "一阳指", "tier": "一流", "practice": {"min_tier": "三流"}}]),
     ])
     duan = next(c for c in bp.characters if c.name == "段正淳")
     assert duan.tier is Tier.FIRST and duan.disposition.value == "仁厚"
     assert next(c for c in bp.characters if c.name == "朱丹臣").tier is Tier.NONE  # 无门无派、武功无从考证：才退回不入流
     assert next(c for c in bp.characters if c.name == "秦红棉").tier is Tier.THIRD  # 身在门派：至少三流
     art = bp.martial_arts[0]
-    assert art.tier is Tier.FIRST and art.prerequisites.min_tier is Tier.SECOND  # 门槛取最严
+    assert art.tier is Tier.FIRST and art.practice.min_tier is Tier.SECOND  # 门槛取最严
 
 
 # ============================================================
@@ -259,7 +375,8 @@ async def test_llm_extractor_resamples_then_caches(tmp_path: Path) -> None:
     first = await extractor.extract(chunk)
     assert [c.name for c in first.characters] == ["段誉"] and len(llm.calls) == 2
     system, user, schema = llm.calls[0]
-    assert "只抽取这段文本里明确出现" in system and schema is not None and "</chunk>" not in user[:-8]
+    assert "只抽取这段文本里明确出现" in system and T0_ANCHOR in system  # 时间锚点强制注入
+    assert schema is not None and "events" in schema["properties"] and "</chunk>" not in user[:-8]
     assert await extractor.extract(chunk) == first and len(llm.calls) == 2  # 第二次命中磁盘缓存
 
 
@@ -364,6 +481,20 @@ def test_compiled_cypher_is_parameterized_and_ordered() -> None:
     edge_types = {s.query.split("[r:")[1].split("]")[0] for s in data[first_edge:]}
     assert edge_types == {"CONNECTS_TO", "LOCATED_IN", "BELONGS_TO", "KNOWS_SKILL", "HAS_RELATION",
                           "REQUIRES", "CONFLICTS_WITH"}
+
+    def rows(fragment: str) -> list[dict[str, Any]]:
+        return [r for s in data if fragment in s.query for r in s.params["rows"]]
+
+    people = {r["id"]: r["props"] for r in rows("MERGE (n:Character")}
+    assert people["chr:段延庆"]["name"] == "段延庆" and people["chr:段延庆"]["titles"] == ["恶贯满盈"]  # 节点名恒为本名
+    arts = {r["id"]: r["props"] for r in rows("MERGE (n:MartialArt")}
+    acquisition = json.loads(str(arts["art:北冥神功"]["acquisition"]))
+    assert acquisition["items"] == ["itm:北冥神功卷轴"] and acquisition["transmission"] == "自悟"
+    assert json.loads(str(arts["art:凌波微步"]["practice"]))["skills"] == ["art:北冥神功"]
+    requires = {(r["a"], r["b"], r["props"]["as"]) for r in rows("[r:REQUIRES]")}
+    assert ("art:凌波微步", "art:北冥神功", "skill") in requires and ("art:北冥神功", "loc:无量玉洞", "place") in requires
+    held = [r for r in rows("(a:Item {id: row.a})") if r["a"] == "itm:玉佩"]
+    assert len(held) == 2 and all(r["props"] == {"provenance": "原著"} for r in held)  # 原著明写的安放：所在与物主两条边
 
 
 def test_script_rendering_escapes_quotes() -> None:

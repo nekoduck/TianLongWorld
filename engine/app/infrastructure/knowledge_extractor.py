@@ -1,17 +1,23 @@
 """
 [INPUT]: 依赖 application/ports 的 LLMClient，依赖 domain/models 的本体枚举与 WorldBlueprint，
-         依赖 infrastructure/blueprint_assembler 的 BlueprintAssembler / AssemblyReport，依赖 infrastructure/cypher 的 compile_blueprint / render_script，
+         依赖 infrastructure/blueprint_assembler 的 BlueprintAssembler / AssemblyReport / CanonEventKind，依赖 infrastructure/cypher 的 compile_blueprint / render_script，
          依赖 app.errors 的 ExtractionError / LLMError
 [OUTPUT]: 对外提供 SourceDocument / load_corpus()（读取 data/source_text，UTF-8 → GB18030 回退，经 clean_text 只留正文）、clean_text()（去水印、去序跋）、
           Chunk / chunk_text()（按回目与段落切块）、
-          抽取契约 ChunkExtraction（Raw* 名称级记录，地点带 parent 上级）、KnowledgeExtractor 抽象与 LLMKnowledgeExtractor（结构化输出 + 退避重试 +
+          抽取契约 v6 ChunkExtraction（Raw* 名称级记录：地点带 parent 上级；人物三名分立 name / titles / aliases + name_is_title；
+          武学两道门 RawAcquisition / RawPractice，旧缓存的 prerequisites 读入即升级；RawCanonEvent 记 T=0 之后的状态变化）、
+          T0_ANCHOR 时间锚点、EXTRACTION_SYSTEM 抽取铁律、escape_markup()（标签内插值转义）、
+          KnowledgeExtractor 抽象与 LLMKnowledgeExtractor（结构化输出 + 退避重试 +
           照抄原文 ≥VERBATIM_CHARS 字的描述在写缓存前清空 + 按提示词版本分目录的磁盘缓存）、CachedExtractor（只读缓存、零费用重组装）、cache_path()、
           parse_extraction() / store_extraction()（任何抽取器的产出入缓存的唯一入口：截取 JSON → 契约校验 → 防抄清洗 → 写入）、
           SeedingResult 与 SeedingPipeline（语料 → 切块 → 并发抽取 → 组装蓝图 → 编译 Cypher）
 [POS]: infrastructure 的原著解析管道（World Seeding 的前半程）：大模型在这里只做"读书抽取"这一件无状态的事，
        产出的是名称级的原始记录；实体消歧、引用落地、拓扑补全与"宁严勿宽"的封存都在 blueprint_assembler 中确定性地完成。
+       时间锚点 T=0 是契约的第一原则：状态字段一律写开篇那一刻，开篇之后发生的事写进 events——事件是证据而非状态，
+       组装器凭它否决被时间线污染的开篇状态（段誉不会开篇就身负北冥神功）。
        任何一个块抽取失败只记入报告，不拖垮整本书；全部失败才视为管道失败。
-       缓存是抽取器之间的交换契约：大模型、子代理、人工都可以当抽取器，产出经 store_extraction 同一道闸门入缓存，组装器一视同仁
+       缓存是抽取器之间的交换契约：大模型、子代理、人工都可以当抽取器，产出经 store_extraction 同一道闸门入缓存，组装器一视同仁；
+       契约升级不废旧缓存——v4 / v5 记录读入时自动升级为新形状，零费用复现旧蓝图
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -27,17 +33,17 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, ValidationError, model_validator
 
 from app.application.ports import LLMClient
 from app.domain.models import CharacterStatus, Disposition, RelationKind, Tier, Transmission, WorldBlueprint
 from app.errors import ExtractionError, LLMError
-from app.infrastructure.blueprint_assembler import AssemblyReport, BlueprintAssembler
+from app.infrastructure.blueprint_assembler import AssemblyReport, BlueprintAssembler, CanonEventKind
 from app.infrastructure.cypher import CypherStatement, compile_blueprint, render_script
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "tlbb-extract-v5"  # 改动抽取提示词时递增，使磁盘缓存整体失效
+PROMPT_VERSION = "tlbb-extract-v6"  # 改动抽取提示词时递增，使磁盘缓存整体失效
 _ENCODINGS = ("utf-8-sig", "gb18030")
 _NUMERAL = "一二三四五六七八九十百零〇两"
 # 回目两种写法：「第一回 青衫磊落险峰行」与新修版的「一 青衫磊落险峰行」（标题是诗句，可含空格，不含句读）
@@ -166,8 +172,10 @@ class RawLocation(_Raw):
 
 
 class RawCharacter(_Raw):
-    name: str
-    aliases: list[str] = []
+    name: str = Field(description="本名：姓名或法号；本段只以称号出现、不知本名时填最常用的称号，并令 name_is_title 为 true")
+    name_is_title: bool = Field(default=False, description="name 填的是称号而非本名时为 true")
+    titles: list[str] = Field(default=[], description="江湖称号、绰号、名号，如「恶贯满盈」「南海鳄神」")
+    aliases: list[str] = Field(default=[], description="化名、旧称、封号、字号，如「延庆太子」「保定帝」")
     faction: str = ""
     status: Annotated[CharacterStatus | None, BeforeValidator(_lenient(CharacterStatus, None))] = None
     tier: _MaybeTier = None
@@ -177,15 +185,26 @@ class RawCharacter(_Raw):
     description: str = ""
 
 
-class RawPrerequisites(_Raw):
-    skills: list[str] = []
-    items: list[str] = []
-    location: str | None = None
-    min_tier: _Tier = Tier.NONE
-    conflicts: list[str] = []
-    transmission: Annotated[Transmission, BeforeValidator(_lenient(Transmission, Transmission.TEACHER))] = (
-        Transmission.TEACHER
+class RawAcquisition(_Raw):
+    """获取要求：得其门径的条件。"""
+
+    transmission: Annotated[Transmission, BeforeValidator(_lenient(Transmission, Transmission.TEACHER))] = Field(
+        default=Transmission.TEACHER, description="师传 / 自悟；自悟须在 items 写明所凭典籍"
     )
+    items: list[str] = Field(default=[], description="自悟所凭、或入门须持之物（秘籍、图谱、信物）的 name")
+    location: str | None = Field(default=None, description="须身处何地方得门径（典籍所藏、传功之所）")
+
+
+class RawPractice(_Raw):
+    """修炼要求：根基够不够。"""
+
+    skills: list[str] = Field(default=[], description="须先练出根基的武学 name")
+    min_tier: _Tier = Field(default=Tier.NONE, description="修炼者须有的境界")
+    conflicts: list[str] = Field(default=[], description="与之相冲的武学 name")
+
+
+_ACQUISITION_KEYS = ("transmission", "items", "location")
+_PRACTICE_KEYS = ("skills", "min_tier", "conflicts")
 
 
 class RawMartialArt(_Raw):
@@ -195,7 +214,19 @@ class RawMartialArt(_Raw):
     kind: str = ""
     tier: _MaybeTier = None
     description: str = ""
-    prerequisites: RawPrerequisites = RawPrerequisites()
+    acquisition: RawAcquisition = RawAcquisition()
+    practice: RawPractice = RawPractice()
+
+    @model_validator(mode="before")
+    @classmethod
+    def _upgrade_prerequisites(cls, data: Any) -> Any:
+        """v4 / v5 缓存只有一个 prerequisites：按字段拆进两道门——旧缓存零费用复现旧蓝图的承诺不因契约升级而作废。"""
+        if not isinstance(data, dict) or not isinstance(old := data.get("prerequisites"), dict):
+            return data
+        upgraded = {k: v for k, v in data.items() if k != "prerequisites"}
+        upgraded.setdefault("acquisition", {k: old[k] for k in _ACQUISITION_KEYS if k in old})
+        upgraded.setdefault("practice", {k: old[k] for k in _PRACTICE_KEYS if k in old})
+        return upgraded
 
 
 class RawItem(_Raw):
@@ -214,40 +245,70 @@ class RawRelation(_Raw):
     note: str = ""
 
 
+# 事件是证据而不是状态：组装器只拿它否决被时间线污染的开篇状态，它本身不进蓝图。
+# 认不出的种类即 None，组装时丢弃——宁可漏掉一条证据，也不让一个形容词否决开篇状态。
+# （类文档串会成为 JSON Schema 的 description 交给抽取器，所以只写给抽取器看的话）
+class RawCanonEvent(_Raw):
+    """开篇（T=0）之后改变了人物武学、物品归属或生死的一件事。"""
+
+    subject: str = Field(description="人物 name")
+    kind: Annotated[CanonEventKind | None, BeforeValidator(_lenient(CanonEventKind, None))] = Field(
+        default=None, description="只能是 习得武学 / 得到物品 / 身故"
+    )
+    object: str | None = Field(default=None, description="习得的武学或得到的物品的 name；身故可空")
+    note: str = ""
+
+
 class ChunkExtraction(_Raw):
     locations: list[RawLocation] = []
     characters: list[RawCharacter] = []
     martial_arts: list[RawMartialArt] = []
     items: list[RawItem] = []
     relations: list[RawRelation] = []
+    events: list[RawCanonEvent] = []
 
 
 EXTRACTION_SCHEMA = ChunkExtraction.model_json_schema()
 
-EXTRACTION_SYSTEM = f"""你是《天龙八部》原著知识抽取器。你读一段原著文本，只抽取这段文本里明确出现的地点、人物、武学、物品与人物关系，输出 JSON。
+# 世界的初始图谱定格于此：抽取器与自愈代理（graph_linter）共用同一个锚点，状态字段才有同一个"此刻"
+T0_ANCHOR = "T=0：原著开篇，段誉刚离家出走之时——他正在无量山剑湖宫旁观东西二宗比剑。"
+
+EXTRACTION_SYSTEM = f"""你是《天龙八部》原著知识抽取器。你读一段原著文本，只抽取这段文本里明确出现的地点、人物、武学、物品与人物关系，以及开篇之后改变了状态的事件，输出 JSON。
+
+时间锚点（凌驾于下列一切铁律之上）：
+{T0_ANCHOR}
+世界的初始图谱定格在 T=0。人物的 location / skills / status 与物品的 owner / location 一律写 T=0 时的状态：
+- 在 T=0 尚未发生的事（例：段誉跌入无量山崖下石洞、得到北冥神功卷轴、学会北冥神功与凌波微步）绝对不允许写进这些状态字段，而是写进 events 数组；
+- T=0 之前就已身负的武功（开篇前就是高手，或本段写明早年练成）照常写进 skills；
+- T=0 时尚未登场的人物，location 写其本段首次出现之处；物品同理，写首次出现时的静置之处或原主。
 
 铁律：
 1. 只抽取本段文本写到的东西。文本没写的不补，原著后文的情节不提前写进来，你的常识不是原文。
 2. 名字必须能脱离本段唯一认出所指：
-   - 人物 name 填姓名。只知称谓不知姓名的（「爹爹」「妈妈」「老大」「夫人」「帮主」「那少女」）不要抽取此人；
-     aliases 只收能唯一指向此人的专称（字号、绰号、名号、封号，如「保定帝」「无恶不作」），亲属称谓、排行、身份泛称、外貌描写一律不收。
+   - 人物三名分立：name 填本名（姓名或法号——此人真正叫什么）；titles 填江湖称号、绰号、名号（「恶贯满盈」「南海鳄神」「无恶不作」）；
+     aliases 填化名、旧称、封号、字号（「延庆太子」「保定帝」）。本段只以称号出现、不知本名的：name 填最常用的那个称号，并令 name_is_title 为 true。
+     只知亲属称谓、排行、身份泛称的（「爹爹」「妈妈」「老大」「夫人」「帮主」「那少女」）不要抽取此人；titles / aliases 同样不收亲属称谓、排行、泛称、外貌描写。
    - 武学只抽有专名的（如「一阳指」「凌波微步」），「轻功」「内功」「剑法」「掌法」这类泛称不抽；同一门武功只用一个名字。
 3. 地点 name 必须是独立可认的地名（「无量山」「剑湖宫」「大理城」「镇南王府」）。厅堂房间、谷中山中的某处，写成「上级地名·处所」
    （「剑湖宫·练武厅」「镇南王府·书房」），parent 填上级地名，上级地点也要列入 locations；「院子」「卧室」「山溪」「树林」这类泛称不得单独作 name。
    exits 只在文本写明两地相通或有人从一地行至另一地时记录；label 写简短的方位或路径（不超过 8 字，如「北上」「出城门」「下崖」），destination 写目的地 name。
-4. 时间切片：人物与物品的状态一律以它在本段首次出现时为准，本段后来才发生的变化（学会了什么、走到了哪、东西落到谁手里）不写。
-5. 人物：location 写此人首次出现时所在之地；faction 写门派或阵营；status 只能是 健在 / 已故；
+4. 人物：location 写此人 T=0 时所在之地（T=0 时尚未登场的，写本段首次出现之处）；faction 写门派或阵营；
+   status 只能是 健在 / 已故，写 T=0 时的生死——T=0 之后才死的仍是 健在，死写进 events；
    tier 依描写判断武功境界，只能是 不入流 / 三流 / 二流 / 一流 / 绝顶，明写不会武功才填 不入流；
    disposition 依其为人判断，只能是 仁厚 / 中庸 / 狠辣；
    status / tier / disposition 本段看不出来就填 null，绝不要猜——不知道不等于最弱；
-   skills 只列此人施展过、或本段开始前就已身负的武学，本段中才学会的不列。
-6. 武学 tier 同样依描写判断，看不出填 null。prerequisites 是修习它的硬性条件，只记文本写明的：须先通晓的武学（skills）、须持有的秘籍图谱（items）、
-   须在何地修习（location）、修习者须有的境界（min_tier）、与之相冲的武学（conflicts）；
-   transmission：文本写明可凭典籍自行参悟的填 自悟，且 items 必须写明所凭的秘籍图谱；否则一律 师传。
-7. 物品：owner 是物主，location 是它首次出现时静置之处；随身携带则只填 owner。
-8. 人物关系 kind 只能是 亲族 / 师徒 / 同门 / 结义 / 主仆 / 情侣 / 仇敌；取文本中最突出的一种——同门反目、彼此为敌者记 仇敌。
-9. 块内自洽：人物与物品的 location、出口的 destination、武学前置里的地点，都必须是本段 locations 数组里列出的某个地点的 name 或别名；
-   人物 skills 与武学前置里的武学、前置里的典籍，也必须分别出现在本段 martial_arts / items 数组里。不要写数组里没有的名字。
+   skills 只列此人 T=0 时已身负的武学；T=0 之后才学会的不列，写进 events。
+5. 武学 tier 同样依描写判断，看不出填 null。武学有两道门，只记文本写明的：
+   - acquisition 是获取要求（得其门径）：transmission 填 师传 / 自悟——文本写明可凭典籍自行参悟的填 自悟，且 items 必须写明所凭的秘籍图谱，否则一律 师传；
+     items 写自悟所凭、或入门须持之物；location 写须在何地方得门径。
+   - practice 是修炼要求：skills 写须先练出根基的武学，min_tier 写修炼者须有的境界，conflicts 写与之相冲的武学。
+6. 物品：owner 是 T=0 时的物主，location 是 T=0 时静置之处；随身携带则只填 owner。T=0 之后才易手的，易手写进 events。
+7. 人物关系 kind 只能是 亲族 / 师徒 / 同门 / 结义 / 主仆 / 情侣 / 仇敌；取文本中最突出的一种——同门反目、彼此为敌者记 仇敌。
+8. events 只记本段发生在 T=0 之后、改变了上述状态的事：kind 只能是 习得武学 / 得到物品 / 身故；subject 写人物 name，
+   object 写习得的武学或得到的物品的 name（身故可留空）；note 用自己的话概括这件事。
+9. 块内自洽：人物与物品的 location、出口的 destination、武学获取要求里的地点，都必须是本段 locations 数组里列出的某个地点的 name 或别名；
+   人物 skills、武学修炼要求里的武学、获取要求里的典籍，也必须分别出现在本段 martial_arts / items 数组里；
+   events 的 subject 必须出现在本段 characters 里，object 必须出现在本段 martial_arts / items 里。不要写数组里没有的名字。
 10. 所有 description 与 note 用你自己的话概括，不超过 40 字，不得照抄原文的句子。
 11. 这一段若没有某类实体，对应数组留空。只输出 JSON，不要任何解释。
 
@@ -255,8 +316,9 @@ EXTRACTION_SYSTEM = f"""你是《天龙八部》原著知识抽取器。你读�
 {json.dumps(EXTRACTION_SCHEMA, ensure_ascii=False)}"""
 
 
-def _escape(text: str) -> str:
-    return text.replace("<", "＜").replace(">", "＞")  # 原文里的尖括号不能闭合我们的标签
+def escape_markup(text: str) -> str:
+    """插进提示词标签里的一切文本都过这一道：原文与名字里的尖括号不能闭合我们的标签（自愈代理同用）。"""
+    return text.replace("<", "＜").replace(">", "＞")
 
 
 # ============================================================
@@ -331,7 +393,7 @@ class LLMKnowledgeExtractor(KnowledgeExtractor):
 
 def chunk_message(chunk: Chunk) -> str:
     """交给抽取器的那条用户消息：块文本转义后包进 <chunk> 标签。"""
-    return f'<chunk source="{_escape(chunk.source)}" index="{chunk.index}">\n{_escape(chunk.text)}\n</chunk>'
+    return f'<chunk source="{escape_markup(chunk.source)}" index="{chunk.index}">\n{escape_markup(chunk.text)}\n</chunk>'
 
 
 def parse_extraction(raw: str) -> ChunkExtraction:
@@ -379,9 +441,10 @@ def _paraphrase_only(result: ChunkExtraction, source: str) -> int:
     for record in records:
         if record.description and _copies(record.description, flat):
             record.description, blanked = "", blanked + 1
-    for relation in result.relations:
-        if relation.note and _copies(relation.note, flat):
-            relation.note, blanked = "", blanked + 1
+    noted_records: list[RawRelation | RawCanonEvent] = [*result.relations, *result.events]
+    for noted in noted_records:
+        if noted.note and _copies(noted.note, flat):
+            noted.note, blanked = "", blanked + 1
     return blanked
 
 
