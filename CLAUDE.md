@@ -14,7 +14,7 @@ backend/.env.example - 大模型、会话与上下文配置模板（HISTORY_TURN
 frontend/package.json - 前端依赖与脚本（dev / dev:mock / build）
 frontend/vite.config.ts - Vite 插件与 /api → :8000 开发代理
 engine/requirements.txt - 引擎运行依赖（fastapi / uvicorn / pydantic-settings / httpx2 / asyncpg / neo4j / qdrant-client）
-engine/.env.example - 引擎配置模板：大模型四选一、EVENT_STORE / GRAPH_BACKEND / QDRANT_URL 各自 memory 或生产实现、MEMORY_RECALL_K 1~10、播种参数；默认全内存 + mock 零依赖可跑
+engine/.env.example - 引擎配置模板：大模型四选一且意图 / 叙事 / 抽取三职责各配模型与思考档位（附实测推荐的 Gemini 组合）、EVENT_STORE / GRAPH_BACKEND / QDRANT_URL 各自 memory 或生产实现、MEMORY_RECALL_K 1~10、播种参数；默认全内存 + mock 零依赖可跑
 engine/docker-compose.yml - 引擎三件套后端 postgres:16 + neo4j:5.26 + qdrant
 </config>
 

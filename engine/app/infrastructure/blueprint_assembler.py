@@ -4,7 +4,7 @@
 [OUTPUT]: 对外提供 BlueprintAssembler（名称级抽取记录 → 引用完整的 WorldBlueprint）、AssemblyReport（丢弃 / 封存 / 失败的明细）
 [POS]: infrastructure 的确定性组装器（World Seeding 的后半程）：大模型读书，这里定案。
        实体消歧：两条记录的正名互见（正名=正名 或 正名=别名）才合并，别名撞别名不合并——"大师""公子"这类泛称不会把两个人捏成一个；
-       时间切片：标量状态"首次登场即开篇"（按原著先后取第一次出现的值），列表取并集；
+       时间切片：标量状态"首次登场即开篇"（按原著先后取第一次写明的值；看不出的 None 不占位，否则"未知"会冒充"最弱"），列表取并集；
        引用落地：一切名称引用都必须解析到本体实体，解析不了的出口、关系、人物武学直接丢弃，物品无处安放即丢弃；
        宁严勿宽：武学的前置引用了本体中不存在的武学 / 典籍 / 地点，或前置成环，一律封存（sealed）——宁可失传，不可滥传；
        拓扑补全：道路双向，A 通 B 而 B 不通 A 时补一条「往A」的回程
@@ -22,11 +22,14 @@ from app.domain.models import (
     NAME_CHARS,
     Character,
     CharacterRelation,
+    CharacterStatus,
+    Disposition,
     EntityKind,
     Item,
     Location,
     MartialArt,
     Prerequisites,
+    Tier,
     Transmission,
     WorldBlueprint,
     entity_id,
@@ -120,7 +123,7 @@ def _land(names: Iterable[str], idx: _Index, *, owner: str, misses: list[str]) -
 
 
 class _Index:
-    """名称 → id。正名优先；别名只在同类中无歧义时才收录。"""
+    """名称 → id。正名优先；别名只在同类中无歧义时才收录；都不中时退而求唯一的包含匹配（「剑湖宫外」落到「剑湖宫」），多义不猜。"""
 
     def __init__(self, kind: EntityKind, groups: Sequence[_Group]) -> None:
         self.ids: dict[str, str] = {}
@@ -136,7 +139,14 @@ class _Index:
                 self.ids[alias] = next(iter(owners))
 
     def get(self, name: str | None) -> str | None:
-        return self.ids.get(name.strip()) if name else None
+        if not name or not (wanted := name.strip()):
+            return None
+        if wanted in self.ids:
+            return self.ids[wanted]
+        if len(wanted) < 2:
+            return None
+        hits = {gid for known, gid in self.ids.items() if len(known) >= 2 and (known in wanted or wanted in known)}
+        return hits.pop() if len(hits) == 1 else None
 
 
 # ============================================================
@@ -206,7 +216,6 @@ class BlueprintAssembler:
     # ---- 人物：首次登场即开篇状态 ----
     @staticmethod
     def _character(g: _Group, loc_i: _Index, art_i: _Index, report: AssemblyReport) -> Character:
-        first = g.records[0]
         where = _first(r.location for r in g.records)
         location_id = loc_i.get(where)
         if where and location_id is None:
@@ -222,9 +231,9 @@ class BlueprintAssembler:
             name=g.name,
             aliases=g.aliases,
             faction=str(_first(r.faction for r in g.records) or "")[:NAME_CHARS],
-            status=first.status,
-            tier=first.tier,
-            disposition=first.disposition,
+            status=_first((r.status for r in g.records), CharacterStatus.ALIVE),
+            tier=_first((r.tier for r in g.records), Tier.NONE),  # 全书都看不出武功：多半是书生婢女之流
+            disposition=_first((r.disposition for r in g.records), Disposition.NEUTRAL),
             location_id=location_id,
             skills=tuple(skills),
             description=str(_first(r.description for r in g.records) or "")[:DESC_CHARS],
@@ -247,7 +256,10 @@ class BlueprintAssembler:
             if place_name and place is None:
                 unresolved.append(place_name)
             conflicts = _land(_union(p.conflicts for p in raw), art_i, owner=aid, misses=[])  # 相冲之功不在本体即无从相冲，丢弃无害
-            transmission = raw[0].transmission
+            # 前置是武学的静态属性而非随时间变化的状态：境界门槛取最严的一条；任何一段写明可凭典籍自悟才算自悟
+            min_tier = max((p.min_tier for p in raw), key=lambda t: t.rank)
+            self_study = any(p.transmission is Transmission.SELF for p in raw)
+            transmission = Transmission.SELF if self_study else Transmission.TEACHER
             if transmission is Transmission.SELF and not items:
                 report.dropped.append(f"{g.name} 写作自悟却未载明典籍，改为须师传")
                 transmission = Transmission.TEACHER
@@ -255,7 +267,7 @@ class BlueprintAssembler:
             if sealed:
                 report.sealed.append(f"{g.name}：前置「{'、'.join(unresolved)}」不在本体之中")
             prereqs[aid] = Prerequisites(
-                skills=skills, items=items, location_id=place, min_tier=raw[0].min_tier,
+                skills=skills, items=items, location_id=place, min_tier=min_tier,
                 conflicts=conflicts, transmission=transmission, sealed=sealed,
             )
         while cycle := prerequisite_cycle({k: v.skills for k, v in prereqs.items()}):
@@ -269,7 +281,7 @@ class BlueprintAssembler:
                 aliases=g.aliases,
                 faction=str(_first(r.faction for r in g.records) or "")[:NAME_CHARS],
                 kind=str(_first(r.kind for r in g.records) or "")[:NAME_CHARS],
-                tier=g.records[0].tier,
+                tier=_first((r.tier for r in g.records), Tier.THIRD),
                 description=str(_first(r.description for r in g.records) or "")[:DESC_CHARS],
                 prerequisites=prereqs[entity_id(EntityKind.MARTIAL_ART, g.name)],
             )

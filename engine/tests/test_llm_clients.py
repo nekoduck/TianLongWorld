@@ -1,7 +1,7 @@
 """
 [INPUT]: 依赖 httpx2 的 MockTransport / AsyncClient，依赖 app.infrastructure.llm 的三家客户端、_http 与 portable_schema，依赖 app.domain.intent 的 PlayerIntent
 [OUTPUT]: 厂商客户端单测：报文形状（结构化输出 / 不下发采样参数 / JSON 模式只在需要时开）、SSE 流式解析、拒答与截断收敛为 LLMError、
-          schema 规整（内联引用、剥离约束、对象封闭、字段名不被误删）、缺凭证启动即失败
+          schema 规整（内联引用、剥离约束、对象封闭、字段名不被误删）、缺凭证启动即失败、三职责各取各的模型与思考档位、Claude 无 minimal 档
 [POS]: tests 的厂商边界：替换 httpx2 的传输层，不触网即可钉死三家协议的细节
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -13,7 +13,7 @@ from typing import Any
 import httpx2
 import pytest
 
-from app.config import Settings
+from app.config import LLMRole, Settings
 from app.domain.intent import PlayerIntent
 from app.errors import LLMError
 from app.infrastructure.llm import _http
@@ -129,6 +129,28 @@ def test_portable_schema() -> None:
 
 
 def test_factory_fails_fast_without_credentials() -> None:
-    assert build_llm(Settings(_env_file=None)) is None  # type: ignore[call-arg]
-    with pytest.raises(RuntimeError, match="LLM_API_KEY"):
-        build_llm(Settings(_env_file=None, llm_provider="anthropic"))  # type: ignore[call-arg]
+    assert build_llm(Settings(_env_file=None), LLMRole.INTENT) is None  # type: ignore[call-arg]
+    with pytest.raises(RuntimeError, match="LLM_EXTRACTION_MODEL"):
+        build_llm(Settings(_env_file=None, llm_provider="anthropic", llm_api_key="k"), LLMRole.EXTRACTION)  # type: ignore[call-arg]
+
+
+async def test_each_role_gets_its_own_model_and_thinking(wire: Any) -> None:
+    seen = wire(lambda r: httpx2.Response(200, json={"candidates": [{"content": {"parts": [{"text": "{}"}]}}]}))
+    s = Settings(_env_file=None, llm_provider="gemini", llm_api_key="g", llm_model="flash", llm_thinking="low",  # type: ignore[call-arg]
+                 llm_intent_model="flash-lite", llm_intent_thinking="minimal", llm_extraction_model="pro")
+    for role in LLMRole:
+        client = build_llm(s, role)
+        assert client is not None
+        await client.complete("s", "u")
+    urls = [x["url"].rsplit("/", 1)[-1] for x in seen]
+    levels = [x["json"]["generationConfig"]["thinkingConfig"]["thinkingLevel"] for x in seen]
+    assert urls == ["flash-lite:generateContent", "flash:generateContent", "pro:generateContent"]
+    assert levels == ["minimal", "low", "low"]  # 职责专属优先，留空退回缺省档
+
+
+async def test_anthropic_has_no_minimal_effort(wire: Any) -> None:
+    seen = wire(lambda r: httpx2.Response(200, json={"content": [{"type": "text", "text": "{}"}], "stop_reason": "end_turn"}))
+    s = Settings(_env_file=None, llm_provider="anthropic", llm_api_key="k", llm_model="claude-opus-5-5",  # type: ignore[call-arg]
+                 llm_thinking="minimal")
+    await build_llm(s, LLMRole.INTENT).complete("s", "u")  # type: ignore[union-attr]
+    assert seen[0]["json"]["output_config"] == {"effort": "low"}

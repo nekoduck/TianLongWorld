@@ -1,7 +1,7 @@
 """
 [INPUT]: 依赖 llm/_http 的 post_json / stream_sse，依赖 llm/schema 的 portable_schema，依赖 application/ports 的 LLMClient / JsonSchema，
          依赖 app.errors 的 LLMError
-[OUTPUT]: 对外提供 GeminiClient —— 实现 LLMClient（generateContent + responseJsonSchema 结构化输出；streamGenerateContent?alt=sse 流式）
+[OUTPUT]: 对外提供 GeminiClient —— 实现 LLMClient（generateContent + responseJsonSchema 结构化输出；streamGenerateContent?alt=sse 流式；可选 thinkingLevel）
 [POS]: llm 包的 Gemini 原生客户端，与 anthropic.py / openai_compat.py 并列；密钥走 x-goog-api-key 请求头而非 URL，
        思考片段（thought=true）不属于正文，拒答与空正文收敛为 LLMError
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -18,7 +18,15 @@ from app.infrastructure.llm.schema import portable_schema
 
 class GeminiClient(LLMClient):
     def __init__(
-        self, *, api_key: str, model: str, base_url: str, max_tokens: int, timeout: float, temperature: float | None
+        self,
+        *,
+        api_key: str,
+        model: str,
+        base_url: str,
+        max_tokens: int,
+        timeout: float,
+        temperature: float | None,
+        thinking_level: str = "",
     ) -> None:
         root = f"{base_url.rstrip('/')}/models/{model}"
         self._complete_url = f"{root}:generateContent"
@@ -27,6 +35,7 @@ class GeminiClient(LLMClient):
         self._max_tokens = max_tokens
         self._timeout = timeout
         self._temperature = temperature
+        self._thinking_level = thinking_level  # Gemini 3 系：minimal / low / medium / high，留空用模型默认
 
     def _payload(self, system: str, user: str, schema: JsonSchema | None) -> dict[str, Any]:
         config: dict[str, Any] = {"maxOutputTokens": self._max_tokens}
@@ -35,6 +44,8 @@ class GeminiClient(LLMClient):
             config["responseJsonSchema"] = portable_schema(schema)
         if self._temperature is not None:
             config["temperature"] = self._temperature
+        if self._thinking_level:
+            config["thinkingConfig"] = {"thinkingLevel": self._thinking_level}
         return {
             "systemInstruction": {"parts": [{"text": system}]},
             "contents": [{"role": "user", "parts": [{"text": user}]}],

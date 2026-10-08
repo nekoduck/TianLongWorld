@@ -33,7 +33,7 @@ from app.infrastructure.cypher import CypherStatement, compile_blueprint, render
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "tlbb-extract-v1"  # 改动抽取提示词时递增，使磁盘缓存整体失效
+PROMPT_VERSION = "tlbb-extract-v4"  # 改动抽取提示词时递增，使磁盘缓存整体失效
 _ENCODINGS = ("utf-8-sig", "gb18030")
 _CHAPTER = re.compile(r"^\s*第[一二三四五六七八九十百零〇两\d]+[回章]")
 
@@ -105,7 +105,9 @@ def chunk_text(doc: SourceDocument, max_chars: int) -> list[Chunk]:
 
 
 # ============================================================
-#  抽取契约 —— 名称级原始记录；枚举宽容（不认识的值退回缺省），免得一个形容词让整块重采样
+#  抽取契约 —— 名称级原始记录；枚举宽容（不认识的值退回缺省），免得一个形容词让整块重采样。
+#  境界 / 性情 / 生死"看不出"即为 None：未知 ≠ 最弱——否则开篇一句没写武功的旁白，会在"首次登场即开篇"的组装里
+#  盖掉后文写明的「一流」
 # ============================================================
 def _lenient[E: StrEnum](enum: type[E], fallback: E | None) -> Callable[[Any], E | None]:
     def coerce(value: Any) -> E | None:
@@ -118,6 +120,7 @@ def _lenient[E: StrEnum](enum: type[E], fallback: E | None) -> Callable[[Any], E
 
 
 type _Tier = Annotated[Tier, BeforeValidator(_lenient(Tier, Tier.NONE))]
+type _MaybeTier = Annotated[Tier | None, BeforeValidator(_lenient(Tier, None))]
 
 
 class _Raw(BaseModel):
@@ -141,13 +144,9 @@ class RawCharacter(_Raw):
     name: str
     aliases: list[str] = []
     faction: str = ""
-    status: Annotated[CharacterStatus, BeforeValidator(_lenient(CharacterStatus, CharacterStatus.ALIVE))] = (
-        CharacterStatus.ALIVE
-    )
-    tier: _Tier = Tier.NONE
-    disposition: Annotated[Disposition, BeforeValidator(_lenient(Disposition, Disposition.NEUTRAL))] = (
-        Disposition.NEUTRAL
-    )
+    status: Annotated[CharacterStatus | None, BeforeValidator(_lenient(CharacterStatus, None))] = None
+    tier: _MaybeTier = None
+    disposition: Annotated[Disposition | None, BeforeValidator(_lenient(Disposition, None))] = None
     location: str | None = None
     skills: list[str] = []
     description: str = ""
@@ -169,7 +168,7 @@ class RawMartialArt(_Raw):
     aliases: list[str] = []
     faction: str = ""
     kind: str = ""
-    tier: Annotated[Tier, BeforeValidator(_lenient(Tier, Tier.THIRD))] = Tier.THIRD
+    tier: _MaybeTier = None
     description: str = ""
     prerequisites: RawPrerequisites = RawPrerequisites()
 
@@ -206,15 +205,20 @@ EXTRACTION_SYSTEM = f"""你是《天龙八部》原著知识抽取器。你读�
 1. 只抽取本段文本写到的东西。文本没写的不补，原著后文的情节不提前写进来，你的常识不是原文。
 2. name 用原文中最正式的称呼；aliases 只列本段文本里出现过的其他称呼（绰号、尊称、旧名）。
 3. 地点 exits：只在文本写明两地相通或有人从一地行至另一地时记录；label 写方位或路径（如「北上」「出城门」「下崖」），destination 写目的地正名。
-4. 人物：location 写此人在本段所处之地；faction 写门派或阵营；status 只能是 健在 / 已故；
-   tier 依本段描写判断武功境界，只能是 不入流 / 三流 / 二流 / 一流 / 绝顶，不会武功即 不入流；
-   disposition 依其为人判断，只能是 仁厚 / 中庸 / 狠辣；skills 只列本段写明此人施展过或身负的武学。
-5. 武学 prerequisites 是修习它的硬性条件，只记文本写明的：须先通晓的武学（skills）、须持有的秘籍图谱（items）、
+4. 时间切片：人物与物品的状态一律以它在本段首次出现时为准，本段后来才发生的变化（学会了什么、走到了哪、东西落到谁手里）不写。
+5. 人物：location 写此人首次出现时所在之地；faction 写门派或阵营；status 只能是 健在 / 已故；
+   tier 依描写判断武功境界，只能是 不入流 / 三流 / 二流 / 一流 / 绝顶，明写不会武功才填 不入流；
+   disposition 依其为人判断，只能是 仁厚 / 中庸 / 狠辣；
+   status / tier / disposition 本段看不出来就填 null，绝不要猜——不知道不等于最弱；
+   skills 只列此人施展过、或本段开始前就已身负的武学，本段中才学会的不列。
+6. 武学 tier 同样依描写判断，看不出填 null。prerequisites 是修习它的硬性条件，只记文本写明的：须先通晓的武学（skills）、须持有的秘籍图谱（items）、
    须在何地修习（location）、修习者须有的境界（min_tier）、与之相冲的武学（conflicts）；
-   transmission：文本写明可凭典籍自行参悟的填 自悟，否则一律 师传。
-6. 物品：owner 是物主，location 是它此刻静置之处；随身携带则只填 owner。
-7. 人物关系 kind 只能是 亲族 / 师徒 / 同门 / 结义 / 主仆 / 情侣 / 仇敌。
-8. 这一段若没有某类实体，对应数组留空。只输出 JSON，不要任何解释。
+   transmission：文本写明可凭典籍自行参悟的填 自悟，且 items 必须写明所凭的秘籍图谱；否则一律 师传。
+7. 物品：owner 是物主，location 是它首次出现时静置之处；随身携带则只填 owner。
+8. 人物关系 kind 只能是 亲族 / 师徒 / 同门 / 结义 / 主仆 / 情侣 / 仇敌；取文本中最突出的一种——同门反目、彼此为敌者记 仇敌。
+9. 块内自洽：人物与物品的 location、出口的 destination、武学前置里的地点，都必须是本段 locations 数组里列出的某个地点的 name 或别名；
+   人物 skills 与武学前置里的武学、前置里的典籍，也必须分别出现在本段 martial_arts / items 数组里。不要写数组里没有的名字。
+10. 这一段若没有某类实体，对应数组留空。只输出 JSON，不要任何解释。
 
 输出必须符合此 JSON Schema：
 {json.dumps(EXTRACTION_SCHEMA, ensure_ascii=False)}"""

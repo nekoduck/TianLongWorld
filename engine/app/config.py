@@ -1,11 +1,12 @@
 """
 [INPUT]: 依赖 pydantic 的 Field、pydantic-settings 的 BaseSettings，读取进程环境变量与 engine/.env
-[OUTPUT]: 对外提供 Settings 配置模型、ENGINE_ROOT 工程根路径、get_settings() 进程级单例
+[OUTPUT]: 对外提供 Settings 配置模型（含 llm_profile 按职责取模型与思考档位）、LLMRole 三种职责、Thinking 档位、ENGINE_ROOT 工程根路径、get_settings() 进程级单例
 [POS]: 引擎的唯一配置入口，被 container.py（装配四类后端与大模型）、infrastructure/llm/factory.py（厂商选型）与 seed.py（语料与产物路径）消费；
        每一类存储都有 memory 实现：零依赖即可跑通整条管线，生产环境逐项切到 postgres / neo4j / qdrant
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
+from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -14,6 +15,16 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ENGINE_ROOT = Path(__file__).resolve().parent.parent  # engine/：.env 与 data/ 锚定于此，与启动时的 cwd 无关
+
+type Thinking = Literal["", "minimal", "low", "medium", "high"]
+
+
+class LLMRole(StrEnum):
+    """大模型在引擎里的三种无状态职责，各有各的取舍：解析要快、叙事要忠于快照且文笔好、抽取要准（离线、一次成型）。"""
+
+    INTENT = "intent"
+    NARRATION = "narration"
+    EXTRACTION = "extraction"
 
 
 class Settings(BaseSettings):
@@ -24,12 +35,20 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     llm_provider: Literal["mock", "anthropic", "gemini", "openai"] = "mock"
     llm_api_key: str = ""
-    llm_model: str = ""
     llm_base_url: str = ""  # 留空则取 provider 官方地址
     llm_temperature: float | None = None  # None = 不下发（Claude 新模型拒收采样参数）
-    llm_effort: Literal["", "low", "medium", "high"] = ""  # 仅 anthropic：output_config.effort，留空用模型默认
     llm_timeout: float = 120.0
     llm_max_tokens: int = 16000
+    # 缺省档：三种职责未单独配置时共用。思考档位映射为 Gemini 的 thinkingLevel / Anthropic 的 effort，openai 兼容端忽略
+    llm_model: str = ""
+    llm_thinking: Thinking = ""
+    # 按职责覆盖：留空即退回缺省档
+    llm_intent_model: str = ""
+    llm_intent_thinking: Thinking = ""
+    llm_narration_model: str = ""
+    llm_narration_thinking: Thinking = ""
+    llm_extraction_model: str = ""
+    llm_extraction_thinking: Thinking = ""
 
     # ------------------------------------------------------------------
     #  事件账本（PostgreSQL JSONB）
@@ -65,6 +84,12 @@ class Settings(BaseSettings):
     @property
     def blueprint_path(self) -> Path:
         return self.world_dir / "blueprint.json"
+
+    def llm_profile(self, role: LLMRole) -> tuple[str, str]:
+        """某职责实际使用的（模型, 思考档位）：职责专属配置优先，留空退回缺省档。"""
+        model: str = getattr(self, f"llm_{role}_model") or self.llm_model
+        thinking: str = getattr(self, f"llm_{role}_thinking") or self.llm_thinking
+        return model, thinking
 
 
 @lru_cache

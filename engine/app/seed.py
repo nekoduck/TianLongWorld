@@ -1,7 +1,7 @@
 """
 [INPUT]: 依赖 app.config 的 Settings，依赖 infrastructure/knowledge_extractor 的 load_corpus / LLMKnowledgeExtractor / SeedingPipeline，
          依赖 infrastructure/cypher 的 compile_blueprint / render_script，依赖 infrastructure/persistence/neo4j_graph 的 Neo4jWorldGraph，
-         依赖 infrastructure/llm/factory 的 build_llm，依赖 domain/models 的 WorldBlueprint
+         依赖 infrastructure/llm/factory 的 build_llm（抽取职责），依赖 domain/models 的 WorldBlueprint
 [OUTPUT]: 对外提供 命令行入口 main()：`python -m app.seed extract [--max-chunks N] [--apply] [--reset]` 与 `python -m app.seed apply [--reset]`
 [POS]: World Seeding 的操作面：extract 读 data/source_text 的原著，经大模型抽取、确定性组装，写出 data/world/ 下的
        blueprint.json（中间表示）、seed.cypher（可交给 cypher-shell 审阅或导入）与 report.txt（丢弃 / 封存明细）；
@@ -13,7 +13,7 @@ import argparse
 import asyncio
 import sys
 
-from app.config import Settings, get_settings
+from app.config import LLMRole, Settings, get_settings
 from app.domain.models import WorldBlueprint
 from app.infrastructure.cypher import compile_blueprint, render_script
 from app.infrastructure.knowledge_extractor import LLMKnowledgeExtractor, SeedingPipeline, load_corpus
@@ -22,9 +22,11 @@ from app.infrastructure.persistence.neo4j_graph import Neo4jWorldGraph
 
 
 async def extract(settings: Settings, *, max_chunks: int | None) -> WorldBlueprint:
-    llm = build_llm(settings)
+    llm = build_llm(settings, LLMRole.EXTRACTION)
     if llm is None:
-        raise SystemExit("原著解析需要真实大模型：请在 engine/.env 配置 LLM_PROVIDER / LLM_API_KEY / LLM_MODEL")
+        raise SystemExit("原著解析需要真实大模型：请在 engine/.env 配置 LLM_PROVIDER / LLM_API_KEY / LLM_EXTRACTION_MODEL")
+    model, thinking = settings.llm_profile(LLMRole.EXTRACTION)
+    print(f"抽取模型：{settings.llm_provider} / {model}（思考档位 {thinking or '模型默认'}）")
     pipeline = SeedingPipeline(
         LLMKnowledgeExtractor(llm, cache_dir=settings.world_dir / "cache"),
         chunk_chars=settings.extraction_chunk_chars,

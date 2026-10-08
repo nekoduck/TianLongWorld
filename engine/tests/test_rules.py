@@ -209,6 +209,8 @@ async def test_conflicting_arts_and_already_known() -> None:
 async def test_a_teacher_must_be_present_willing_and_you_must_be_ready() -> None:
     state, snap = await scene("loc:无量山")
     assert failure(decide(act(ActionType.LEARN, skill_used="无量剑法"), state, snap)).reason_code == "UNWILLING"
+    refused = failure(decide(act(ActionType.LEARN, skill_used="无量剑法", target_entity="辛双清"), state, snap))
+    assert refused.reason.startswith("辛双清不肯")  # 拒绝你的是你求的那个人（真实大模型联调时抓到的错位）
     friend = RelationChanged(character_id="chr:辛双清", attitude=Attitude.FRIENDLY, cause="敌人之敌")
     state, snap = await scene("loc:无量山", friend)
     assert decide(act(ActionType.LEARN, skill_used="无量剑法", target_entity="左子穆"), state, snap) == [

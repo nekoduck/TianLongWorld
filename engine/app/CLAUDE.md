@@ -8,10 +8,10 @@ container.py 是唯一知道"端口背后是谁"的地方，main.py 只是进程
 成员清单
 __init__.py: 包标识，一行导航注释
 errors.py: 共享内核的错误谱系，EngineError(code, message) 及 UnknownPlayer / PlayerDead / Concurrency / OptionExpired / WorldNotSeeded / Projection / LLM / Extraction；presentation 按 code 映射为错误帧
-config.py: 配置唯一入口，pydantic-settings 读 engine/.env（锚定于文件而非 cwd）；大模型四选一（mock 为默认）、四类后端各自 memory / 生产实现、memory_recall_k 钉死 1~10、播种参数；blueprint_path 派生属性
-container.py: 组合根 build_container(settings, blueprint, llm) → Container（bus / pipeline / coordinator / store / reader / projector / seeder / closers）；无大模型时换上 HeuristicIntentParser 与 TemplateNarrator，有则 LLMIntentParser + FallbackNarrator(LLMNarrator, TemplateNarrator)；memory 图谱自动加载 blueprint.json
+config.py: 配置唯一入口，pydantic-settings 读 engine/.env（锚定于文件而非 cwd）；大模型四选一（mock 为默认），LLMRole 三职责（意图 / 叙事 / 抽取）经 llm_profile 各取（模型, 思考档位），职责专属配置留空即退回缺省档；四类后端各自 memory / 生产实现、memory_recall_k 钉死 1~10、播种参数；blueprint_path 派生属性
+container.py: 组合根 build_container(settings, blueprint, llm) → Container（bus / pipeline / coordinator / store / reader / projector / seeder / closers）；无大模型时换上 HeuristicIntentParser 与 TemplateNarrator，有则意图职责的客户端喂 LLMIntentParser、叙事职责的客户端喂 FallbackNarrator(LLMNarrator, TemplateNarrator)（测试注入的 llm 同时顶替两种职责）；memory 图谱自动加载 blueprint.json
 main.py: create_app(settings, container_factory) 应用工厂，lifespan 装配与释放容器；挂载 /ws/play 与 GET /health（含是否已播种）；模块级 app 供 uvicorn
-seed.py: 播种命令行 `python -m app.seed extract|apply|script`——extract 读原著经大模型抽取、确定性组装，写出 blueprint.json / seed.cypher / report.txt（--apply 立即写图，--max-chunks 取开篇作时间切片）；apply 把蓝图写进 Neo4j（--reset 开新纪元）；script 由蓝图重生成脚本
+seed.py: 播种命令行 `python -m app.seed extract|apply|script`——extract 读原著经抽取职责的大模型抽取、确定性组装，写出 blueprint.json / seed.cypher / report.txt（--apply 立即写图，--max-chunks 取开篇作时间切片）；apply 把蓝图写进 Neo4j（--reset 开新纪元）；script 由蓝图重生成脚本
 domain/: 领域层，地图见 domain/CLAUDE.md
 application/: 应用层，地图见 application/CLAUDE.md
 infrastructure/: 基础设施层，地图见 infrastructure/CLAUDE.md

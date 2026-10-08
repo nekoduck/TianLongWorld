@@ -303,11 +303,12 @@ class LearnRule(Rule):
         masters = [c for c in snap.characters if art.id in c.skill_ids and not c.subdued]
         if not masters:
             return Rejection("NO_TEACHER", f"{art.name}须有通晓此功之人当面传授。")
-        willing = [c for c in masters if c.attitude is Attitude.FRIENDLY]
-        named = resolve(intent.target_entity, willing, _names) if intent.skill_used else None
-        teacher = named or (willing[0] if willing else None)
+        # 玩家点名的师父优先：被拒时说的是他，肯教时也是他；他不肯而旁人肯，由肯教的人传
+        named = resolve(intent.target_entity, masters, _names) if intent.skill_used else None
+        candidates = sorted(masters, key=lambda c: c is not named)
+        teacher = next((c for c in candidates if c.attitude is Attitude.FRIENDLY), None)
         if teacher is None:
-            return Rejection("UNWILLING", f"{masters[0].name}不肯将{art.name}传给素不相识之人。")
+            return Rejection("UNWILLING", f"{candidates[0].name}不肯将{art.name}传给素不相识之人。")
         return Approval(intent, skill=art.id, source=teacher.id, target=teacher.id)
 
     def consequences(self, ok: Approval, state: PlayerState, snap: LocalSnapshot) -> list[DomainEvent]:

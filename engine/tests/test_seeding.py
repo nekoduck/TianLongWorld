@@ -1,7 +1,7 @@
 """
 [INPUT]: 依赖 app.infrastructure.knowledge_extractor（语料 / 切块 / 抽取器 / 管道）、blueprint_assembler、cypher，依赖 tests/conftest 的 ScriptedLLM，
          依赖 tests/world 的 WORLD，可选依赖真实 Neo4j
-[OUTPUT]: World Seeding 全链路单测：编码回退、回目切块、正名互见的实体消歧、首次登场即开篇、悬空引用丢弃、宁严勿宽的封存、
+[OUTPUT]: World Seeding 全链路单测：编码回退、回目切块、正名互见的实体消歧、首次登场即开篇且未知不等于最弱、前置门槛取最严、唯一包含匹配落地、悬空引用丢弃、宁严勿宽的封存、
           道路双向、物品唯一归属、抽取器的重采样与磁盘缓存、局部失败不拖垮全书、Cypher 参数化与脚本转义；
           设置 TLBB_TEST_NEO4J_URI 时把 seed.cypher 脚本逐句交给真实 Neo4j 执行
 [POS]: tests 的"禁止凭空捏造"证明：世界只能由原著抽取物组装而来，组装器对一切落不了地的东西说不
@@ -102,6 +102,16 @@ def test_assembler_lands_references_or_drops_them() -> None:
         assert ghost in dropped
 
 
+def test_references_land_by_unique_containment_but_never_guess() -> None:
+    bp, report = BlueprintAssembler().assemble([
+        extraction(locations=[{"name": "剑湖宫"}, {"name": "大理城"}, {"name": "大理皇宫"}],
+                   characters=[{"name": "左子穆", "location": "剑湖宫外"}, {"name": "段誉", "location": "大理"}]),
+    ])
+    where = {c.name: c.location_id for c in bp.characters}
+    assert where == {"左子穆": "loc:剑湖宫", "段誉": None}  # 「大理」同时包含于两处：多义不猜
+    assert any("大理" in line for line in report.dropped)
+
+
 def test_unlandable_prerequisites_seal_the_art_and_cycles_are_broken() -> None:
     bp, report = BlueprintAssembler().assemble([
         extraction(
@@ -127,9 +137,20 @@ def test_unlandable_prerequisites_seal_the_art_and_cycles_are_broken() -> None:
     assert any("六脉神剑" in s for s in report.sealed) and any("成环" in s for s in report.sealed)
 
 
-def test_lenient_enums_and_relation_kinds() -> None:
-    raw = extraction(characters=[{"name": "某甲", "tier": "天下第一", "disposition": "奸诈", "status": "失踪"}])
-    assert raw.characters[0].tier is Tier.NONE and raw.characters[0].disposition.value == "中庸"
+def test_unknown_is_not_weakest() -> None:
+    """开篇一句没写武功的旁白，不能在"首次登场即开篇"里盖掉后文写明的境界；认不出的枚举值同样记为未知。"""
+    bp, _ = BlueprintAssembler().assemble([
+        extraction(characters=[{"name": "段正淳", "tier": None, "disposition": "天下第一好人"}],
+                   martial_arts=[{"name": "一阳指", "prerequisites": {"min_tier": "二流"}}]),
+        extraction(characters=[{"name": "段正淳", "tier": "一流", "disposition": "仁厚"},
+                               {"name": "某书生"}],
+                   martial_arts=[{"name": "一阳指", "tier": "一流", "prerequisites": {"min_tier": "三流"}}]),
+    ])
+    duan = next(c for c in bp.characters if c.name == "段正淳")
+    assert duan.tier is Tier.FIRST and duan.disposition.value == "仁厚"
+    assert next(c for c in bp.characters if c.name == "某书生").tier is Tier.NONE  # 全书都看不出：才退回不入流
+    art = bp.martial_arts[0]
+    assert art.tier is Tier.FIRST and art.prerequisites.min_tier is Tier.SECOND  # 门槛取最严
 
 
 # ============================================================
