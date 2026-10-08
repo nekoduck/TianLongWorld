@@ -1,7 +1,7 @@
 """
 [INPUT]: 依赖 pydantic v2 的 BaseModel / TypeAdapter / Field(discriminator)，依赖 domain/models 的 Attitude，依赖 domain/intent 的 ActionType，
          依赖 domain/combat 的 CombatOutcome
-[OUTPUT]: 对外提供 不可变领域事件 DomainEvent 基类及 PlayerSpawned / Moved / ItemTransferred / SkillPracticed / SkillExecuted /
+[OUTPUT]: 对外提供 不可变领域事件 DomainEvent 基类及 PlayerSpawned / Moved（fleeing 标明夺路而逃）/ ItemTransferred / SkillPracticed / SkillExecuted /
           HealthChanged / Conversed / RelationChanged / ActionFailed / PlayerDied、AnyEvent 判别联合、EVENT_ADAPTER（JSONB 编码）、
           decode_event()（JSONB 解码：先经上抛器把旧账升级为现行词汇）、EventEnvelope（流内版本 + 事件 id + 记录时间）
 [POS]: domain 的事实词汇：世界此刻的一切都由这些事件经纯函数折叠而来；事件一经写入永不修改，
@@ -41,6 +41,7 @@ class Moved(DomainEvent):
     from_location_id: str
     to_location_id: str
     exit_label: str
+    fleeing: bool = False  # 重伤后夺路而逃（而非自行离去）：出发地从此是逃离过的险地；旧账缺省即自行离去
 
 
 class ItemTransferred(DomainEvent):

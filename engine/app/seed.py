@@ -90,10 +90,14 @@ async def extract(settings: Settings, *, max_chunks: int | None, allow_partial: 
 
 
 def _naming(settings: Settings) -> str:
-    """上一版蓝图在就以它的写法作跨块命名参考；没有就不给（首次播种）。"""
+    """上一版蓝图在就以它的写法作跨块命名参考；没有就不给（首次播种）。读不了也不给——重抽正是为了替换坏掉或过时的蓝图，不能被它拦住。"""
     if not settings.blueprint_path.exists():
         return ""
-    return naming_reference(WorldBlueprint.model_validate_json(settings.blueprint_path.read_text(encoding="utf-8")))
+    try:
+        return naming_reference(WorldBlueprint.model_validate_json(settings.blueprint_path.read_text(encoding="utf-8")))
+    except (OSError, ValueError) as exc:  # ValueError 涵盖 pydantic 校验错误与解码错误
+        print(f"现有蓝图读不了，本次不给跨块命名参考：{exc}")
+        return ""
 
 
 async def assemble(settings: Settings, *, version: str, max_chunks: int | None) -> WorldBlueprint:

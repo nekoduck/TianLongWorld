@@ -3,7 +3,8 @@
          Raw* 抽取记录仅作类型标注（运行期不导入，避免与 knowledge_extractor 成环）
 [OUTPUT]: 对外提供 BlueprintAssembler（名称级抽取记录 → 引用完整的 WorldBlueprint）、AssemblyReport（丢弃 / 封存 / 孤儿 / 时间线 / 自愈 / 失败的明细）、
           CanonEventKind（抽取契约里 T=0 之后的三类状态变化：组装器认得的证据种类）、
-          GENERIC_PEOPLE / GENERIC_PLACES / GENERIC_ARTS 泛称词表（人物与地点另有"描述不是名字"的模式判据）
+          GENERIC_PEOPLE / GENERIC_PLACES / GENERIC_ARTS 泛称词表（人物与地点另有"描述不是名字"的模式判据）、
+          entrance_label()（上级地点通往其处所的出口标签「入练武厅」，命名参考凭它认上级）
 [POS]: infrastructure 的确定性组装器（World Seeding 的后半程）：大模型读书，这里定案。
        实体消歧：两条记录的正名互见（正名=某组任一称呼，或本记录的称号 / 别名=某组某条记录的正名）才合并，别名撞别名不合并；
        称谓与泛称（爹爹、夫人、院子、卧室）既不能当正名也不能当别名——真实原著里「妈妈」曾把刀白凤与甘宝宝捏成一个人；
@@ -354,6 +355,11 @@ class _Timeline:
 # ============================================================
 #  组装
 # ============================================================
+def entrance_label(place: str) -> str:
+    """上级地点通往其处所的那条出口的标签（「入练武厅」）：组装器据此连边，命名参考据此认出谁是上级——原文出口「入谷」「入内」不算。"""
+    return f"入{place.split('·')[-1]}"[:NAME_CHARS]
+
+
 class BlueprintAssembler:
     def assemble(self, extractions: Sequence[ChunkExtraction]) -> tuple[WorldBlueprint, AssemblyReport]:
         report = AssemblyReport()
@@ -399,7 +405,7 @@ class BlueprintAssembler:
             if parent_name and parent is None:
                 report.dropped.append(f"{g.name} 的上级地点「{parent_name}」不在本体之中")
             elif parent and here not in exits.setdefault(parent, {}).values():
-                exits[parent][f"入{g.name.split('·')[-1]}"[:NAME_CHARS]] = here
+                exits[parent][entrance_label(g.name)] = here
         for g in groups:
             here = entity_id(EntityKind.LOCATION, g.name)
             table = exits.setdefault(here, {})

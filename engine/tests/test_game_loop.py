@@ -107,7 +107,7 @@ async def test_a_severe_escape_then_rest_away_from_the_foe(container: Container)
     pid = await spawned_at(container, "无量山")
     resolved, done = await say(container, pid, "徒手攻击狠辣的龚光杰")
     assert resolved.facts[:2] == ("阿星徒手向龚光杰出手——身受重伤，拼死逃脱。", "阿星受了伤（与龚光杰交手）。")
-    assert resolved.facts[-1] == "阿星经「南下」离开无量山，来到大理城。"
+    assert resolved.facts[-1] == "阿星经「南下」夺路逃离无量山，来到大理城。"
     assert done.status.alive and done.status.health == "重伤" and done.status.location == "大理城"
     recover = next(o for o in done.options if o.category is OptionCategory.RECOVER)
     rested = await play(container, ChooseOption(player_id=pid, option_id=recover.id))
@@ -184,6 +184,40 @@ async def test_game_master_overreach_is_clamped_into_the_rails(settings: Setting
         assert "<settled_facts>\n1. 阿星徒手向左子穆出手——吃了点亏" in narration_prompt
         assert "<gm_sketch>左子穆横剑一封，你掌缘见血，跃开数步</gm_sketch>" in narration_prompt
         assert "拍翻在地" not in narration_prompt and 'style="狂傲"' in narration_prompt
+    finally:
+        await container.aclose()
+
+
+async def test_a_flight_is_narrated_where_the_fight_happened(settings: Settings) -> None:
+    """重伤夺路而逃：叙事拿到的快照已是大理城，交手的无量山与龚光杰经 <fled_scene> 一并送到，不逼说书人在两条铁律间二选一。"""
+    intent = json.dumps({"action_type": "ATTACK", "target_entity": "龚光杰"}, ensure_ascii=False)
+    severe = json.dumps({"outcome_type": "SEVERE_WOUND", "hp_change": -50, "narrative_hint": "龚光杰长剑一抖，你肩头中剑"},
+                        ensure_ascii=False)
+    llm = ScriptedLLM("山风猎猎。", intent, severe, "你踉跄奔下山去。")
+    container = await build_container(settings, blueprint=WORLD, llm=llm)
+    try:
+        pid = await spawned_at(container, "无量山")
+        _, done = await say(container, pid, "徒手攻击龚光杰")
+        assert done.status.location == "大理城"
+        fled_scene, truth = llm.calls[-1][1].split("<truth_snapshot>")
+        assert '<location name="无量山"' in fled_scene and "- 龚光杰｜" in fled_scene
+        assert '<location name="大理城"' in truth and "<gm_sketch>龚光杰长剑一抖，你肩头中剑</gm_sketch>" in truth
+    finally:
+        await container.aclose()
+
+
+async def test_recalled_memories_are_distinct_and_capped(settings: Settings) -> None:
+    """来回走两趟，白描一字不差：召回多取一倍、按字面去重后恰取 k 条，名额不浪费在复读上。"""
+    north = json.dumps({"action_type": "MOVE", "target_entity": "无量山"}, ensure_ascii=False)
+    south = json.dumps({"action_type": "MOVE", "target_entity": "大理城"}, ensure_ascii=False)
+    llm = ScriptedLLM("苍山如黛。", north, "一", south, "二", north, "三", south, "四")
+    container = await build_container(settings.model_copy(update={"memory_recall_k": 2}), blueprint=WORLD, llm=llm)
+    try:
+        pid = await spawned_at(container, "大理城")
+        for text in ("北上", "南下", "北上", "南下"):
+            await say(container, pid, text)
+        recalled = llm.calls[-1][1].split("<memories>\n")[1].split("</memories>")[0].splitlines()
+        assert len(recalled) == 2 and len(set(recalled)) == 2  # 四条往事里有两条一字不差
     finally:
         await container.aclose()
 

@@ -2,7 +2,7 @@
 [INPUT]: 依赖 application/ports 的 LLMClient / JsonSchema，依赖 domain/models 的 WorldBlueprint / Item / MartialArt / Provenance 等本体类型，
          依赖 infrastructure/knowledge_extractor 的 T0_ANCHOR / escape_markup，依赖 app.errors 的 ExtractionError / LLMError
 [OUTPUT]: 对外提供 HEAL_PROMPT_VERSION、Orphan 与 lint()（被武学获取要求引用却下落不明的物品）、Placement（一条安放：物品 → 持有者 + 理由 + 推断者）、
-          HEALER_SYSTEM 自愈铁律、candidate_names()（候选正名，亦即结构化输出的枚举）、heal_brief()（孤儿 + 候选清单）、validate_placement()（安放的闸门：只认当前孤儿与候选里精确命中的唯一持有者）、
+          HEALER_SYSTEM 自愈铁律、candidate_names()（候选正名，亦即结构化输出的枚举）、candidate_digest()（候选清单指纹）、heal_brief()（孤儿 + 候选清单）、validate_placement()（安放的闸门：只认当前孤儿与候选里精确命中的唯一持有者）、
           apply_placements()（纯函数：安放写进蓝图，provenance 记为推断）、PlacementOracle 抽象与 LLMPlacementOracle（结构化输出 + 重采样，绝不抛错）、
           load_healing() / save_healing()（data/world/healing.json 自愈缓存）、GraphHealer 与 HealingResult（缓存优先、其余问神谕、写回缓存、套用）、
           heal_export() / ingest_placements()（大模型之外的自愈者——子代理、人工——经同一道闸门入缓存）
@@ -16,12 +16,14 @@
        神谕不可用（欠费、断网、mock）时只套缓存，零费用、确定性，播种照常完成。
        缓存是自愈者之间的交换契约，与抽取缓存同理：大模型、子代理、人工的安放经同一道闸门入缓存，套用时逐条重新校验。
        自愈铁律 v2 据真实 Gemini 实测修订：题面是材料不是指令（Pro 曾照描述里夹带的"系统通知"把一阳指的谱诀交给岳老三）、
-       原著所在不在候选之中本身不是填 null 的理由、单件只答一个对象；"无从推断"也是判词，连同理由入缓存、默认不重问；
+       原著所在不在候选之中本身不是填 null 的理由、单件只答一个对象；"无从推断"也是判词，连同理由与候选清单指纹入缓存、默认不重问，
+       切片变长、候选清单一变，旧判词即作废重问；
        与所需武学无同门关联的安放在报告里标 ⚠ 请人复核——闸门只认候选，拦不住不合情理
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 from abc import ABC, abstractmethod
@@ -84,6 +86,7 @@ class Placement(BaseModel):
     holder: str | None = Field(default=None, description="候选清单里的地点名或人物本名；无从推断为 null")
     rationale: str = Field(default="", max_length=RATIONALE_CHARS, description="理由，不超过 80 字")
     inferred_by: str = Field(default="", description="谁推断的：模型名 / claude-subagent / 人名")
+    basis: str = Field(default="", description="无从推断的判词所据的候选清单指纹（candidate_digest）；清单变了判词即作废")
 
     @field_validator("item", "holder", mode="before")
     @classmethod
@@ -113,6 +116,11 @@ def _candidates(bp: WorldBlueprint) -> list[Location | Character]:
 def candidate_names(bp: WorldBlueprint) -> list[str]:
     """候选的正名清单（地点名 + 人物本名），也是结构化输出里 holder 的枚举。"""
     return list(dict.fromkeys(e.name for e in _candidates(bp)))
+
+
+def candidate_digest(bp: WorldBlueprint) -> str:
+    """候选清单的指纹："无从推断"只对当时那份清单成立——切片变长、多出一处可达之地，旧判词就不作数了。"""
+    return hashlib.sha256("\n".join(candidate_names(bp)).encode("utf-8")).hexdigest()[:12]
 
 
 def _holder_id(bp: WorldBlueprint, holder: str) -> str:
@@ -415,11 +423,16 @@ class GraphHealer:
         settled: list[Placement] = []
         unresolved: list[str] = []
         verdicts: dict[str, Placement] = {}  # 孤儿 id → 无从推断的判词
+        digest = candidate_digest(bp)
         for placement in cached:
             if placement.holder is None:
                 hits = [o for o in lint(bp) if placement.item in o.item.names]
-                if len(hits) == 1 and not self._retry_null:
+                if len(hits) != 1 or self._retry_null:
+                    continue
+                if placement.basis == digest:
                     verdicts[hits[0].item.id] = placement
+                else:  # 当初的候选里没有合适的，不等于现在也没有：作废，有神谕就重问
+                    unresolved.append(f"自愈缓存中「{placement.item}」的无从推断判词出自另一份候选清单，已作废")
                 continue
             try:
                 validate_placement(bp, placement)
@@ -434,7 +447,7 @@ class GraphHealer:
         fresh: list[Placement] = []
         if self._oracle is not None and pending:
             answers = await asyncio.gather(*(self._oracle.place(bp, o) for o in pending))
-            fresh = [a for a in answers if a is not None]
+            fresh = [a if a.holder else a.model_copy(update={"basis": digest}) for a in answers if a is not None]
             if fresh and self._cache is not None:
                 save_healing(self._cache, [*cached, *fresh])
             verdicts |= {_orphan_named(bp, a.item).item.id: a for a in fresh if a.holder is None}
@@ -478,7 +491,8 @@ def ingest_placements(bp: WorldBlueprint, raw: str, cache: Path, inferred_by: st
     for placement in answers:
         try:
             if placement.holder is None:
-                accepted.append(placement.model_copy(update={"item": _orphan_named(bp, placement.item).item.name}))
+                orphan = _orphan_named(bp, placement.item)
+                accepted.append(placement.model_copy(update={"item": orphan.item.name, "basis": candidate_digest(bp)}))
                 continue
             orphan, _ = _resolve(bp, placement)
         except ValueError as exc:

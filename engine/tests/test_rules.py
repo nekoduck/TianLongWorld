@@ -162,7 +162,9 @@ async def test_bare_handed_against_ruthless_gong_guangjie_ends_in_a_severe_escap
         HealthChanged(delta=-58, cause="与龚光杰交手", source_id="chr:龚光杰"),
     ]
     assert not any(isinstance(e, PlayerDied) for e in events)  # 重伤逃脱，不是二极管式的毙命
-    assert events[-1] == Moved(from_location_id="loc:无量山", to_location_id="loc:大理城", exit_label="南下")  # 逃脱是真的逃
+    assert events[-1] == Moved(  # 逃脱是真的逃
+        from_location_id="loc:无量山", to_location_id="loc:大理城", exit_label="南下", fleeing=True
+    )
     lenient = decide(attack, state, snap, CombatProposal(Out.MINOR_WOUND, -15))
     assert lenient[0].outcome is Out.MINOR_WOUND and lenient[1] == HealthChanged(  # type: ignore[attr-defined]
         delta=-15, cause="与龚光杰交手", source_id="chr:龚光杰")
@@ -173,7 +175,23 @@ async def test_a_severe_escape_retreats_the_way_you_came() -> None:
     came = Moved(from_location_id="loc:无量玉洞", to_location_id="loc:无量山", exit_label="攀上")
     state, snap = await scene("loc:无量玉洞", came)
     events = decide(act(ActionType.ATTACK, target_entity="龚光杰"), state, snap)
-    assert events[-1] == Moved(from_location_id="loc:无量山", to_location_id="loc:无量玉洞", exit_label="崖下")
+    assert events[-1] == Moved(from_location_id="loc:无量山", to_location_id="loc:无量玉洞", exit_label="崖下", fleeing=True)
+
+
+async def test_a_second_escape_never_runs_back_to_the_foes_fled_from() -> None:
+    """连败两场：第二次夺路不能沿来路逃回第一场的仇家面前（仇人不会挪窝）——另寻出路；条条都通险地，才留在原地。"""
+    went = Moved(from_location_id="loc:大理城", to_location_id="loc:无量山", exit_label="北上")
+    fled = Moved(from_location_id="loc:无量山", to_location_id="loc:大理城", exit_label="南下", fleeing=True)
+    state, snap = await scene("loc:大理城", went, fled)
+    assert state.came_from == "loc:无量山" and state.fled_from == {"loc:无量山"}
+    events = decide(act(ActionType.ATTACK, target_entity="段正淳"), state, snap, CombatProposal(Out.SEVERE_WOUND, -30))
+    assert events[0].outcome is Out.SEVERE_WOUND  # type: ignore[attr-defined]
+    assert events[-1] == Moved(from_location_id="loc:大理城", to_location_id="loc:无锡城", exit_label="东去", fleeing=True)
+    cornered = Moved(from_location_id="loc:大理城", to_location_id="loc:无锡城", exit_label="东去", fleeing=True)
+    state, snap = await scene("loc:无锡城", cornered)  # 无锡城唯一的出路「西归」通往刚逃离的大理城
+    events = decide(act(ActionType.ATTACK, target_entity="乔峰"), state, snap)
+    assert events[0].outcome is Out.SEVERE_WOUND  # type: ignore[attr-defined]
+    assert not any(isinstance(e, Moved) for e in events)
 
 
 async def test_extreme_recklessness_is_still_fatal_unless_the_master_softens_it() -> None:

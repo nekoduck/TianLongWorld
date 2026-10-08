@@ -180,10 +180,12 @@ async def test_rare_directions_hold_at_most_two_seats() -> None:
 
 async def test_a_way_out_is_always_offered_when_foes_are_present() -> None:
     grudge = RelationChanged(character_id="chr:龚光杰", attitude=Attitude.HOSTILE, cause="遭你出手相攻")
-    for version_shift in range(3):  # 寻常方向按版本轮换：无论轮到谁，仇人在侧时出路都在、静观让位
+    friend = RelationChanged(character_id="chr:辛双清", attitude=Attitude.FRIENDLY, cause="敌人之敌")
+    for version_shift in range(4):  # 寻常方向按版本轮换：无论轮到谁，仇人在侧时出路都在、静观让位
         extra = [Conversed(npc_id="chr:辛双清")] * version_shift
-        state, snap = await scene("loc:无量山", grudge, *extra)
+        state, snap = await scene("loc:无量山", grudge, friend, *extra)  # 取物与求教占满两席稀缺，寻常方向只剩两席
         options = OptionGenerator().generate(state, snap)
+        assert {o.category for o in options[:2]} == {OptionCategory.CULTIVATE, OptionCategory.ACQUIRE}
         explore = [o for o in options if o.category is OptionCategory.EXPLORE]
         assert explore and all(o.intent.action_type is ActionType.MOVE for o in explore)
 
@@ -224,6 +226,21 @@ async def test_hard_prompt_names_titles_mastery_wounds_and_the_sketch() -> None:
     assert known_arts(snap) == ("北冥神功（初窥门径）",)
     offline = "".join([c async for c in TemplateNarrator().narrate(request)])
     assert offline.startswith("阿星受了伤（与龚光杰交手）。龚光杰长剑一抖")  # 离线白描照样带上速写
+
+
+async def test_a_flight_keeps_the_fight_scene_in_view() -> None:
+    """重伤夺路而逃：快照已是逃抵之地，交手的现场与仇人另作 <fled_scene>；离线白描把速写紧随那一招，先打后逃。"""
+    _, fought = await scene("loc:无量山")
+    _, arrived = await scene("loc:大理城", WOUNDED)
+    facts = ("阿星徒手向龚光杰出手——身受重伤，拼死逃脱。", "阿星经「南下」夺路逃离无量山，来到大理城。")
+    request = NarrationRequest(snapshot=arrived, facts=facts, hint="龚光杰长剑一抖，你肩头中剑", fled=fought)
+    prompt = hard_prompt(request)
+    fled_scene, truth = prompt.split("<truth_snapshot>")
+    assert fled_scene.startswith("<fled_scene>") and '<location name="无量山"' in fled_scene and "- 龚光杰｜" in fled_scene
+    assert '<location name="大理城"' in truth and "龚光杰｜" not in truth
+    assert "<fled_scene>" not in hard_prompt(NarrationRequest(snapshot=arrived, facts=facts))
+    offline = "".join([c async for c in TemplateNarrator().narrate(request)])
+    assert offline.startswith("阿星徒手向龚光杰出手——身受重伤，拼死逃脱。龚光杰长剑一抖，你肩头中剑阿星经「南下」夺路逃离")
 
 
 async def test_llm_narrator_streams_and_fallback_keeps_facts_visible() -> None:

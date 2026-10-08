@@ -41,7 +41,7 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, ValidationEr
 from app.application.ports import LLMClient
 from app.domain.models import CharacterStatus, Disposition, RelationKind, Tier, Transmission, WorldBlueprint
 from app.errors import ExtractionError, LLMError
-from app.infrastructure.blueprint_assembler import AssemblyReport, BlueprintAssembler, CanonEventKind
+from app.infrastructure.blueprint_assembler import AssemblyReport, BlueprintAssembler, CanonEventKind, entrance_label
 from app.infrastructure.cypher import CypherStatement, compile_blueprint, render_script
 
 logger = logging.getLogger(__name__)
@@ -412,7 +412,13 @@ def naming_reference(bp: WorldBlueprint) -> str:
     逐块抽取看不到别的块：只叫「延庆太子」的一块与只叫「恶贯满盈」的一块各说各话，有了它才合得到同一个本名之下。
     实测这是 Claude 抽取员在本名上胜过裸跑 Gemini 的主因——生产抽取器也该拿到同一份。
     """
-    parent = {target: loc.name for loc in bp.locations for label, target in loc.exits.items() if label.startswith("入")}
+    named = {loc.id: loc.name for loc in bp.locations}
+    parent = {  # 只认组装器连的上级边：原文出口也常以「入」起头（「入谷」「入内」），那是道路不是隶属
+        target: loc.name
+        for loc in bp.locations
+        for label, target in loc.exits.items()
+        if target in named and label == entrance_label(named[target])
+    }
     places = [f"- {loc.name}" + (f"  ← {parent[loc.id]}" if loc.id in parent else "") for loc in bp.locations]
     people = [f"- {c.true_name} ｜ {'、'.join(c.titles) or '—'} ｜ {'、'.join(c.aliases) or '—'}" for c in bp.characters]
     factions = sorted({c.faction for c in bp.characters if c.faction} | {a.faction for a in bp.martial_arts if a.faction})

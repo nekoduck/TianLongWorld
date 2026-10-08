@@ -1,14 +1,15 @@
 """
 [INPUT]: 依赖 application/ports 的 LLMClient，依赖 application/chronicle 的 titled / known_arts，依赖 domain/snapshot 的 LocalSnapshot，
          依赖 app.errors 的 LLMError
-[OUTPUT]: 对外提供 NarrationRequest（含地下城主的速写 hint）、Narrator 抽象（流式 narrate）、hard_prompt()（局部真理快照 → XML 硬约束）、NARRATOR_SYSTEM、
+[OUTPUT]: 对外提供 NarrationRequest（含地下城主的速写 hint 与夺路逃离的交手现场 fled）、Narrator 抽象（流式 narrate）、hard_prompt()（局部真理快照 → XML 硬约束）、NARRATOR_SYSTEM、
           LLMNarrator（金庸风流式渲染）、TemplateNarrator（离线确定性白描）、FallbackNarrator（主渲染失败时降级为白描）
 [POS]: application 的查询侧渲染器（CQRS 的 Query 侧）：结果已由规则裁定并入账，这里只负责"怎么写"，无权决定"发生了什么"。
        大模型看到的世界只有快照（Hard Prompt）：快照之外的人、物、功、地对它不存在；渲染失败也不影响真相——事件早已落账，降级白描照常推送。
        地下城主的速写（<gm_sketch>）只是一招过程的散文素材：它与 <settled_facts> 一致才会被送来，叙事据此扩写招式，不能据此改判；
        速写不入事件、不入记忆，只活在这一回合的 Prompt 里。
        铁律据真实整局实测补强：没有「来到某地」就仍在原地、facts 之外的变化（伤势好转、退路被封、有人追来）一概不写、
-       行囊里的东西 facts 没写它易手就仍在身上（玩家"嚼下通天草"不等于吃掉了）、伤势与态度不照抄标签词；在场者所会武学带类别（掌法不被写成剑法）
+       行囊里的东西 facts 没写它易手就仍在身上（玩家"嚼下通天草"不等于吃掉了）、伤势与态度不照抄标签词；在场者所会武学带类别（掌法不被写成剑法）。
+       重伤夺路而逃的回合，快照已是逃抵之地，交手现场另作 <fled_scene>：仇人在那里，先写交手再写逃
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -33,6 +34,7 @@ class NarrationRequest:
     player_text: str | None = None  # 玩家原话或所点选项的标签：只供照应笔墨
     style: str = ""
     hint: str = ""  # 地下城主对这一招过程的速写：只在其结局被领域采纳时才有，与 facts 一致
+    fled: LocalSnapshot | None = None  # 本回合夺路逃离之处（交手的现场）：快照已是逃抵之地，仇人只在这里
 
 
 class Narrator(ABC):
@@ -51,9 +53,9 @@ def _join(parts: Iterable[str]) -> str:
     return "、".join(parts) or "无"
 
 
-def hard_prompt(req: NarrationRequest) -> str:
-    """每个插值都经 _safe 转义：玩家写进意图的指称会出现在 ActionFailed 的白描里，不能让它闭合或伪造标签。"""
-    snap, e = req.snapshot, _safe
+def _scene(snap: LocalSnapshot) -> list[str]:
+    """一处地方与在场之人：<truth_snapshot> 与 <fled_scene> 共用同一种写法。"""
+    e, loc = _safe, snap.location
     known = {s.id: f"{s.name}（{s.kind}）" if s.kind else s.name for s in snap.skills}  # 带上类别：掌法不会被写成剑法
     people = [
         e(
@@ -63,14 +65,22 @@ def hard_prompt(req: NarrationRequest) -> str:
         )
         for c in snap.characters
     ]
-    loc = snap.location
-    lines = [
-        "<truth_snapshot>",
+    return [
         f'<location name="{e(loc.name)}" region="{e(loc.region)}">{e(loc.description)}</location>',
-        f"<exits>{e(_join(f'{x.label}→{x.to_name}' for x in snap.exits))}</exits>",
         "<people>",
         *(people or ["（此处空无一人）"]),
         "</people>",
+    ]
+
+
+def hard_prompt(req: NarrationRequest) -> str:
+    """每个插值都经 _safe 转义：玩家写进意图的指称会出现在 ActionFailed 的白描里，不能让它闭合或伪造标签。"""
+    snap, e = req.snapshot, _safe
+    lines = [
+        *(["<fled_scene>", *_scene(req.fled), "</fled_scene>"] if req.fled else []),
+        "<truth_snapshot>",
+        *_scene(snap),
+        f"<exits>{e(_join(f'{x.label}→{x.to_name}' for x in snap.exits))}</exits>",
         f"<ground>{e(_join(i.name for i in snap.ground_items))}</ground>",
         (
             f'<player name="{e(snap.player_name)}" alive="{str(snap.alive).lower()}">'
@@ -95,9 +105,10 @@ NARRATOR_SYSTEM = """你是《天龙八部》文字世界的说书人，以金�
 你只是渲染者，不是裁判：
 1. <settled_facts> 是世界引擎已经裁定并记入史册的结果。照实去写，不得更改、推翻、弱化或追加任何结果——失败就写失败，受伤就写受伤，重伤逃脱就写重伤逃脱，身死就写身死。
    <settled_facts> 里没有「来到某地」，你就仍在 <location>：被击退就写踉跄站定或倒地喘息，不写离开此地、奔出门外。
+   有 <fled_scene> 时，交手发生在那里：先写那一场交手，再写你夺路逃到 <truth_snapshot> 的 <location>，仇人留在身后。
    <settled_facts> 之外的变化一概不写：伤势只照 <player> 的伤势去写，不写好转或恶化；出路只照 <exits> 去写，不写被封被堵；不写有人追来、有人援手。
    <gm_sketch> 是地下城主对这一招过程的速写，与 <settled_facts> 一致：可据此扩写招式与情势，不得改变胜负与伤势。
-2. 你只能写 <truth_snapshot> 里存在的人、物、地点、出路与武功。不得引入任何新人物、新物品、新武功、新地点；不得让任何人获得或失去任何东西——
+2. 你只能写 <truth_snapshot> 与 <fled_scene> 里存在的人、物、地点、出路与武功（<fled_scene> 里的人只出现在你逃离之前）。不得引入任何新人物、新物品、新武功、新地点；不得让任何人获得或失去任何东西——
    吃下、用掉、毁掉、丢掉也是失去：<player> 行囊里的东西，<settled_facts> 没写它易手，回合结束时就原样还在身上；不得替任何人许诺日后的机缘。
 3. 人物的言行合乎快照里的门派、境界、性情与对你的态度；已被制住的人无力动手；态度漠然的人不会主动相助；
    你的举止合乎 <player> 的伤势——重伤之人步履蹒跚，奄奄一息者连话都说不全。
@@ -125,9 +136,10 @@ class TemplateNarrator(Narrator):
         snap = request.snapshot
         scene = f"{snap.location.name}。{snap.location.description}".rstrip("。") + "。"
         people = "、".join(c.name + ("（已被制住）" if c.subdued else "") for c in snap.characters)
-        sentences = [
-            *request.facts,
+        sentences = [  # 速写只出现在出手回合，那一招恒为首条事实：紧随其后，免得逃抵别处之后才补写交手
+            *request.facts[:1],
             request.hint,  # 地下城主的速写与定案一致，离线降级时照样是一句可读的白描
+            *request.facts[1:],
             scene,
             f"此处有{people}。" if people else "四下无人。",
             f"地上有{_join(i.name for i in snap.ground_items)}。" if snap.ground_items else "",

@@ -1,7 +1,7 @@
 """
 [INPUT]: 依赖 domain/intent 的 ActionType / PlayerIntent，依赖 domain/events 的领域事件，依赖 domain/models 的 Tier / Attitude /
          RelationKind / Transmission，依赖 domain/combat 的 Stakes / assess / settle / CombatProposal / CombatRuling / CombatOutcome，
-         依赖 domain/progression 的火候与伤势（FOUNDATION / GAIN / Guidance / Mastery / Vitality / MAX_HP / REST_GAIN / effective_tier），
+         依赖 domain/progression 的火候与伤势（FOUNDATION / gain / Guidance / Mastery / Vitality / MAX_HP / REST_GAIN / effective_tier），
          依赖 domain/snapshot 的 LocalSnapshot 及视图；PlayerState 仅作类型标注（避免与 aggregates 成环）
 [OUTPUT]: 对外提供 Rejection / Approval 裁决结果、adjudicate()（合法性：指称落地 + 物理/逻辑双重校验）、stakes()（胜负未定之事的可裁区间）、
           decide()（合法性 + 定案 → 事件）、player_tier()（火候折算后的玩家境界）、best_skill()、resolve()（名称 → 实体的唯一匹配）
@@ -9,7 +9,8 @@
        物理校验看快照（出口是否相连、人是否在场、物在谁手），逻辑校验看玩家状态与本体（火候、根基、门径、谁肯传授、伤势）；
        能力成长、物品获取、人际变化只能由此处从图谱拓扑推导得出。胜负未定之事（出手）由 Rule.stakes 圈出可裁区间，
        地下城主的提议经 combat.settle 钳进区间后才成为事件——大模型在这里有一票，但只能投给区间里的候选。
-       重伤逃脱是真的逃：定案为重伤时追加一条沿来路退回的 Moved（实测：只扣血不挪步，玩家"明明逃了"却仍站在仇人面前）；
+       重伤逃脱是真的逃：定案为重伤时追加一条沿来路退回的 Moved（fleeing，实测：只扣血不挪步，玩家"明明逃了"却仍站在仇人面前），
+       逃离过的险地（PlayerState.fled_from）永不作退路；
        此情此景里根本没有的武功名（自拟招式）只是笔墨，照常以看家本领出手；修习所得随武学境界折算（progression.gain），越高深越难练。
        每种动作一条 Rule（开闭：新动作 = 新 Rule + 注册一行；新的模糊动作 = 覆写 stakes 钩子），options 生成器复用 adjudicate 过滤出合法行为
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -240,13 +241,19 @@ class AttackRule(Rule):
             return events
         events += _ripple(foe, state, snap)
         if ruling.outcome is CombatOutcome.SEVERE_WOUND and (way := _retreat(state, snap)) is not None:
-            events.append(Moved(from_location_id=state.location_id, to_location_id=way.to_id, exit_label=way.label))
+            events.append(
+                Moved(from_location_id=state.location_id, to_location_id=way.to_id, exit_label=way.label, fleeing=True)
+            )
         return events
 
 
 def _retreat(state: PlayerState, snap: LocalSnapshot) -> ExitView | None:
-    """重伤逃脱是真的逃：沿来路退回；投胎之地或来路已断，就走第一条出路（快照里出路恒按固定键排序）。无路可走才留在原地。"""
-    return next((e for e in snap.exits if e.to_id == state.came_from), snap.exits[0] if snap.exits else None)
+    """
+    重伤逃脱是真的逃：沿来路退回；投胎之地或来路已断，就走第一条出路（快照里出路恒按固定键排序）。
+    逃离过的险地不是退路——那里的仇人不会挪窝，连败两场不能把人送回第一场的仇家面前；条条出路都通向险地，才留在原地。
+    """
+    ways = [e for e in snap.exits if e.to_id not in state.fled_from]
+    return next((e for e in ways if e.to_id == state.came_from), ways[0] if ways else None)
 
 
 def _ripple(foe: CharacterView, state: PlayerState, snap: LocalSnapshot) -> list[DomainEvent]:

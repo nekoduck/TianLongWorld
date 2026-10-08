@@ -24,6 +24,7 @@ from app.infrastructure.graph_linter import (
     LLMPlacementOracle,
     Placement,
     apply_placements,
+    candidate_digest,
     candidate_names,
     heal_brief,
     heal_export,
@@ -220,7 +221,7 @@ def test_ingest_goes_through_the_same_gate(tmp_path: Path) -> None:
             ingest_placements(bp, raw, cache, "张三")
     assert [p.holder for p in load_healing(cache)] == ["大理城"]  # 被拒的一条也没写进去
     judged = ingest_placements(bp, answer(None), cache, "张三")  # 无从推断也是判词：入缓存，后来者覆盖先来者
-    assert [(p.holder, p.inferred_by) for p in judged] == [(None, "张三")]
+    assert [(p.holder, p.inferred_by, p.basis) for p in judged] == [(None, "张三", candidate_digest(bp))]
     assert [p.holder for p in load_healing(cache)] == [None]
 
 
@@ -235,6 +236,26 @@ async def test_a_null_verdict_is_remembered_and_only_retried_on_request(tmp_path
     retried = await GraphHealer(LLMPlacementOracle(ScriptedLLM(answer("段正淳")), model_name="m2"), cache,
                                 retry_null=True).heal(bp)
     assert item_of(retried.blueprint, SCROLL.id).owner_id == "chr:段正淳" and retried.unresolved == []
+
+
+async def test_a_null_verdict_expires_when_the_candidates_change(tmp_path: Path) -> None:
+    """"无从推断"只对当时那份候选清单成立：切片变长、天龙寺有路可通了，旧判词作废，有神谕就重问。"""
+    bp, cache = orphaned(), tmp_path / "healing.json"
+    await GraphHealer(LLMPlacementOracle(ScriptedLLM(answer(None, rationale="本切片无段氏典藏之所"))), cache).heal(bp)
+    temple = Location(id="loc:天龙寺", name="天龙寺", exits={"下山": "loc:大理城"})
+    roads = tuple(
+        loc.model_copy(update={"exits": {**loc.exits, "上山": temple.id}}) if loc.id == "loc:大理城" else loc
+        for loc in bp.locations
+    )
+    grown = WorldBlueprint.model_validate(bp.model_copy(update={"locations": (*roads, temple)}).model_dump())
+    assert candidate_digest(grown) != candidate_digest(bp)
+    offline = await GraphHealer(None, cache).heal(grown)
+    assert offline.unresolved == [
+        "自愈缓存中「一阳指穴道谱诀」的无从推断判词出自另一份候选清单，已作废",
+        "「一阳指穴道谱诀」仍下落不明（为「一阳指」所需）",
+    ]
+    asked = await GraphHealer(LLMPlacementOracle(ScriptedLLM(answer("天龙寺"))), cache).heal(grown)
+    assert item_of(asked.blueprint, SCROLL.id).location_id == "loc:天龙寺"
 
 
 def test_placements_without_kinship_are_flagged_for_review() -> None:

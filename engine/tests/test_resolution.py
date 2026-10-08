@@ -140,8 +140,14 @@ async def test_out_of_rails_and_malformed_verdicts_resample_then_fall_back() -> 
 class SlowLLM(ScriptedLLM):
     """吐得出正确裁决，却慢得让玩家在锁里干等。"""
 
+    def __init__(self, *replies: str, delay: float = 1.0) -> None:
+        super().__init__(*replies)
+        self._delay = delay
+        self.started = 0
+
     async def complete(self, system: str, user: str, schema: dict | None = None) -> str:  # type: ignore[type-arg]
-        await asyncio.sleep(1.0)
+        self.started += 1
+        await asyncio.sleep(self._delay)
         return await super().complete(system, user, schema)
 
 
@@ -150,6 +156,14 @@ async def test_a_master_who_dawdles_past_the_budget_yields_to_the_rules() -> Non
     agent = LLMResolutionAgent(SlowLLM(verdict("MINOR_WOUND", -12)), budget=0.05)
     resolution = await agent.resolve(at_stake, snap, state, "徒手打他")
     assert resolution == Resolution(None, "", "规则")  # 超时即交给规则：宁可少一分笔墨，不让玩家锁在这一招上
+
+
+async def test_the_budget_bounds_the_whole_ruling_not_each_attempt() -> None:
+    """头一次拖到时限边缘又越出区间，重采样不能再领一份预算：两次加起来超时，照样交给规则。"""
+    at_stake, snap, state = await gong()
+    llm = SlowLLM(verdict("SUCCESS", 0), verdict("MINOR_WOUND", -12), delay=0.12)
+    resolution = await LLMResolutionAgent(llm, budget=0.2).resolve(at_stake, snap, state, "徒手打他")
+    assert resolution == Resolution(None, "", "规则") and llm.started == 2  # 重采样开了头，却被整场的时限掐断
 
 
 @pytest.mark.parametrize("retryable", [True, False])

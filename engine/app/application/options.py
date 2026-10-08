@@ -1,6 +1,6 @@
 """
 [INPUT]: 依赖 domain/rules 的 adjudicate / Approval / best_skill，依赖 domain/intent 的 ActionType / PlayerIntent，依赖 domain/progression 的 Guidance，
-         依赖 domain/snapshot 的 LocalSnapshot，PlayerState 仅作类型标注
+         依赖 domain/models 的 Attitude（认出仇人在侧），依赖 domain/snapshot 的 LocalSnapshot，PlayerState 仅作类型标注
 [OUTPUT]: 对外提供 OptionCategory（战斗 / 交涉 / 探索 / 修习 / 取物 / 休养）、ActionOption（id + 标签 + 方向 + 服务端持有的意图）、
           OptionGenerator（快照 → 3~4 个方向各异的合法行动选项）
 [POS]: application 的动态选项生成器（Affordances）：遍历快照里的合法边——出路（CONNECTS_TO）、在场之人（LOCATED_IN）、

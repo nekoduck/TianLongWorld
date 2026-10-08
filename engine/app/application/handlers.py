@@ -2,7 +2,7 @@
 [INPUT]: 依赖 application/bus 的命令、回合消息与 CommandHandler，依赖 application/intent_parser 的 IntentParser，
          依赖 application/resolution_agent 的 Resolver / Resolution，依赖 application/options 的 OptionGenerator，
          依赖 application/narrator 的 Narrator / NarrationRequest，依赖 application/projections 的 ProjectionCoordinator，
-         依赖 application/chronicle 的 describe / known_arts，依赖 domain/aggregates 的 Player，依赖 domain/events 的 SkillExecuted，
+         依赖 application/chronicle 的 describe / known_arts，依赖 domain/aggregates 的 Player，依赖 domain/events 的 SkillExecuted / Moved，
          依赖 domain/ports 的 EventStore / WorldReader / NarrativeMemory / MemoryRecord，依赖 domain/rules 的 stakes / player_tier，
          依赖 app.errors 的 OptionExpiredError / ProjectionError / UnknownPlayerError / WorldNotSeededError
 [OUTPUT]: 对外提供 TurnPipeline（一回合的完整生命周期）与四个命令处理器 SpawnPlayerHandler / ResumePlayerHandler / SubmitTextHandler /
@@ -15,6 +15,7 @@
        大模型在命令侧解析意图、在可裁区间里提议，在查询侧只渲染；领域的定案隔在中间——它说什么都越不过区间，更改不了已入账的结果。
        地下城主的招式速写只在其结局被采纳时（SkillExecuted.outcome 等于提议的结局）经 NarrationRequest 传给渲染器：
        它是散文，不入事件、不入记忆；结局未被采纳，速写与定案不符，当场作废。
+       重伤夺路而逃（Moved.fleeing）的回合，渲染用的新快照已是逃抵之地，交手前的快照经 NarrationRequest.fled 一并交给渲染器；
        记忆召回多取一倍再按字面去重（调息两次就是两条一模一样的白描）；死者的伤势栏写「气绝」
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -47,7 +48,7 @@ from app.application.options import ActionOption, OptionGenerator
 from app.application.projections import ProjectionCoordinator
 from app.application.resolution_agent import Resolution, Resolver
 from app.domain.aggregates import Player
-from app.domain.events import DomainEvent, EventEnvelope, SkillExecuted
+from app.domain.events import DomainEvent, EventEnvelope, Moved, SkillExecuted
 from app.domain.intent import PlayerIntent
 from app.domain.models import EntityKind, entity_id
 from app.domain.ports import EventStore, MemoryRecord, NarrativeMemory, WorldReader
@@ -151,7 +152,8 @@ class TurnPipeline:
                 player.apply(envelope.event)
             await self._coordinator.publish(player_id, envelopes)
         sketch = _adopted_sketch(resolution, events)
-        async for message in self._render(player, envelopes, intent, said, labels=before.labels, hint=sketch):
+        fled = before if any(isinstance(e, Moved) and e.fleeing for e in events) else None  # 交手现场留给叙事
+        async for message in self._render(player, envelopes, intent, said, labels=before.labels, hint=sketch, fled=fled):
             yield message
 
     # ============================================================
@@ -166,6 +168,7 @@ class TurnPipeline:
         *,
         labels: dict[str, str],
         hint: str = "",
+        fled: LocalSnapshot | None = None,
     ) -> AsyncIterator[TurnMessage]:
         first_new = envelopes[0].version if envelopes else player.version + 1
         snap, memories = await asyncio.gather(
@@ -192,6 +195,7 @@ class TurnPipeline:
                 player_text=said,
                 style=intent.narrative_style if intent else "",
                 hint=hint,
+                fled=fled,
             )
             async for chunk in self._narrator.narrate(request):  # [Render] 流式
                 parts.append(chunk)

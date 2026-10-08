@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from app.domain.models import CharacterStatus, Tier, Transmission
+from app.domain.models import CharacterStatus, Location, Tier, Transmission, WorldBlueprint
 from app.errors import ExtractionError, LLMError
 from app.infrastructure.blueprint_assembler import AssemblyReport, BlueprintAssembler
 from app.infrastructure.cypher import CONSTRAINTS, compile_blueprint, cypher_literal, render_script
@@ -432,6 +432,15 @@ async def test_the_production_extractor_gets_the_same_naming_reference() -> None
     assert system.startswith(EXTRACTION_SYSTEM) and system.endswith(naming)  # 铁律在前、参考在后，铁律一字不改
 
 
+def test_the_naming_reference_only_trusts_parent_edges_the_assembler_drew() -> None:
+    """原文出口也常以「入」起头（「入谷」）：那是道路不是隶属——实测曾把「万劫谷·大厅」挂到「万劫谷·谷口」之下。"""
+    gorge = Location(id="loc:万劫谷", name="万劫谷", exits={"入谷口": "loc:万劫谷·谷口", "入大厅": "loc:万劫谷·大厅"})
+    mouth = Location(id="loc:万劫谷·谷口", name="万劫谷·谷口", exits={"入谷": "loc:万劫谷·大厅", "出谷": "loc:万劫谷"})
+    hall = Location(id="loc:万劫谷·大厅", name="万劫谷·大厅", exits={"出厅": "loc:万劫谷·谷口"})
+    naming = naming_reference(WorldBlueprint(locations=(gorge, mouth, hall)))
+    assert "- 万劫谷·大厅  ← 万劫谷\n" in naming and "- 万劫谷·谷口  ← 万劫谷\n" in naming and "- 万劫谷\n" in naming
+
+
 async def test_extractor_retries_transient_failures_then_gives_up() -> None:
     good = json.dumps({"locations": [{"name": "无量山"}]}, ensure_ascii=False)
     flaky = ScriptedLLM(LLMError("HTTP 429"), good)  # type: ignore[arg-type]
@@ -468,6 +477,8 @@ def test_seed_cli_exports_pending_chunks_and_ingests_external_results(tmp_path: 
     settings = Settings(_env_file=None, source_text_dir=tmp_path / "src", world_dir=tmp_path / "world",  # type: ignore[call-arg]
                         extraction_chunk_chars=1000)
     monkeypatch.setattr(seed, "get_settings", lambda: settings)
+    (tmp_path / "world").mkdir()  # 过时的旧蓝图（主键不是本名）：重抽正是为了替换它，不能被它拦住，只是不给命名参考
+    (tmp_path / "world" / "blueprint.json").write_text('{"characters": [{"id": "chr:恶贯满盈", "true_name": "段延庆"}]}', "utf-8")
     seed.main(["export", "--out", str(tmp_path / "jobs")])
     assert sorted(p.name for p in (tmp_path / "jobs").iterdir()) == ["EXTRACTION_SYSTEM.txt", "chunk-000.txt", "chunk-001.txt"]
     (tmp_path / "out.json").write_text(json.dumps({"characters": [{"name": "段誉"}]}, ensure_ascii=False), "utf-8")

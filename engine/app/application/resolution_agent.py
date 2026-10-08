@@ -229,7 +229,9 @@ class LLMResolutionAgent(Resolver):
     async def resolve(self, stakes: Stakes, scene: LocalSnapshot, state: PlayerState, said: str | None) -> Resolution:
         if stakes.contested:
             try:
-                if (ruling := await self._consult(stakes, scene, state, said)) is not None:
+                # 预算管整场裁决而非每一次采样：第一次拖到时限边缘又不合契约，重采样不能再领一份预算
+                ruling = await asyncio.wait_for(self._consult(stakes, scene, state, said), self._budget)
+                if ruling is not None:
                     return ruling
             except LLMError as exc:
                 logger.warning("地下城主失灵（%s），改由规则裁决：%s", "可重试" if exc.retryable else "不可重试", exc)
@@ -244,7 +246,7 @@ class LLMResolutionAgent(Resolver):
     ) -> Resolution | None:
         brief, schema = combat_brief(stakes, scene, state, said), verdict_schema(stakes)
         for attempt in range(1, self._attempts + 1):
-            raw = await asyncio.wait_for(self._llm.complete(GM_SYSTEM, brief, schema), self._budget)
+            raw = await self._llm.complete(GM_SYSTEM, brief, schema)
             try:
                 start, end = raw.find("{"), raw.rfind("}")
                 result = CombatResult.model_validate(json.loads(raw[start : end + 1]))

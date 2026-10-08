@@ -61,8 +61,8 @@ def describe(event: DomainEvent, labels: Mapping[str, str], player_name: str) ->
     match event:
         case PlayerSpawned(location_id=loc):
             return f"{me}初入江湖，现身于{name(loc)}。"
-        case Moved(from_location_id=src, to_location_id=dst, exit_label=label):
-            return f"{me}经「{label}」离开{name(src)}，来到{name(dst)}。"
+        case Moved(from_location_id=src, to_location_id=dst, exit_label=label, fleeing=fleeing):
+            return f"{me}经「{label}」{'夺路逃离' if fleeing else '离开'}{name(src)}，来到{name(dst)}。"
         case ItemTransferred(item_id=item, from_holder=src, to_holder=dst):
             if kind_of(dst) is EntityKind.PLAYER:
                 where = "地上拾得" if kind_of(src) is EntityKind.LOCATION else "身上取走"
