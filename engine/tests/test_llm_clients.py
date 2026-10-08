@@ -1,7 +1,7 @@
 """
 [INPUT]: 依赖 httpx2 的 MockTransport / AsyncClient，依赖 app.infrastructure.llm 的三家客户端、_http 与 portable_schema，依赖 app.domain.intent 的 PlayerIntent
 [OUTPUT]: 厂商客户端单测：报文形状（结构化输出 / 不下发采样参数 / JSON 模式只在需要时开）、SSE 流式解析、拒答与截断收敛为 LLMError、
-          schema 规整（内联引用、剥离约束、对象封闭、字段名不被误删）、缺凭证启动即失败、三职责各取各的模型与思考档位、Claude 无 minimal 档、
+          schema 规整（内联引用、剥离约束、对象封闭、字段名不被误删、枚举保留）、缺凭证启动即失败、四职责各取各的模型与思考档位、Claude 无 minimal 档、
           限流可重试而欠费不可重试
 [POS]: tests 的厂商边界：替换 httpx2 的传输层，不触网即可钉死三家协议的细节
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -130,6 +130,8 @@ def test_portable_schema() -> None:
             "n": {"type": "integer"},
         },
     }
+    enum = {"type": "object", "properties": {"outcome_type": {"type": "string", "enum": ["MINOR_WOUND", "SEVERE_WOUND"]}}}
+    assert portable_schema(enum)["properties"]["outcome_type"]["enum"] == ["MINOR_WOUND", "SEVERE_WOUND"]  # 地下城主的区间靠它
     with pytest.raises(ValueError, match="递归"):
         portable_schema({"$defs": {"A": {"$ref": "#/$defs/A"}}, "$ref": "#/$defs/A"})
 
@@ -138,20 +140,24 @@ def test_factory_fails_fast_without_credentials() -> None:
     assert build_llm(Settings(_env_file=None), LLMRole.INTENT) is None  # type: ignore[call-arg]
     with pytest.raises(RuntimeError, match="LLM_EXTRACTION_MODEL"):
         build_llm(Settings(_env_file=None, llm_provider="anthropic", llm_api_key="k"), LLMRole.EXTRACTION)  # type: ignore[call-arg]
+    with pytest.raises(RuntimeError, match="LLM_RESOLUTION_MODEL"):
+        build_llm(Settings(_env_file=None, llm_provider="gemini", llm_api_key="k"), LLMRole.RESOLUTION)  # type: ignore[call-arg]
 
 
 async def test_each_role_gets_its_own_model_and_thinking(wire: Any) -> None:
     seen = wire(lambda r: httpx2.Response(200, json={"candidates": [{"content": {"parts": [{"text": "{}"}]}}]}))
     s = Settings(_env_file=None, llm_provider="gemini", llm_api_key="g", llm_model="flash", llm_thinking="low",  # type: ignore[call-arg]
-                 llm_intent_model="flash-lite", llm_intent_thinking="minimal", llm_extraction_model="pro")
+                 llm_intent_model="flash-lite", llm_intent_thinking="minimal", llm_extraction_model="pro",
+                 llm_resolution_thinking="medium")
+    assert list(LLMRole) == [LLMRole.INTENT, LLMRole.NARRATION, LLMRole.EXTRACTION, LLMRole.RESOLUTION]
     for role in LLMRole:
         client = build_llm(s, role)
         assert client is not None
         await client.complete("s", "u")
     urls = [x["url"].rsplit("/", 1)[-1] for x in seen]
     levels = [x["json"]["generationConfig"]["thinkingConfig"]["thinkingLevel"] for x in seen]
-    assert urls == ["flash-lite:generateContent", "flash:generateContent", "pro:generateContent"]
-    assert levels == ["minimal", "low", "low"]  # 职责专属优先，留空退回缺省档
+    assert urls == ["flash-lite:generateContent", "flash:generateContent", "pro:generateContent", "flash:generateContent"]
+    assert levels == ["minimal", "low", "low", "medium"]  # 职责专属优先，留空退回缺省档（地下城主只配了思考档位）
 
 
 async def test_anthropic_has_no_minimal_effort(wire: Any) -> None:

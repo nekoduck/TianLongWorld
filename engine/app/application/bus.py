@@ -1,7 +1,7 @@
 """
 [INPUT]: 依赖 pydantic v2 的 BaseModel / Field，依赖 domain/intent 的 PlayerIntent，依赖 application/options 的 ActionOption
 [OUTPUT]: 对外提供 命令 Command / SpawnPlayer / ResumePlayer / SubmitText / ChooseOption、
-          回合消息 SessionOpened / TurnResolved / NarrationDelta / TurnCompleted 与 PlayerStatus、
+          回合消息 SessionOpened / TurnResolved / NarrationDelta / TurnCompleted 与 PlayerStatus（境界 / 伤势 / 武学火候皆为语义标签）、
           CommandHandler 抽象、CommandBus（按命令类型分派到处理器，返回回合消息的异步流）
 [POS]: application 的边界契约：命令进、消息流出。presentation 只认识这里的类型，不认识聚合根、图谱与大模型；
        处理器以异步流回传消息，流式叙事因此是协议的一等公民而非事后补丁。新增命令 = 新命令类 + 新处理器 + 注册一行（开闭）
@@ -52,13 +52,16 @@ class _Message(BaseModel):
 
 
 class PlayerStatus(_Message):
+    """状态栏：只有语义标签，没有数值——熟练度与气血是领域内部的整数，玩家看到的永远是火候与伤势。"""
+
     name: str
     location: str
-    tier: str
+    tier: str  # 火候折算后的境界
+    health: str  # 伤势：安然无恙 / 轻伤 / 重伤 / 奄奄一息
     alive: bool
     death_cause: str | None = None
     inventory: tuple[str, ...] = ()
-    skills: tuple[str, ...] = ()
+    skills: tuple[str, ...] = ()  # 「北冥神功（略有小成）」：武学连同火候
 
 
 class SessionOpened(_Message):
