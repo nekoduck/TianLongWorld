@@ -100,6 +100,8 @@ async def test_llm_errors_propagate_so_nothing_is_written() -> None:
         ("闭目养神", PlayerIntent(action_type=ActionType.OBSERVE)),
         ("盘膝坐下，运功疗伤", PlayerIntent(action_type=ActionType.REST)),
         ("练功疗伤", PlayerIntent(action_type=ActionType.REST)),  # 疗伤先于练功判定
+        ("趁龚光杰运功疗伤之际偷袭他", PlayerIntent(action_type=ActionType.ATTACK, target_entity="龚光杰")),
+        ("一剑刺向正在调息的龚光杰", PlayerIntent(action_type=ActionType.ATTACK, target_entity="龚光杰")),  # 调息的是对手
     ],
 )
 async def test_heuristic_parser(text: str, expected: PlayerIntent) -> None:

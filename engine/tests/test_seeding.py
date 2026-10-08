@@ -341,6 +341,46 @@ def test_later_events_veto_states_polluted_by_the_timeline() -> None:
     assert "种类无法识别" in dropped and "钟灵身故" in dropped and "段誉习得武学六脉神剑" in dropped
 
 
+def test_a_shared_title_never_bridges_two_people() -> None:
+    """称号可以多人共用：只知称号的记录在两位已知本名者之间多义不猜，绝不成为把他们捏成一人的桥（对抗式审查的复现）。"""
+    bp, report = BlueprintAssembler().assemble([
+        extraction(characters=[{"name": "慕容博", "titles": ["姑苏慕容"]}]),
+        extraction(characters=[{"name": "慕容复", "titles": ["姑苏慕容"]}]),
+        extraction(characters=[{"name": "姑苏慕容", "name_is_title": True}]),
+    ])
+    assert sorted(c.name for c in bp.characters) == ["慕容博", "慕容复"]
+    assert any("姑苏慕容" in line and "多义不猜" in line for line in report.dropped)
+    bp, _ = BlueprintAssembler().assemble([
+        extraction(characters=[{"name": "大侠", "name_is_title": True}]),
+        extraction(characters=[{"name": "乔峰", "titles": ["北乔峰", "大侠"]}]),
+        extraction(characters=[{"name": "段誉", "titles": ["大侠"]}]),
+    ])
+    assert sorted(c.name for c in bp.characters) == ["乔峰", "段誉"]  # 无本名的称号组只能被认领一次
+
+
+def test_regaining_an_item_does_not_veto_its_t0_owner() -> None:
+    """开篇时就是他的、后来失而复得：主张早于"得到"事件，照认；主张与事件同块或更晚，才是被时间线污染的状态。"""
+    bp, report = BlueprintAssembler().assemble([
+        extraction(characters=[{"name": "段誉"}], items=[{"name": "折扇", "owner": "段誉"}]),
+        extraction(characters=[{"name": "南海鳄神"}], events=[{"subject": "南海鳄神", "kind": "得到物品", "object": "折扇"}]),
+        extraction(characters=[{"name": "段誉"}], items=[{"name": "折扇", "owner": "段誉"}],
+                   events=[{"subject": "段誉", "kind": "得到物品", "object": "折扇", "note": "从鳄神手里讨回"}]),
+    ])
+    assert [(i.name, i.owner_id) for i in bp.items] == [("折扇", "chr:段誉")] and report.timeline == []
+
+
+def test_timeline_evidence_lands_only_on_full_names() -> None:
+    """否决会抹掉原著状态：「段正淳之子」被当描述丢掉，它的事件也不能借包含匹配去否决段正淳的一阳指。"""
+    bp, report = BlueprintAssembler().assemble([
+        extraction(characters=[{"name": "段正淳", "skills": ["一阳指"]}], martial_arts=[{"name": "一阳指"}]),
+        extraction(characters=[{"name": "段正淳之子"}], martial_arts=[{"name": "一阳指"}],
+                   events=[{"subject": "段正淳之子", "kind": "习得武学", "object": "一阳指"},
+                           {"subject": "段正淳", "kind": "习得武学", "object": "一阳指法"}]),
+    ])
+    assert next(c for c in bp.characters if c.name == "段正淳").skills == ("art:一阳指",)
+    assert report.timeline == [] and "人物不在本体之中" in "\n".join(report.dropped)
+
+
 def test_report_renders_every_section_in_order() -> None:
     report = AssemblyReport(dropped=["甲"], sealed=["乙"], orphans=["丙"], timeline=["丁"], healed=["戊"], failed_chunks=["己"])
     assert report.render().split("\n") == ["[丢弃] 甲", "[封存] 乙", "[孤儿] 丙", "[时间线] 丁", "[自愈] 戊", "[抽取失败] 己"]

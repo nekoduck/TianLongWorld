@@ -346,6 +346,26 @@ async def test_a_named_master_who_refuses_is_not_silently_replaced_by_solitude()
     assert decide(act(ActionType.LEARN, skill_used="无量剑法"), state, snap) == [practiced("art:无量剑法", 5)]
 
 
+async def test_a_known_art_whose_text_is_lost_can_still_be_practiced_alone() -> None:
+    """失传的自悟之功（sealed、典籍不可考）对已入门者——旧账里学会的、或换蓝图后才封存的——仍可闭门苦练，而不是让裁决崩溃。"""
+    from app.domain.models import Acquisition, Transmission
+
+    lost = WORLD.model_copy(update={"martial_arts": tuple(
+        a.model_copy(update={"acquisition": Acquisition(transmission=Transmission.SELF, sealed=True)})
+        if a.id == "art:北冥神功" else a for a in WORLD.martial_arts
+    )})
+    history = [PlayerSpawned(player_id=PID, name="阿星", location_id="loc:无量山"), practiced("art:北冥神功", 45)]
+    envelopes = [
+        EventEnvelope(stream_id=PID, version=i, event_id=uuid4(), recorded_at=datetime.now(UTC), event=e)  # type: ignore[arg-type]
+        for i, e in enumerate(history, start=1)
+    ]
+    graph = InMemoryWorldGraph()
+    await graph.seed(lost)
+    await graph.project(PID, envelopes)
+    state, snap = Player.from_history(PID, envelopes).state, await graph.local_snapshot(PID)
+    assert decide(act(ActionType.LEARN, skill_used="北冥神功"), state, snap) == [practiced("art:北冥神功", 5)]
+
+
 async def test_no_heaven_sent_arts() -> None:
     """六脉神剑无人可教、无典可凭：此情此景根本无从得知——天降神兵此路不通。"""
     state, snap = await scene("loc:大理城")

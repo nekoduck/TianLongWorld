@@ -6,7 +6,8 @@
 [OUTPUT]: 对外提供 Neo4jWorldGraph（connect / close + 图谱三端口 + stale_canon 旧纪元残留检查）
 [POS]: persistence 的生产图谱快照。正典 = 播种写入的节点与硬性边，永不被事件改写；
        平行世界 = 以玩家为锚的覆盖层：(:Player) 节点（name / alive / version 检查点 / aptitude 悟性 / hp 气血）、LOCATED_IN（所在）、
-       KNOWS_SKILL {proficiency}（所学及熟练度之和——SkillPracticed 在边上做加法，与 evolve 的 reduce 同构）、
+       KNOWS_SKILL {proficiency}（所学及熟练度之和——SkillPracticed 在边上做加法，与 evolve 的 reduce 同构；加法不幂等，
+       故检查点在 Player 写锁下读取；旧引擎留下的无熟练度边按上抛口径读作 LEGACY_MASTERY_POINTS）、
        SUBDUED（制住之人）、(:Character)-[:REGARDS {attitude}]->(:Player)（人情）、(:Item)-[:HELD_BY {world}]->(持有者)（易手之物）。
        物品此刻的持有者 = 本世界的 HELD_BY，否则正典的 canon_holder——覆盖层可整体抹去并从事件流重放重建。
        每种事件一个投影函数（开闭）；投影在单个写事务内推进检查点，版本不超过检查点的事件被跳过（幂等，可安全重试）
@@ -21,6 +22,7 @@ from neo4j import AsyncDriver, AsyncGraphDatabase, AsyncManagedTransaction
 
 from app.domain.combat import CombatOutcome
 from app.domain.events import (
+    LEGACY_MASTERY_POINTS,
     DomainEvent,
     EventEnvelope,
     HealthChanged,
@@ -95,10 +97,13 @@ async def _transferred(tx: _Tx, pid: str, e: ItemTransferred) -> None:
 
 
 async def _practiced(tx: _Tx, pid: str, e: SkillPracticed) -> None:
+    """熟练度在边上做加法。旧引擎投影的 KNOWS_SKILL 没有 proficiency：按上抛器的折算读作旧账的"学会"，与聚合根同口径。"""
     await tx.run(
         "MATCH (p:Player {id: $pid}) MATCH (a:MartialArt {id: $art}) "
-        "MERGE (p)-[k:KNOWS_SKILL]->(a) SET k.proficiency = coalesce(k.proficiency, 0) + $gained",
-        pid=pid, art=e.skill_id, gained=e.proficiency_gained,
+        "MERGE (p)-[k:KNOWS_SKILL]->(a) "
+        "ON CREATE SET k.proficiency = $gained "
+        "ON MATCH SET k.proficiency = coalesce(k.proficiency, $legacy) + $gained",
+        pid=pid, art=e.skill_id, gained=e.proficiency_gained, legacy=LEGACY_MASTERY_POINTS,
     )
 
 
@@ -155,7 +160,7 @@ MATCH (p:Player {id: $pid})-[:LOCATED_IN]->(l:Location)
 RETURN p.name AS name, p.alive AS alive, coalesce(p.version, 0) AS version,
        coalesce(p.aptitude, 1.0) AS aptitude, coalesce(p.hp, $max_hp) AS hp,
        l {.id, .name, .region, .description} AS location,
-       COLLECT { MATCH (p)-[k:KNOWS_SKILL]->(a:MartialArt) RETURN {id: a.id, points: k.proficiency} } AS practice,
+       COLLECT { MATCH (p)-[k:KNOWS_SKILL]->(a:MartialArt) RETURN {id: a.id, points: coalesce(k.proficiency, $legacy)} } AS practice,
        COLLECT { MATCH (p)-[:SUBDUED]->(c:Character) RETURN c.id } AS subdued,
        COLLECT { MATCH (l)-[e:CONNECTS_TO]->(d:Location) RETURN {label: e.label, to_id: d.id, to_name: d.name} } AS exits
 """
@@ -194,6 +199,12 @@ _Q_SKILLS = f"""
 MATCH (a:MartialArt) WHERE a.id IN $ids RETURN {_ART}
 UNION
 MATCH (a:MartialArt)-[:REQUIRES {{as: 'item'}}]->(i:Item) WHERE i.id IN $inventory RETURN {_ART}
+"""
+
+_Q_CHECKPOINT = """
+OPTIONAL MATCH (p:Player {id: $pid})
+FOREACH (_ IN CASE WHEN p IS NULL THEN [] ELSE [1] END | SET p.version = coalesce(p.version, 0))
+RETURN coalesce(p.version, 0) AS v
 """
 
 _Q_LABELS = "\nUNION ALL\n".join(
@@ -250,8 +261,10 @@ class Neo4jWorldGraph(WorldReader, WorldProjector, WorldSeeder):
 
     @staticmethod
     async def _project_tx(tx: _Tx, player_id: str, envelopes: list[EventEnvelope]) -> int:
-        row = await (await tx.run("OPTIONAL MATCH (p:Player {id: $pid}) RETURN coalesce(p.version, 0) AS v",
-                                  pid=player_id)).single()
+        # 先取 Player 节点的写锁再读检查点：熟练度与气血的投影是加法而非幂等的覆盖，同一世界的两次投影
+        # （本进程的 publish 与另一连接的 heal）若都读到旧检查点，就会把同一批事件加两遍。
+        # SET 的右侧读取自身属性时，Cypher 先加写锁再读（直接依赖），后到的事务因此读到已推进的检查点
+        row = await (await tx.run(_Q_CHECKPOINT, pid=player_id)).single()
         start = version = int(row["v"]) if row else 0
         for envelope in envelopes:
             if envelope.version <= version:
@@ -313,7 +326,7 @@ async def _labels_tx(tx: _Tx, ids: list[str]) -> dict[str, str]:
 
 
 async def _snapshot_tx(tx: _Tx, player_id: str) -> LocalSnapshot:
-    head = await (await tx.run(_Q_PLAYER, pid=player_id, max_hp=MAX_HP)).single()
+    head = await (await tx.run(_Q_PLAYER, pid=player_id, max_hp=MAX_HP, legacy=LEGACY_MASTERY_POINTS)).single()
     if head is None:
         raise ProjectionError(f"图谱中没有 {player_id} 的覆盖层")
     loc = head["location"]

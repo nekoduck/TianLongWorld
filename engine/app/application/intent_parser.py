@@ -209,7 +209,8 @@ class HeuristicIntentParser(IntentParser):
         def rest(action: ActionType) -> str | None:
             return _after_verb(text, _VERBS[action]) or None  # 点名的东西不在场景里：照抄原话，交给规则驳回
 
-        if has(ActionType.REST):  # 先于修习判定：「练功疗伤」的本意是疗伤
+        # 先于修习判定：「练功疗伤」的本意是疗伤；但「趁龚光杰调息偷袭他」里的调息说的是对手——有人有出手动词，就是出手
+        if has(ActionType.REST) and not (person and has(ActionType.ATTACK)):
             return PlayerIntent(action_type=ActionType.REST)
         if has(ActionType.LEARN):
             return PlayerIntent(action_type=ActionType.LEARN, skill_used=art.name if art else rest(ActionType.LEARN),

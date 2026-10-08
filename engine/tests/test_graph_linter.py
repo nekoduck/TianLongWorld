@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from app.domain.models import Acquisition, Item, Provenance, WorldBlueprint
+from app.domain.models import Acquisition, Character, Item, Location, Provenance, Tier, WorldBlueprint
 from app.errors import ExtractionError, LLMError
 from app.infrastructure.cypher import compile_blueprint
 from app.infrastructure.graph_linter import (
@@ -24,6 +24,7 @@ from app.infrastructure.graph_linter import (
     LLMPlacementOracle,
     Placement,
     apply_placements,
+    candidate_names,
     heal_brief,
     heal_export,
     ingest_placements,
@@ -79,6 +80,18 @@ def test_placement_gate_matches_whole_names_of_living_candidates_only() -> None:
         validate_placement(bp, Placement(item="无量剑", holder="大理城"))
     with pytest.raises(ValueError, match="没有给出持有者"):
         validate_placement(bp, Placement(item="一阳指穴道谱诀", holder=None))
+
+
+def test_holders_out_of_any_players_reach_are_not_candidates() -> None:
+    """没有出口的地方走不进去，不在任何场景里的人交不出东西：安放到那里，孤儿"已愈"而武学仍无从入门（对抗式审查的复现）。"""
+    base = orphaned()
+    sealed_off = Location(id="loc:藏经阁", name="藏经阁")  # 无路可通
+    hermit = Character(id="chr:无崖子", true_name="无崖子", tier=Tier.PEERLESS)  # 不在任何场景
+    bp = base.model_copy(update={"locations": (*base.locations, sealed_off), "characters": (*base.characters, hermit)})
+    for holder in ("藏经阁", "无崖子"):
+        with pytest.raises(ValueError, match="不在候选"):
+            validate_placement(WorldBlueprint.model_validate(bp.model_dump()), Placement(item="一阳指穴道谱诀", holder=holder))
+    assert {"藏经阁", "无崖子"}.isdisjoint(candidate_names(bp)) and "大理城" in candidate_names(bp)
 
 
 def test_brief_escapes_markup_and_lists_candidates() -> None:
@@ -213,7 +226,7 @@ def test_seed_cli_heals_from_cache_exports_and_ingests(tmp_path: Path, monkeypat
     monkeypatch.setattr(seed, "get_settings", lambda: settings)
     chunk = chunk_text(load_corpus(tmp_path / "src")[0], 1000)[0]
     store_extraction(settings.world_dir / "cache", chunk, json.dumps({
-        "locations": [{"name": "大理城"}, {"name": "天龙寺"}],
+        "locations": [{"name": "大理城"}, {"name": "天龙寺", "exits": [{"label": "下山", "destination": "大理城"}]}],
         "characters": [{"name": "段正淳", "location": "大理城", "skills": ["一阳指"]}],
         "martial_arts": [{"name": "一阳指", "faction": "大理段氏", "acquisition": {"items": ["一阳指穴道谱诀"]}}],
         "items": [{"name": "一阳指穴道谱诀", "kind": "秘籍"}],

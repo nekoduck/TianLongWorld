@@ -10,7 +10,8 @@
        这里据金庸原著常识为它们在 T=0 找一个最合理的去处，补上 LOCATED_IN / BELONGS_TO。
        架构决断：图谱的正典是 WorldBlueprint——Neo4j 与内存图谱都只是它的投影。自愈作用于正典（蓝图），再经 seeder 的 MERGE 写进 Neo4j；
        若直接改 Neo4j，下一次 --reset 播种或内存图谱都会丢掉它，世界就有了两个真相。
-       大模型在这里与抽取时一样无写端口：它只提议一条安放，安放必经 validate_placement 的闸门（只能选候选清单里的地点或健在人物，
+       大模型在这里与抽取时一样无写端口：它只提议一条安放，安放必经 validate_placement 的闸门（只能选候选清单里玩家够得着的持有者——
+       有路可通的地点、身在其中的健在人物，否则体检说孤儿已愈而武学仍无从入门；
        全名精确匹配、不做包含匹配、多义不猜），落进蓝图时 provenance 记为「推断」，与原著明写的事实永远分得清；
        神谕不可用（欠费、断网、mock）时只套缓存，零费用、确定性，播种照常完成。
        缓存是自愈者之间的交换契约，与抽取缓存同理：大模型、子代理、人工的安放经同一道闸门入缓存，套用时逐条重新校验
@@ -95,8 +96,14 @@ class Placement(BaseModel):
 
 
 def _candidates(bp: WorldBlueprint) -> list[Location | Character]:
-    """持有者只能是本切片里的地点或健在人物：死人不能在 T=0 揣着秘籍，切片之外的地方不存在。"""
-    return [*bp.locations, *(c for c in bp.characters if c.status is CharacterStatus.ALIVE)]
+    """
+    持有者只能是玩家够得着的：本切片里有路可通的地点（没有出口的地方投不了胎、也走不进去），
+    以及身在这些地点的健在人物（死人不能在 T=0 揣着秘籍，不在任何场景里的人也交不出它）。
+    安放到够不着的地方，体检会说孤儿已愈，那门武学却永远无从入门。
+    """
+    reachable = [loc for loc in bp.locations if loc.exits]
+    here = {loc.id for loc in reachable}
+    return [*reachable, *(c for c in bp.characters if c.status is CharacterStatus.ALIVE and c.location_id in here)]
 
 
 def candidate_names(bp: WorldBlueprint) -> list[str]:
@@ -112,7 +119,7 @@ def _holder_id(bp: WorldBlueprint, holder: str) -> str:
             return hits.pop()
         if hits:
             raise ValueError(f"「{holder}」同时指向 {'、'.join(sorted(hits))}，多义不猜")
-    raise ValueError(f"「{holder}」不在候选之中（只认本切片的地点与健在人物，须逐字照抄）")
+    raise ValueError(f"「{holder}」不在候选之中（只认本切片有路可通的地点与身在其中的健在人物，须逐字照抄）")
 
 
 def _orphan_named(bp: WorldBlueprint, name: str) -> Orphan:

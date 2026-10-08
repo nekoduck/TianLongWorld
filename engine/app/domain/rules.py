@@ -369,7 +369,7 @@ class LearnRule(Rule):
         if teacher.code == "UNWILLING" and _named_master(intent, art, snap) is not None:
             return teacher  # 点名求教而对方不肯：拒绝你的是你求的那个人，不悄悄改成闭门苦练
         a = art.acquisition
-        if a.transmission is Transmission.SELF and all(i in state.inventory for i in a.items):
+        if a.transmission is Transmission.SELF and a.items and all(i in state.inventory for i in a.items):
             return Approval(intent, skill=art.id, source=a.items[0], guidance=Guidance.MANUAL)
         return Approval(intent, skill=art.id, guidance=Guidance.ALONE)
 

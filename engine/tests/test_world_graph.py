@@ -7,14 +7,17 @@
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
+import asyncio
 from collections.abc import AsyncIterator, Sequence
 from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
 
+from app.domain.aggregates import Player
 from app.domain.combat import CombatOutcome
 from app.domain.events import (
+    LEGACY_MASTERY_POINTS,
     DomainEvent,
     EventEnvelope,
     HealthChanged,
@@ -218,5 +221,44 @@ async def test_memory_and_neo4j_snapshots_are_identical() -> None:
             await neo.project(p, story[:upto])
             await memory.project(p, story[:upto])
             assert await neo.local_snapshot(p) == await memory.local_snapshot(p), f"第 {upto} 版快照分叉"
+    finally:
+        await neo.close()
+
+
+# ============================================================
+#  加法投影的两道防线：并发投影不重复相加，旧引擎的边按上抛口径读
+# ============================================================
+@pytest.mark.neo4j
+async def test_concurrent_projections_never_add_twice() -> None:
+    """publish 与另一连接的 heal 同时追平同一批事件：检查点在写锁下读取，熟练度与气血只加一遍。"""
+    neo = await _neo4j()
+    try:
+        for _ in range(5):
+            p = pid()
+            story = envelopes(p, journey(p))
+            await neo.project(p, story[:5])
+            await asyncio.gather(neo.project(p, story), neo.project(p, story))
+            snap = await neo.local_snapshot(p)
+            truth = Player.replay(e.event for e in story)
+            assert truth is not None and snap.player_practice == dict(truth.practice) and snap.player_hp == truth.hp
+    finally:
+        await neo.close()
+
+
+@pytest.mark.neo4j
+async def test_overlays_left_by_the_old_engine_read_like_the_upcast() -> None:
+    """旧引擎把"学会"投成一条没有熟练度的 KNOWS_SKILL：不重放也要与上抛后的聚合根同口径（融会贯通的熟练度）。"""
+    neo = await _neo4j()
+    try:
+        p = pid()
+        await neo.project(p, envelopes(p, journey(p)[:1]))
+        await neo._driver.execute_query(  # 旧版 _learned 的原样写法
+            "MATCH (pl:Player {id: $pid}) MATCH (a:MartialArt {id: 'art:北冥神功'}) MERGE (pl)-[:KNOWS_SKILL]->(a) "
+            "SET pl.version = 2", pid=p,
+        )
+        assert (await neo.local_snapshot(p)).player_practice == {"art:北冥神功": LEGACY_MASTERY_POINTS}
+        more = SkillPracticed(skill_id="art:北冥神功", proficiency_gained=10)
+        await neo.project(p, envelopes(p, [more], start=3))
+        assert (await neo.local_snapshot(p)).player_practice == {"art:北冥神功": LEGACY_MASTERY_POINTS + 10}
     finally:
         await neo.close()

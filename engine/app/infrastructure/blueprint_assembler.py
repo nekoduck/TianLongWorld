@@ -8,11 +8,13 @@
        实体消歧：两条记录的正名互见（正名=某组任一称呼，或本记录的称号 / 别名=某组某条记录的正名）才合并，别名撞别名不合并；
        称谓与泛称（爹爹、夫人、院子、卧室）既不能当正名也不能当别名——真实原著里「妈妈」曾把刀白凤与甘宝宝捏成一个人；
        三名分立：本名只在知道本名的记录里投票（只以称号出场的记录写的是称号，不能篡位成主键——段延庆不叫「恶贯满盈」），
-       整组都只知称号时才退回全体投票；称号归 titles，化名旧称归 aliases；
+       整组都只知称号时才退回全体投票；称号归 titles，化名旧称归 aliases；称号可以多人共用（「姑苏慕容」），
+       只知称号的记录只在唯一一位已知本名者认领它时才归入、两人都认领就多义不猜，尚无本名的称号组也只能被认领一次——称号永远不是撮合两人的桥；
        尾缀并入：「玄悲禅师」「一阳指法」在词干恰是另一组正名时并入它，带尾缀的称呼降为别名；
        时间切片：标量状态"首次登场即开篇"（按原著先后取第一次写明的值；看不出的 None 不占位），列表取并集；
        时间线隔离：抽取契约的 events 是 T=0 之后的状态变化，它们是证据而不是状态——只用来否决被时间线污染的开篇状态
-       （后文习得的武学剔出开篇武学、后文才得到的物品不认他作开篇物主、后文身故者开篇健在），本身不进蓝图；
+       （后文习得的武学剔出开篇武学、后文才得到的物品不认他作开篇物主——主张早于"得到"即失而复得、照认——、后文身故者开篇健在），
+       本身不进蓝图；否决会抹掉原著状态，所以事件只认全名落地，不做包含匹配；
        境界通篇看不出时由图谱证据定下限：身负武学或身在门派者至少三流，两样都无从考证的才算不入流；
        引用落地：一切名称引用都必须解析到本体实体，解析不了的出口、关系、人物武学直接丢弃；
        物品无处安放即丢弃——唯独被某门武学获取要求引用的，以下落不明的孤儿留在本体里，等自愈代理（graph_linter）据常识安放；
@@ -137,7 +139,8 @@ def _titles_of(record: Any) -> list[str]:
 @dataclass
 class _Group:
     records: list[Any] = field(default_factory=list)
-    primary: set[str] = field(default_factory=set)  # 成员记录的正名
+    primary: set[str] = field(default_factory=set)  # 知道本名的成员记录的 name
+    titled: set[str] = field(default_factory=set)  # 只知称号的成员记录的 name（它是称号，不是正名）
     every: set[str] = field(default_factory=set)  # 正名 ∪ 称号 ∪ 别名
 
     @property
@@ -165,7 +168,13 @@ class _Group:
     def absorb(self, other: _Group) -> None:
         self.records.extend(other.records)
         self.primary |= other.primary
+        self.titled |= other.titled
         self.every |= other.every
+
+    @property
+    def anonymous(self) -> bool:
+        """整组都只知称号：还没有哪条记录写出本名，它的称号才可以被后来写出本名的记录认领。"""
+        return not self.primary
 
 
 def _clean(names: Iterable[str]) -> list[str]:
@@ -185,10 +194,23 @@ def _group(records: Iterable[Any], generic: Callable[[str], bool], report: Assem
         if hasattr(record, "titles"):
             record.titles = [t for t in _clean(record.titles) if not generic(t)]
         others = [a for a in (*record.aliases, *_titles_of(record)) if a != name[0]]
-        hits = [
-            g for g in groups
-            if name[0] in g.every or any(len(a) >= 2 and a in g.primary for a in others)
-        ]
+        if _is_title(record):
+            # 只知称号的记录：称号可以被多人共用（「大侠」「姑苏慕容」），只有唯一一位已知本名者认领它时才归入；
+            # 两人都认领就多义不猜——否则它会成为桥，把两个不同的人捏成一个
+            claimants = [g for g in groups if not g.anonymous and name[0] in g.every]
+            if len(claimants) > 1:
+                report.dropped.append(f"称号「{name[0]}」同时指向{'、'.join(sorted(g.name for g in claimants))}，多义不猜")
+                continue
+            hits = claimants + [
+                g for g in groups if g.anonymous and (name[0] in g.titled or any(a in g.titled for a in others))
+            ]
+        else:
+            # 知道本名的记录：正名互见才合并；称号与别名只能撞上别人的正名，或认领一个尚无本名的称号组
+            hits = [
+                g for g in groups
+                if name[0] in g.every
+                or any(len(a) >= 2 and (a in g.primary or (g.anonymous and a in g.titled)) for a in others)
+            ]
         target = hits[0] if hits else _Group()
         for extra in hits[1:]:
             target.absorb(extra)
@@ -196,7 +218,7 @@ def _group(records: Iterable[Any], generic: Callable[[str], bool], report: Assem
         if not hits:
             groups.append(target)
         target.records.append(record)
-        target.primary.add(name[0])
+        (target.titled if _is_title(record) else target.primary).add(name[0])
         target.every |= {name[0], *others}
     suffix = _HONORIFIC if generic is _person_generic else _ART_SUFFIX if generic is _art_generic else None
     return _fold_suffixes(groups, suffix) if suffix else groups
@@ -264,13 +286,17 @@ class _Index:
         claims: dict[str, set[str]] = {}
         for g in groups:
             gid = entity_id(kind, g.name)
-            for n in g.primary:
+            for n in g.primary or g.titled:  # 尚无本名的称号组，以称号为正名
                 self.ids.setdefault(n, gid)
             for n in g.every - g.primary:
                 claims.setdefault(n, set()).add(gid)
         for alias, owners in claims.items():
             if len(owners) == 1 and alias not in self.ids:
                 self.ids[alias] = next(iter(owners))
+
+    def exact(self, name: str | None) -> str | None:
+        """只认全名（正名与无歧义的别名 / 称号），不做包含匹配：给会否决原著状态的证据用。"""
+        return self.ids.get(name.strip()) if name else None
 
     def get(self, name: str | None) -> str | None:
         if not name or not (wanted := name.strip()):
@@ -289,7 +315,7 @@ class _Index:
 @dataclass
 class _Timeline:
     learned: dict[tuple[str, str], str] = field(default_factory=dict)  # (人物, 武学) → 事件转述
-    obtained: dict[tuple[str, str], str] = field(default_factory=dict)  # (物品, 人物) → 事件转述
+    obtained: dict[tuple[str, str], tuple[int, str]] = field(default_factory=dict)  # (物品, 人物) → (最早发生的块, 事件转述)
     died: dict[str, str] = field(default_factory=dict)  # 人物 → 事件转述
 
     @classmethod
@@ -297,14 +323,18 @@ class _Timeline:
         cls, extractions: Sequence[ChunkExtraction], chr_i: _Index, art_i: _Index, itm_i: _Index,
         report: AssemblyReport,
     ) -> _Timeline:
-        """全书事件按原著先后落地：主角落到人物，宾语落到武学 / 物品；落不了地的事件证明不了任何事，丢弃。"""
+        """
+        全书事件按原著先后落地：主角落到人物，宾语落到武学 / 物品；落不了地的事件证明不了任何事，丢弃。
+        否决会抹掉原著状态，所以落地只认全名（正名、称号、无歧义的别名），不做包含匹配——
+        「段正淳之子」被组装器当描述丢掉，它的事件也不能借包含匹配去否决段正淳。
+        """
         timeline = cls()
-        for raw in (ev for e in extractions for ev in e.events):
+        for chunk, raw in ((i, ev) for i, e in enumerate(extractions) for ev in e.events):
             if raw.kind is None:
                 report.dropped.append(f"事件「{raw.subject} — {raw.object or ''}」的种类无法识别")
                 continue
             what = f"{raw.subject}{raw.kind.value}{raw.object or ''}"
-            if (who := chr_i.get(raw.subject)) is None:
+            if (who := chr_i.exact(raw.subject)) is None:
                 report.dropped.append(f"事件「{what}」的人物不在本体之中")
                 continue
             note = raw.note.strip()
@@ -312,12 +342,12 @@ class _Timeline:
                 timeline.died.setdefault(who, note)
                 continue
             learned = raw.kind is CanonEventKind.LEARNED
-            if (thing := (art_i if learned else itm_i).get(raw.object)) is None:
+            if (thing := (art_i if learned else itm_i).exact(raw.object)) is None:
                 report.dropped.append(f"事件「{what}」的{'武学' if learned else '物品'}不在本体之中")
             elif learned:
                 timeline.learned.setdefault((who, thing), note)
             else:
-                timeline.obtained.setdefault((thing, who), note)
+                timeline.obtained.setdefault((thing, who), (chunk, note))
         return timeline
 
 
@@ -339,7 +369,10 @@ class BlueprintAssembler:
 
         locations = self._locations(loc_g, loc_i, report)
         characters = [self._character(g, loc_i, art_i, timeline, report) for g in chr_g]
-        placed = {entity_id(EntityKind.ITEM, g.name): self._place(g, chr_i, loc_i, timeline, report) for g in itm_g}
+        chunk_of = {id(r): i for i, e in enumerate(extractions) for r in e.items}  # 物品记录 → 所在块，判断主张与事件的先后
+        placed = {
+            entity_id(EntityKind.ITEM, g.name): self._place(g, chr_i, loc_i, timeline, chunk_of, report) for g in itm_g
+        }
         arts = self._martial_arts(art_g, art_i, itm_i, loc_i, report)
         items = self._items(itm_g, placed, arts, report)
         relations = self._relations(extractions, chr_i, report)
@@ -490,22 +523,26 @@ class BlueprintAssembler:
     # ---- 物品：唯一归属；后文才得到者不作开篇物主 ----
     @staticmethod
     def _place(
-        g: _Group, chr_i: _Index, loc_i: _Index, timeline: _Timeline, report: AssemblyReport
+        g: _Group, chr_i: _Index, loc_i: _Index, timeline: _Timeline, chunk_of: dict[int, int], report: AssemblyReport
     ) -> tuple[str | None, str | None]:
-        """（物主, 所在）：物主按原著先后取第一个写明的候选，被"后文才得到"否决的跳过、取下一个，没有就无主。"""
+        """
+        （物主, 所在）：物主按原著先后取第一个写明的候选。某人"得到此物"的事件发生在他作物主的那条主张之时或之前，
+        那条主张就是被时间线污染的后文状态，跳过、取下一个，没有就无主；主张早于事件（开篇本就是他的，后来失而复得）则照认。
+        """
         iid = entity_id(EntityKind.ITEM, g.name)
         owner: str | None = None
         vetoed: list[str] = []
-        for name in (r.owner for r in g.records if r.owner not in (None, "")):
-            landed = chr_i.get(name)
-            if landed is not None and (iid, landed) in timeline.obtained:
+        for record in (r for r in g.records if r.owner not in (None, "")):
+            landed = chr_i.get(record.owner)
+            event = timeline.obtained.get((iid, landed)) if landed is not None else None
+            if landed is not None and event is not None and chunk_of.get(id(record), 0) >= event[0]:
                 if landed not in vetoed:
                     vetoed.append(landed)
                 continue
             owner = landed
             break
         for who in vetoed:
-            report.timeline.append(f"「{g.name}」开篇时不归{_label(who)}所有（后文才得到{_because(timeline.obtained[iid, who])}）")
+            report.timeline.append(f"「{g.name}」开篇时不归{_label(who)}所有（后文才得到{_because(timeline.obtained[iid, who][1])}）")
         return owner, loc_i.get(_first(r.location for r in g.records))
 
     @staticmethod
