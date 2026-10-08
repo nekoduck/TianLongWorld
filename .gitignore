@@ -18,7 +18,6 @@ dist/
 .idea/
 .vscode/
 
-# TLBB-Engine：原著受著作权保护，播种产物由原著派生，均不入库
+# TLBB-Engine：原著受著作权保护，全文永不入库；
+# 播种产物（蓝图 / Cypher / 报告 / 逐块抽取缓存）是从原著抽取的结构化事实，入库以便复现、审阅与免费重组装
 engine/data/source_text/*.txt
-engine/data/world/*
-!engine/data/world/README.md

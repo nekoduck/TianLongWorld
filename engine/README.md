@@ -34,6 +34,9 @@ cp ~/天龙八部.txt data/source_text/        # UTF-8 或 GBK 均可，永不�
 .venv/bin/python -m app.seed apply --reset             # GRAPH_BACKEND=neo4j 时写入 Neo4j
 ```
 
+仓库里已有一份：前 40 块（第一回至第九回，大理篇）的蓝图与逐块抽取记录，来历与复现方式见 [`data/world/README.md`](data/world/README.md)。
+另有 `python -m app.seed assemble`：只读缓存、零费用重新组装（组装器改了规则时用）。
+
 产物在 `data/world/`：`blueprint.json`（可审阅的中间表示）、`seed.cypher`（可交给 cypher-shell）、`report.txt`（被丢弃的悬空引用、被封存的武学）。
 组装器宁严勿宽：落不了地的引用一律丢弃，前置条件引用了原著本体之外的东西的武学一律封存——宁可失传，不可滥传。
 

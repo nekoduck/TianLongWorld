@@ -1,7 +1,8 @@
 """
 [INPUT]: 依赖 httpx2 的 AsyncClient（post / stream），依赖 app.errors 的 LLMError
 [OUTPUT]: 对外提供 post_json()（一次性 JSON POST）、stream_sse()（Server-Sent Events 逐条解析为 dict）
-[POS]: llm 包的私有传输层，被三家厂商客户端共用：超时 / 连接失败 / 4xx5xx / 非 JSON 全部收敛为 LLMError，
+[POS]: llm 包的私有传输层，被三家厂商客户端共用：超时 / 连接失败 / 4xx5xx / 非 JSON 全部收敛为 LLMError（408 / 429 / 5xx 与网络故障标为可重试，
+       其余 4xx——鉴权、欠费、请求非法——标为不可重试），
        上游报文只进日志不进玩家视野（可能含账户信息）；厂商客户端因此只关心报文形状
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -18,6 +19,10 @@ from app.errors import LLMError
 logger = logging.getLogger(__name__)
 
 
+def _status_error(status: int) -> LLMError:
+    return LLMError(f"天机紊乱：大模型返回 HTTP {status}", retryable=status in {408, 429} or status >= 500)
+
+
 async def post_json(url: str, *, headers: dict[str, str], payload: dict[str, Any], timeout: float) -> dict[str, Any]:
     # 每次调用新建连接：大模型延迟以秒计，连接池省下的毫秒不值得引入生命周期管理
     try:
@@ -30,7 +35,7 @@ async def post_json(url: str, *, headers: dict[str, str], payload: dict[str, Any
         raise LLMError("天机断绝：无法连接大模型服务") from exc
     if resp.status_code >= 400:
         logger.error("大模型返回 HTTP %d：%.500s", resp.status_code, resp.text)
-        raise LLMError(f"天机紊乱：大模型返回 HTTP {resp.status_code}")
+        raise _status_error(resp.status_code)
     try:
         data: dict[str, Any] = resp.json()
     except ValueError as exc:
@@ -50,7 +55,7 @@ async def stream_sse(
             if resp.status_code >= 400:
                 body = await resp.aread()
                 logger.error("大模型流式返回 HTTP %d：%.500s", resp.status_code, body.decode(errors="replace"))
-                raise LLMError(f"天机紊乱：大模型返回 HTTP {resp.status_code}")
+                raise _status_error(resp.status_code)
             async for line in resp.aiter_lines():
                 if not line.startswith("data:"):
                     continue

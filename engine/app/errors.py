@@ -54,9 +54,13 @@ class ProjectionError(EngineError):
 
 
 class LLMError(EngineError):
-    """大模型调用失败：网络、鉴权、限流、拒答、响应结构异常。"""
+    """大模型调用失败：网络、鉴权、限流、拒答、响应结构异常。retryable 为 False 的（鉴权、欠费、请求非法）重试也无济于事。"""
 
     code = "LLM_ERROR"
+
+    def __init__(self, message: str, *, retryable: bool = True) -> None:
+        super().__init__(message)
+        self.retryable = retryable
 
 
 class ExtractionError(EngineError):

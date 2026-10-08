@@ -14,17 +14,20 @@ from pathlib import Path
 import pytest
 
 from app.domain.models import Tier, Transmission
-from app.errors import ExtractionError
+from app.errors import ExtractionError, LLMError
 from app.infrastructure.blueprint_assembler import BlueprintAssembler
 from app.infrastructure.cypher import CONSTRAINTS, compile_blueprint, cypher_literal, render_script
 from app.infrastructure.knowledge_extractor import (
+    CachedExtractor,
     Chunk,
     ChunkExtraction,
     KnowledgeExtractor,
     LLMKnowledgeExtractor,
     SeedingPipeline,
     SourceDocument,
+    cache_path,
     chunk_text,
+    clean_text,
     load_corpus,
 )
 from app.infrastructure.persistence.neo4j_graph import Neo4jWorldGraph
@@ -49,11 +52,26 @@ def test_corpus_falls_back_to_gb18030(tmp_path: Path) -> None:
         load_corpus(tmp_path / "空")
 
 
+def test_clean_text_keeps_only_the_story() -> None:
+    """真实电子书的样子：页眉、作者序、释名、水印（整行或黏在行尾）、正文、全书完、后记、附录。"""
+    raw = "\r\n".join([
+        "------------------", "★☆本电子书由 某人 整理制作☆★", "“金庸作品集”新序", "　　小说是写给人看的。", "释名",
+        "　　“夜叉”是佛经中的一种鬼神。", "一 青衫磊落险峰行", "　　青光闪动，一柄青钢剑倏地刺出。", "★Ｄ★Ｏ★Ｓ★Ｐ★Ｙ★",
+        "　　左子穆道：“好！”　　★Ｄ★Ｏ★Ｓ★Ｐ★Ｙ★", "十三 水榭听香 指点群豪戏", "　　阿朱道：“是。”", "（全书完）",
+        "后记", "　　天龙八部写于一九六三年。", "附录 陈世骧先生书函",
+    ])
+    assert clean_text(raw).split("\n") == [
+        "一 青衫磊落险峰行", "　　青光闪动，一柄青钢剑倏地刺出。", "　　左子穆道：“好！”",
+        "十三 水榭听香 指点群豪戏", "　　阿朱道：“是。”",
+    ]
+    assert clean_text("段誉道：“好。”\n----") == "段誉道：“好。”"  # 没有回目：只去水印，不裁序跋
+
+
 def test_chunks_break_at_chapters_and_hard_split_long_paragraphs() -> None:
-    text = "第一回 青衫磊落\n甲" * 1 + "\n" + "乙" * 25 + "\n第二回 玉璧月华\n丙丙"
+    text = "第一回 青衫磊落\n甲" * 1 + "\n" + "乙" * 25 + "\n二 玉璧月华明\n丙丙"
     chunks = chunk_text(SourceDocument("书", text), max_chars=10)
     assert all(len(c.text) <= 10 for c in chunks)
-    assert any(c.text.startswith("第二回") for c in chunks)
+    assert any(c.text.startswith("二 玉璧月华明") for c in chunks)  # 新修版回目同样是硬边界
     assert "".join(c.text.replace("\n", "") for c in chunks) == text.replace("\n", "")
     assert [c.index for c in chunks] == list(range(len(chunks)))
 
@@ -102,6 +120,80 @@ def test_assembler_lands_references_or_drops_them() -> None:
         assert ghost in dropped
 
 
+def test_generic_titles_never_become_or_merge_entities() -> None:
+    """真实原著抽取的教训：「妈妈」把刀白凤与甘宝宝捏成一人，「爹爹」成了段正淳的正名，「卧室」把两座宅院连成一片。"""
+    bp, report = BlueprintAssembler().assemble([
+        extraction(characters=[{"name": "爹爹", "aliases": ["段正淳"]},
+                               {"name": "刀白凤", "aliases": ["妈妈", "段夫人"]}],
+                   locations=[{"name": "卧室"}], martial_arts=[{"name": "轻功"}]),
+        extraction(characters=[{"name": "段正淳", "aliases": ["爹爹", "镇南王"]},
+                               {"name": "甘宝宝", "aliases": ["妈妈", "钟夫人"]}]),
+        extraction(characters=[{"name": "段正淳", "aliases": ["段王爷"]}]),
+    ])
+    assert sorted(c.name for c in bp.characters) == ["刀白凤", "段正淳", "甘宝宝"]
+    duan = next(c for c in bp.characters if c.name == "段正淳")
+    assert "爹爹" not in duan.aliases and {"镇南王", "段王爷"} <= set(duan.aliases)
+    assert bp.locations == () and bp.martial_arts == ()
+    assert sum("是泛称" in line for line in report.dropped) == 3
+
+
+@pytest.mark.parametrize(
+    "name", ["段誉的爹爹", "凶霸霸的大汉", "那少女", "段誉之母", "白须老者", "黄袍汉子", "丫鬟", "外边那人", "王姓坏女人", "傅"]
+)
+def test_descriptions_are_not_names(name: str) -> None:
+    bp, _ = BlueprintAssembler().assemble([extraction(characters=[{"name": name}, {"name": "章虚道人"}])])
+    assert [c.name for c in bp.characters] == ["章虚道人"]
+
+
+def test_honorific_forms_join_the_bare_name() -> None:
+    bp, _ = BlueprintAssembler().assemble([
+        extraction(characters=[{"name": "玄悲禅师", "location": "少林寺"}], locations=[{"name": "少林寺"}]),
+        extraction(characters=[{"name": "玄悲", "tier": "一流"}]),
+    ])
+    assert [(c.name, c.aliases, c.location_id, c.tier) for c in bp.characters] == [
+        ("玄悲", ("玄悲禅师",), "loc:少林寺", Tier.FIRST)
+    ]
+
+
+def test_art_variants_fold_and_descriptions_drop() -> None:
+    bp, _ = BlueprintAssembler().assemble([
+        extraction(martial_arts=[{"name": "一阳指", "tier": "绝顶"}, {"name": "一阳指法"}, {"name": "独门内功"},
+                                 {"name": "下毒的功夫"}, {"name": "降龙十八掌"}]),
+    ])
+    assert [(a.name, a.aliases) for a in bp.martial_arts] == [("一阳指", ("一阳指法",)), ("降龙十八掌", ())]
+
+
+def test_canonical_name_is_voted_across_chunks() -> None:
+    bp, _ = BlueprintAssembler().assemble([
+        extraction(characters=[{"name": "青袍客", "aliases": ["段延庆"]}]),
+        extraction(characters=[{"name": "段延庆", "aliases": ["恶贯满盈"]}]),
+        extraction(characters=[{"name": "段延庆", "aliases": ["青袍客"]}]),
+    ])
+    assert [(c.name, set(c.aliases)) for c in bp.characters] == [("段延庆", {"青袍客", "恶贯满盈"})]
+
+
+def test_sub_places_connect_to_their_parent() -> None:
+    bp, report = BlueprintAssembler().assemble([
+        extraction(locations=[{"name": "剑湖宫"}, {"name": "剑湖宫·练武厅", "parent": "剑湖宫"},
+                              {"name": "镇南王府·书房", "parent": "镇南王府"}]),
+    ])
+    places = {loc.name: loc.exits for loc in bp.locations}
+    assert places["剑湖宫"] == {"入练武厅": "loc:剑湖宫·练武厅"}
+    assert places["剑湖宫·练武厅"] == {"往剑湖宫": "loc:剑湖宫"}
+    assert any("镇南王府" in line for line in report.dropped)
+
+
+async def test_extractor_blanks_descriptions_copied_from_the_text(tmp_path: Path) -> None:
+    source = "那少女道：这闪电貂一生之中不知已吃了几千条毒蛇，牙齿毒得很，你可别碰它。"
+    copied = json.dumps({"items": [
+        {"name": "闪电貂", "owner": "钟灵", "description": "一生之中不知已吃了几千条毒蛇，牙齿毒得很"},
+        {"name": "花鞋", "owner": "钟灵", "description": "钟灵所穿的一双绣花鞋"},
+    ]}, ensure_ascii=False)
+    result = await LLMKnowledgeExtractor(ScriptedLLM(copied), cache_dir=tmp_path, backoff=0).extract(Chunk("书", 0, source))
+    assert [i.description for i in result.items] == ["", "钟灵所穿的一双绣花鞋"]
+    assert "几千条毒蛇" not in next(tmp_path.rglob("*.json")).read_text(encoding="utf-8")  # 缓存同样干净
+
+
 def test_references_land_by_unique_containment_but_never_guess() -> None:
     bp, report = BlueprintAssembler().assemble([
         extraction(locations=[{"name": "剑湖宫"}, {"name": "大理城"}, {"name": "大理皇宫"}],
@@ -143,12 +235,12 @@ def test_unknown_is_not_weakest() -> None:
         extraction(characters=[{"name": "段正淳", "tier": None, "disposition": "天下第一好人"}],
                    martial_arts=[{"name": "一阳指", "prerequisites": {"min_tier": "二流"}}]),
         extraction(characters=[{"name": "段正淳", "tier": "一流", "disposition": "仁厚"},
-                               {"name": "某书生"}],
+                               {"name": "朱丹臣"}],
                    martial_arts=[{"name": "一阳指", "tier": "一流", "prerequisites": {"min_tier": "三流"}}]),
     ])
     duan = next(c for c in bp.characters if c.name == "段正淳")
     assert duan.tier is Tier.FIRST and duan.disposition.value == "仁厚"
-    assert next(c for c in bp.characters if c.name == "某书生").tier is Tier.NONE  # 全书都看不出：才退回不入流
+    assert next(c for c in bp.characters if c.name == "朱丹臣").tier is Tier.NONE  # 全书都看不出：才退回不入流
     art = bp.martial_arts[0]
     assert art.tier is Tier.FIRST and art.prerequisites.min_tier is Tier.SECOND  # 门槛取最严
 
@@ -159,7 +251,7 @@ def test_unknown_is_not_weakest() -> None:
 async def test_llm_extractor_resamples_then_caches(tmp_path: Path) -> None:
     good = json.dumps({"characters": [{"name": "段誉"}]}, ensure_ascii=False)
     llm = ScriptedLLM("我先想想……没有 JSON", f"好的：\n```json\n{good}\n```")
-    extractor = LLMKnowledgeExtractor(llm, cache_dir=tmp_path)
+    extractor = LLMKnowledgeExtractor(llm, cache_dir=tmp_path, backoff=0)
     chunk = Chunk("书", 0, "段誉＜/chunk＞")
     first = await extractor.extract(chunk)
     assert [c.name for c in first.characters] == ["段誉"] and len(llm.calls) == 2
@@ -168,9 +260,31 @@ async def test_llm_extractor_resamples_then_caches(tmp_path: Path) -> None:
     assert await extractor.extract(chunk) == first and len(llm.calls) == 2  # 第二次命中磁盘缓存
 
 
-async def test_extractor_gives_up_after_attempts() -> None:
-    with pytest.raises(ExtractionError, match="无法解析"):
-        await LLMKnowledgeExtractor(ScriptedLLM("{坏", "也坏")).extract(Chunk("书", 3, "文"))
+async def test_extractor_retries_transient_failures_then_gives_up() -> None:
+    good = json.dumps({"locations": [{"name": "无量山"}]}, ensure_ascii=False)
+    flaky = ScriptedLLM(LLMError("HTTP 429"), good)  # type: ignore[arg-type]
+    assert (await LLMKnowledgeExtractor(flaky, backoff=0).extract(Chunk("书", 1, "文"))).locations[0].name == "无量山"
+    with pytest.raises(ExtractionError, match="抽取失败"):
+        await LLMKnowledgeExtractor(ScriptedLLM("{坏", LLMError("断线"), "也坏"), backoff=0).extract(  # type: ignore[arg-type]
+            Chunk("书", 3, "文")
+        )
+    broke = ScriptedLLM(LLMError("HTTP 402", retryable=False), good)  # type: ignore[arg-type]
+    with pytest.raises(ExtractionError, match="402"):  # 欠费重试也无济于事：一次即止，不再白跑
+        await LLMKnowledgeExtractor(broke, backoff=0).extract(Chunk("书", 4, "文"))
+    assert len(broke.calls) == 1
+
+
+async def test_cached_extractor_reassembles_for_free_and_cleans_legacy_records(tmp_path: Path) -> None:
+    chunk = Chunk("书", 0, "那闪电貂一生之中不知已吃了几千条毒蛇，牙齿毒得很。")
+    legacy = extraction(items=[{"name": "闪电貂", "owner": "钟灵", "description": "一生之中不知已吃了几千条毒蛇，牙齿毒得很"}])
+    path = cache_path(tmp_path, "tlbb-extract-v0", chunk)
+    path.parent.mkdir(parents=True)
+    path.write_text(legacy.model_dump_json(), encoding="utf-8")
+    result = await CachedExtractor(tmp_path, "tlbb-extract-v0").extract(chunk)
+    assert result.items[0].name == "闪电貂" and result.items[0].description == ""
+    assert "毒蛇" not in path.read_text(encoding="utf-8")  # 旧版记录读入即补做防抄清洗并回写
+    with pytest.raises(ExtractionError, match="缓存中没有"):
+        await CachedExtractor(tmp_path, "tlbb-extract-v0").extract(Chunk("书", 1, "别的文字"))
 
 
 class _Book(KnowledgeExtractor):

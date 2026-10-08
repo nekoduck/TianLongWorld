@@ -59,6 +59,8 @@ class GeminiClient(LLMClient):
         text = _text(data)
         if not text:
             raise LLMError("天机遮蔽：大模型未返回正文")
+        if ((data.get("candidates") or [{}])[0]).get("finishReason") == "MAX_TOKENS":
+            raise LLMError("天机未尽：大模型输出被截断，请调大 LLM_MAX_TOKENS")  # 半截 JSON 不必等到解析才发现
         return text
 
     async def stream(self, system: str, user: str) -> AsyncIterator[str]:

@@ -1,7 +1,8 @@
 """
 [INPUT]: 依赖 httpx2 的 MockTransport / AsyncClient，依赖 app.infrastructure.llm 的三家客户端、_http 与 portable_schema，依赖 app.domain.intent 的 PlayerIntent
 [OUTPUT]: 厂商客户端单测：报文形状（结构化输出 / 不下发采样参数 / JSON 模式只在需要时开）、SSE 流式解析、拒答与截断收敛为 LLMError、
-          schema 规整（内联引用、剥离约束、对象封闭、字段名不被误删）、缺凭证启动即失败、三职责各取各的模型与思考档位、Claude 无 minimal 档
+          schema 规整（内联引用、剥离约束、对象封闭、字段名不被误删）、缺凭证启动即失败、三职责各取各的模型与思考档位、Claude 无 minimal 档、
+          限流可重试而欠费不可重试
 [POS]: tests 的厂商边界：替换 httpx2 的传输层，不触网即可钉死三家协议的细节
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -104,10 +105,15 @@ async def test_openai_stream_ignores_done_sentinel(wire: Any) -> None:
 
 async def test_http_errors_become_llm_errors(wire: Any) -> None:
     wire(lambda r: httpx2.Response(429, text="slow down"))
-    with pytest.raises(LLMError, match="429"):
+    with pytest.raises(LLMError, match="429") as limited:
         await anthropic().complete("s", "u")
+    assert limited.value.retryable  # 限流：退避后可再试
     with pytest.raises(LLMError, match="429"):
         [c async for c in anthropic().stream("s", "u")]
+    wire(lambda r: httpx2.Response(402, json={"error": {"message": "prepayment credits are depleted"}}))
+    with pytest.raises(LLMError, match="402") as broke:
+        await anthropic().complete("s", "u")
+    assert not broke.value.retryable  # 欠费：重试只会再失败一次
 
 
 def test_portable_schema() -> None:
