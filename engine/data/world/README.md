@@ -10,21 +10,29 @@
 
 ## 当前切片：前 40 块 = 第一回「青衫磊落险峰行」至第九回「换巢鸾凤」（大理篇）
 
-| 产物 | 口径 |
+当前蓝图采用 **v5 口径**（提示词 `tlbb-extract-v5`）：处所写作「上级·处所」并挂上级地点，人名只收姓名与专称，武学只收专名。
+
+| 产物 | 内容 |
 | --- | --- |
-| `blueprint.json` / `seed.cypher` / `report.txt` | 提示词 `tlbb-extract-v4`（gemini-3.1-pro-preview，high）抽取，当前组装器定案：地点 126、人物 74、武学 33、物品 114、关系 125 |
-| `cache/tlbb-extract-v4/` | 40/40 块，完整 |
-| `cache/tlbb-extract-v5/` | 16/40 块——v5 重抽进行到一半时 Gemini 预付额度耗尽（HTTP 402） |
+| `blueprint.json` / `seed.cypher` / `report.txt` | 地点 103、人物 63、武学 22、物品 77、关系 109；最大连通片 74 处、41 人（v4 时为 42 处、19 人） |
+| `cache/tlbb-extract-v5/` | 40/40 块。第 0–14、17 块由 gemini-3.1-pro-preview（high）抽取；第 15、16、18–39 块在 Gemini 预付额度耗尽后，由 Claude 子代理照同一份抽取铁律抽取，经 `ingest` 走同一道契约校验与防抄清洗入库 |
+| `cache/tlbb-extract-v4/` | 40/40 块，上一版口径，留作溯源 |
 
 复现入库的蓝图（需把原著放进 `data/source_text/`，不调用大模型）：
 
 ```bash
-python -m app.seed assemble --prompt-version tlbb-extract-v4 --max-chunks 40
+python -m app.seed assemble --max-chunks 40
 ```
 
-v5 提示词要求处所写作「上级·处所」并填上级地点，组装器据此让上级与处所互通，能把 v4 里剑湖宫、无量山一带的孤岛接进主图。
-额度恢复后，下面这条命令只补抽余下的 24 块，蓝图随之切换到 v5 口径：
+写入 Neo4j 时，换蓝图务必加 `--reset`：MERGE 只增不删，否则旧纪元的正典节点会混进新世界（写图后会对残留节点告警）。
 
 ```bash
-python -m app.seed extract --max-chunks 40
+python -m app.seed apply --reset
 ```
+
+## 已知局限（审阅蓝图时值得留意）
+
+- 列表字段取全切片的并集：段誉开篇即身负北冥神功、凌波微步（他在第五回前后才学会）
+- 一阳指被封存：某块写明须持「一阳指穴道谱诀」，而这份谱诀无处安放——宁可失传，不可滥传
+- 正名按出现次数投票：段延庆在前九回多以「恶贯满盈」出场，正名即「恶贯满盈」，「段延庆」「延庆太子」为别名
+- 境界看不出时由图谱证据定下限：身负武学或身在门派者至少三流

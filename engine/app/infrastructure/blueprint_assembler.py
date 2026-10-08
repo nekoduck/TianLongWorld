@@ -9,6 +9,7 @@
        正名按各块记录投票（同票取先出现者），免得某一回只以「爹爹」称呼的人从此就叫「爹爹」；
        尾缀并入：「玄悲禅师」「一阳指法」在词干恰是另一组正名时并入它，带尾缀的称呼降为别名；
        时间切片：标量状态"首次登场即开篇"（按原著先后取第一次写明的值；看不出的 None 不占位，否则"未知"会冒充"最弱"），列表取并集；
+       境界通篇看不出时由图谱证据定下限：身负武学或身在门派者至少三流，两样都无从考证的才算不入流；
        引用落地：一切名称引用都必须解析到本体实体，解析不了的出口、关系、人物武学直接丢弃，物品无处安放即丢弃；
        宁严勿宽：武学的前置引用了本体中不存在的武学 / 典籍 / 地点，或前置成环，一律封存（sealed）——宁可失传，不可滥传；
        拓扑补全：上级地点与其处所互通（「剑湖宫」入「剑湖宫·练武厅」），道路双向，A 通 B 而 B 不通 A 时补一条「往A」的回程
@@ -325,7 +326,8 @@ class BlueprintAssembler:
             aliases=g.aliases,
             faction=str(_first(r.faction for r in g.records) or "")[:NAME_CHARS],
             status=_first((r.status for r in g.records), CharacterStatus.ALIVE),
-            tier=_first((r.tier for r in g.records), Tier.NONE),  # 全书都看不出武功：多半是书生婢女之流
+            # 境界看不出时由图谱证据定下限：身负武学或身在门派者至少三流；两样都无从考证的才算不入流（未知 ≠ 最弱）
+            tier=_first((r.tier for r in g.records), Tier.THIRD if skills or _first(r.faction for r in g.records) else Tier.NONE),
             disposition=_first((r.disposition for r in g.records), Disposition.NEUTRAL),
             location_id=location_id,
             skills=tuple(skills),

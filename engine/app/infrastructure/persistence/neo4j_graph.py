@@ -2,7 +2,7 @@
 [INPUT]: 依赖 neo4j 的 AsyncGraphDatabase / AsyncDriver / AsyncManagedTransaction，依赖 domain/ports 的 WorldReader / WorldProjector / WorldSeeder，
          依赖 domain/events 的领域事件，依赖 domain/models 的 Attitude / CharacterStatus / EntityKind / Prerequisites / kind_of / WorldBlueprint，依赖 domain/snapshot 的视图，
          依赖 infrastructure/cypher 的 compile_blueprint / CANON_LABELS，依赖 app.errors 的 ProjectionError
-[OUTPUT]: 对外提供 Neo4jWorldGraph（connect / close + 图谱三端口）
+[OUTPUT]: 对外提供 Neo4jWorldGraph（connect / close + 图谱三端口 + stale_canon 旧纪元残留检查）
 [POS]: persistence 的生产图谱快照。正典 = 播种写入的节点与硬性边，永不被事件改写；
        平行世界 = 以玩家为锚的覆盖层：(:Player) 节点（name / alive / version 检查点）、LOCATED_IN（所在）、KNOWS_SKILL（所学）、
        SUBDUED（制住之人）、(:Character)-[:REGARDS {attitude}]->(:Player)（人情）、(:Item)-[:HELD_BY {world}]->(持有者)（易手之物）。
@@ -11,6 +11,7 @@
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from typing import Any
 
@@ -33,6 +34,8 @@ from app.domain.ports import WorldProjector, WorldReader, WorldSeeder
 from app.domain.snapshot import BondView, CharacterView, ExitView, ItemView, LocalSnapshot, LocationView, SkillView
 from app.errors import ProjectionError
 from app.infrastructure.cypher import CANON_LABELS, compile_blueprint
+
+logger = logging.getLogger(__name__)
 
 _LABEL = {
     EntityKind.LOCATION: "Location",
@@ -199,6 +202,18 @@ class Neo4jWorldGraph(WorldReader, WorldProjector, WorldSeeder):
         # 约束是模式变更，不能与数据写入同处一个事务：逐条自动提交
         for statement in compile_blueprint(blueprint):
             await self._driver.execute_query(statement.query, statement.params, database_=self._db)
+        if stale := await self.stale_canon(blueprint):
+            logger.warning("图谱里有 %d 个正典节点不在本蓝图中（旧纪元残留，如 %s）：MERGE 只增不删，换蓝图请加 --reset", len(stale), stale[:5])
+
+    async def stale_canon(self, blueprint: WorldBlueprint) -> list[str]:
+        """不属于这份蓝图的正典节点 id——换蓝图却没 reset 时，新旧两版正典会悄悄混成一个世界。"""
+        ids = [e.id for e in blueprint.entities()]
+        records, _, _ = await self._driver.execute_query(
+            "MATCH (n) WHERE (n:Location OR n:Character OR n:MartialArt OR n:Item) AND NOT n.id IN $ids "
+            "RETURN n.id AS id ORDER BY id",
+            ids=ids, database_=self._db,
+        )
+        return [r["id"] for r in records]
 
     async def is_seeded(self) -> bool:
         records, _, _ = await self._driver.execute_query(

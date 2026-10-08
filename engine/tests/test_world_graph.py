@@ -158,6 +158,19 @@ async def test_death_is_projected(graph: Graph) -> None:
     assert not (await graph.local_snapshot(p)).alive
 
 
+@pytest.mark.neo4j
+async def test_reseeding_without_reset_reports_stale_canon() -> None:
+    neo = await _neo4j()
+    try:
+        smaller = WORLD.model_copy(update={"items": WORLD.items[:-1]})  # 新蓝图少了打狗棒
+        await neo.seed(smaller)
+        assert await neo.stale_canon(smaller) == ["itm:打狗棒"]  # MERGE 只增不删：旧纪元的节点还在
+        await neo.seed(smaller, reset=True)
+        assert await neo.stale_canon(smaller) == []
+    finally:
+        await neo.close()
+
+
 # ============================================================
 #  同构证明：同一段事件流，两个实现给出逐字段相等的快照
 # ============================================================

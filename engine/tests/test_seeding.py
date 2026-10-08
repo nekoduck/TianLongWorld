@@ -237,12 +237,13 @@ def test_unknown_is_not_weakest() -> None:
         extraction(characters=[{"name": "段正淳", "tier": None, "disposition": "天下第一好人"}],
                    martial_arts=[{"name": "一阳指", "prerequisites": {"min_tier": "二流"}}]),
         extraction(characters=[{"name": "段正淳", "tier": "一流", "disposition": "仁厚"},
-                               {"name": "朱丹臣"}],
+                               {"name": "朱丹臣"}, {"name": "秦红棉", "faction": "修罗刀门下"}],
                    martial_arts=[{"name": "一阳指", "tier": "一流", "prerequisites": {"min_tier": "三流"}}]),
     ])
     duan = next(c for c in bp.characters if c.name == "段正淳")
     assert duan.tier is Tier.FIRST and duan.disposition.value == "仁厚"
-    assert next(c for c in bp.characters if c.name == "朱丹臣").tier is Tier.NONE  # 全书都看不出：才退回不入流
+    assert next(c for c in bp.characters if c.name == "朱丹臣").tier is Tier.NONE  # 无门无派、武功无从考证：才退回不入流
+    assert next(c for c in bp.characters if c.name == "秦红棉").tier is Tier.THIRD  # 身在门派：至少三流
     art = bp.martial_arts[0]
     assert art.tier is Tier.FIRST and art.prerequisites.min_tier is Tier.SECOND  # 门槛取最严
 
