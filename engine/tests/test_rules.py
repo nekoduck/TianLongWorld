@@ -162,9 +162,18 @@ async def test_bare_handed_against_ruthless_gong_guangjie_ends_in_a_severe_escap
         HealthChanged(delta=-58, cause="与龚光杰交手", source_id="chr:龚光杰"),
     ]
     assert not any(isinstance(e, PlayerDied) for e in events)  # 重伤逃脱，不是二极管式的毙命
+    assert events[-1] == Moved(from_location_id="loc:无量山", to_location_id="loc:大理城", exit_label="南下")  # 逃脱是真的逃
     lenient = decide(attack, state, snap, CombatProposal(Out.MINOR_WOUND, -15))
     assert lenient[0].outcome is Out.MINOR_WOUND and lenient[1] == HealthChanged(  # type: ignore[attr-defined]
         delta=-15, cause="与龚光杰交手", source_id="chr:龚光杰")
+    assert not any(isinstance(e, Moved) for e in lenient)  # 轻伤只是退开，人还在原地
+
+
+async def test_a_severe_escape_retreats_the_way_you_came() -> None:
+    came = Moved(from_location_id="loc:无量玉洞", to_location_id="loc:无量山", exit_label="攀上")
+    state, snap = await scene("loc:无量玉洞", came)
+    events = decide(act(ActionType.ATTACK, target_entity="龚光杰"), state, snap)
+    assert events[-1] == Moved(from_location_id="loc:无量山", to_location_id="loc:无量玉洞", exit_label="崖下")
 
 
 async def test_extreme_recklessness_is_still_fatal_unless_the_master_softens_it() -> None:
@@ -182,10 +191,11 @@ async def test_a_neutral_grandmaster_does_not_kill_on_first_offense() -> None:
     state, snap = await scene("loc:无锡城")
     events = decide(act(ActionType.ATTACK, target_entity="乔峰"), state, snap)
     assert events[0].outcome is Out.SEVERE_WOUND and not any(isinstance(e, PlayerDied) for e in events)  # type: ignore[attr-defined]
-    wounded, snap = await scene("loc:无锡城", *events)
+    wounded, snap = await scene("loc:无锡城", HealthChanged(delta=-80, cause="与乔峰交手", source_id="chr:乔峰"))
     again = decide(act(ActionType.ATTACK, target_entity="乔峰"), wounded, snap)
-    assert not any(isinstance(e, PlayerDied) for e in again)  # 中庸之人不下杀手
-    assert wounded.hp + sum(e.delta for e in again if isinstance(e, HealthChanged)) >= 1
+    assert again[0].outcome is Out.SEVERE_WOUND  # type: ignore[attr-defined]
+    assert not any(isinstance(e, PlayerDied) for e in again)  # 中庸之人不下杀手，奄奄一息再犯也只是重伤
+    assert wounded.hp + sum(e.delta for e in again if isinstance(e, HealthChanged)) == 1
 
 
 async def test_attack_ripples_along_has_relation_to_witnesses_only() -> None:
@@ -221,8 +231,10 @@ async def test_weapons_do_not_change_tier_and_unknown_arts_are_refused() -> None
     state, snap = await scene("loc:无量山", ItemTransferred(item_id="itm:玉佩", from_holder="loc:无量山", to_holder=PID))
     events = decide(act(ActionType.ATTACK, target_entity="左子穆", item_used="玉佩"), state, snap)
     assert events[0].outcome is Out.MINOR_WOUND and events[0].item_id == "itm:玉佩"  # type: ignore[attr-defined]
-    assert failure(decide(act(ActionType.ATTACK, target_entity="左子穆", skill_used="降龙十八掌"), state, snap)
-                   ).reason_code == "NOT_KNOWN"
+    refused = failure(decide(act(ActionType.ATTACK, target_entity="左子穆", skill_used="无量剑法"), state, snap))
+    assert refused.reason_code == "NOT_KNOWN" and "无量剑法" in refused.reason  # 此地确有此功，只是你不会
+    flourish = decide(act(ActionType.ATTACK, target_entity="左子穆", skill_used="黑虎掏心"), state, snap)
+    assert isinstance(flourish[0], SkillExecuted) and flourish[0].skill_id is None  # 自拟的招式名只是笔墨，照常徒手出手
     assert failure(decide(act(ActionType.ATTACK, target_entity="左子穆", item_used="倚天剑"), state, snap)
                    ).reason_code == "NOT_CARRIED"
 
@@ -280,7 +292,7 @@ async def test_entry_by_self_study_needs_text_place_and_foundation() -> None:
     assert failure(decide(act(ActionType.LEARN, skill_used="北冥神功"), state, snap)).reason_code == "UNKNOWN_SKILL"
     state, snap = await scene("loc:无量玉洞", SCROLL)
     assert decide(act(ActionType.LEARN, skill_used="北冥神功"), state, snap) == [
-        practiced("art:北冥神功", 10, "itm:北冥神功卷轴")
+        practiced("art:北冥神功", 5, "itm:北冥神功卷轴")  # 一流之功难练：入门所得折半
     ]
     shallow = failure(decide(act(ActionType.LEARN, skill_used="凌波微步"), state, snap))
     assert shallow.reason_code == "MISSING_SKILL" and "略有小成" in shallow.reason
@@ -293,13 +305,13 @@ async def test_deepening_by_manual_then_alone_and_foundation_unlocks() -> None:
     entered = practiced("art:北冥神功", 10, "itm:北冥神功卷轴")
     state, snap = await scene("loc:无量玉洞", SCROLL, entered, LEAVE)  # 精进不必回到琅嬛福地
     assert decide(act(ActionType.LEARN, skill_used="北冥神功"), state, snap) == [
-        practiced("art:北冥神功", 10, "itm:北冥神功卷轴")  # 参照典籍
+        practiced("art:北冥神功", 5, "itm:北冥神功卷轴")  # 参照典籍（一流之功，所得折半）
     ]
     state, snap = await scene("loc:无量玉洞", SCROLL, entered, LEAVE, DROP)
-    assert decide(act(ActionType.LEARN, skill_used="北冥神功"), state, snap) == [practiced("art:北冥神功", 5)]  # 闭门苦练
+    assert decide(act(ActionType.LEARN, skill_used="北冥神功"), state, snap) == [practiced("art:北冥神功", 2)]  # 闭门苦练
     state, snap = await scene("loc:无量玉洞", SCROLL, entered, practiced("art:北冥神功", 10, "itm:北冥神功卷轴"))
     assert decide(act(ActionType.LEARN, skill_used="凌波微步"), state, snap) == [
-        practiced("art:凌波微步", 10, "itm:北冥神功卷轴")  # 北冥神功略有小成，根基到了
+        practiced("art:凌波微步", 7, "itm:北冥神功卷轴")  # 北冥神功略有小成，根基到了；二流之功入门 10 ÷ 1.5
     ]
     dull, snap = await scene("loc:无量玉洞", SCROLL, entered, practiced("art:北冥神功", 10), aptitude=0.8)
     assert failure(decide(act(ActionType.LEARN, skill_used="凌波微步"), dull, snap)).reason_code == "MISSING_SKILL"
@@ -328,7 +340,7 @@ async def test_a_teacher_must_be_present_willing_and_you_must_be_ready() -> None
     ]
     state, snap = await scene("loc:无量山", friend, practiced("art:无量剑法", 10, "chr:辛双清"))
     assert decide(act(ActionType.LEARN, skill_used="无量剑法"), state, snap) == [
-        practiced("art:无量剑法", 15, "chr:辛双清")  # 名师点拨，精进最快
+        practiced("art:无量剑法", 15, "chr:辛双清")  # 名师点拨，精进最快（三流之功不打折）
     ]
     trusted = RelationChanged(character_id="chr:段正淳", attitude=Attitude.FRIENDLY, cause="物归原主")
     state, snap = await scene("loc:大理城", trusted)
@@ -336,7 +348,7 @@ async def test_a_teacher_must_be_present_willing_and_you_must_be_ready() -> None
     assert failed.reason_code == "TIER_TOO_LOW" and "二流" in failed.reason
     rooted = practiced("art:北冥神功", 20, "itm:北冥神功卷轴")  # 一流内功略有小成：二流
     state, snap = await scene("loc:大理城", trusted, rooted)
-    assert decide(act(ActionType.LEARN, skill_used="一阳指"), state, snap) == [practiced("art:一阳指", 10, "chr:段正淳")]
+    assert decide(act(ActionType.LEARN, skill_used="一阳指"), state, snap) == [practiced("art:一阳指", 5, "chr:段正淳")]
 
 
 async def test_a_named_master_who_refuses_is_not_silently_replaced_by_solitude() -> None:
@@ -363,7 +375,7 @@ async def test_a_known_art_whose_text_is_lost_can_still_be_practiced_alone() -> 
     await graph.seed(lost)
     await graph.project(PID, envelopes)
     state, snap = Player.from_history(PID, envelopes).state, await graph.local_snapshot(PID)
-    assert decide(act(ActionType.LEARN, skill_used="北冥神功"), state, snap) == [practiced("art:北冥神功", 5)]
+    assert decide(act(ActionType.LEARN, skill_used="北冥神功"), state, snap) == [practiced("art:北冥神功", 2)]
 
 
 async def test_no_heaven_sent_arts() -> None:

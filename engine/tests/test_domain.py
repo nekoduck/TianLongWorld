@@ -47,10 +47,12 @@ from app.domain.models import (
 )
 from app.domain.progression import (
     MAX_HP,
+    Guidance,
     Mastery,
     Vitality,
     aptitude_for,
     effective_tier,
+    gain,
     mastery_of,
     vitality,
 )
@@ -173,6 +175,14 @@ def test_mastery_is_points_times_aptitude() -> None:
     assert effective_tier(Tier.FIRST, Mastery.MINOR) is Tier.SECOND
     assert effective_tier(Tier.THIRD, Mastery.NOVICE) is Tier.NONE  # 折扣不跌穿不入流
     assert effective_tier(Tier.FIRST, Mastery.PEAK) is Tier.FIRST  # 火候再高也不越过功夫本身的境界
+    assert [effective_tier(Tier.PEERLESS, m) for m in Mastery] == [  # 火候封顶：绝顶神功初窥门径也拿不出一流本事
+        Tier.THIRD, Tier.SECOND, Tier.FIRST, Tier.PEERLESS, Tier.PEERLESS,
+    ]
+
+
+def test_loftier_arts_are_harder_to_practice() -> None:
+    assert [gain(Guidance.MANUAL, t) for t in Tier] == [10, 10, 7, 5, 3]
+    assert gain(Guidance.ALONE, Tier.PEERLESS) == 2 and gain(Guidance.TEACHER, Tier.FIRST) == 8
 
 
 def test_aptitude_is_innate_and_vitality_is_semantic() -> None:

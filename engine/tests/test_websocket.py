@@ -93,6 +93,6 @@ def test_forged_options_and_the_dead(client: TestClient) -> None:
         assert ws.receive_json()["code"] == "OPTION_EXPIRED"
         ws.send_json({"type": "act", "text": "偷袭南海鳄神"})  # 不入流挑衅一流狠辣：极端找死
         done = until_done(ws)[-1]
-        assert done["game_over"] is True and done["status"]["health"] == "奄奄一息"
+        assert done["game_over"] is True and done["status"]["health"] == "气绝"
         ws.send_json({"type": "act", "text": "静观"})
         assert ws.receive_json()["code"] == "PLAYER_DEAD"

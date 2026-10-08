@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     llm_extraction_thinking: Thinking = ""
     llm_resolution_model: str = ""
     llm_resolution_thinking: Thinking = ""
+    llm_resolution_budget: float = Field(default=8.0, ge=1.0, le=60.0)  # 地下城主的时间预算（秒）：玩家在锁里等，超时即交给规则
 
     # ------------------------------------------------------------------
     #  事件账本（PostgreSQL JSONB）

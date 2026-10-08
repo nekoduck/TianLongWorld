@@ -21,6 +21,7 @@ from app.errors import ExtractionError, LLMError
 from app.infrastructure.blueprint_assembler import AssemblyReport, BlueprintAssembler
 from app.infrastructure.cypher import CONSTRAINTS, compile_blueprint, cypher_literal, render_script
 from app.infrastructure.knowledge_extractor import (
+    EXTRACTION_SYSTEM,
     PROMPT_VERSION,
     T0_ANCHOR,
     CachedExtractor,
@@ -34,6 +35,7 @@ from app.infrastructure.knowledge_extractor import (
     chunk_text,
     clean_text,
     load_corpus,
+    naming_reference,
     store_extraction,
 )
 from app.infrastructure.persistence.neo4j_graph import Neo4jWorldGraph
@@ -418,6 +420,16 @@ async def test_llm_extractor_resamples_then_caches(tmp_path: Path) -> None:
     assert "只抽取这段文本里明确出现" in system and T0_ANCHOR in system  # 时间锚点强制注入
     assert schema is not None and "events" in schema["properties"] and "</chunk>" not in user[:-8]
     assert await extractor.extract(chunk) == first and len(llm.calls) == 2  # 第二次命中磁盘缓存
+
+
+async def test_the_production_extractor_gets_the_same_naming_reference() -> None:
+    """跨块命名参考：只叫「延庆太子」的一块与只叫「恶贯满盈」的一块，要靠上一版蓝图的写法才合得到同一个本名之下。"""
+    naming = naming_reference(WORLD)
+    assert "- 段延庆 ｜ 恶贯满盈 ｜ 延庆太子" in naming and "- 无量山" in naming and "北冥神功" in naming
+    llm = ScriptedLLM('{"locations": [{"name": "无量山"}]}')
+    await LLMKnowledgeExtractor(llm, backoff=0, naming=naming).extract(Chunk("书", 2, "文"))
+    system = llm.calls[0][0]
+    assert system.startswith(EXTRACTION_SYSTEM) and system.endswith(naming)  # 铁律在前、参考在后，铁律一字不改
 
 
 async def test_extractor_retries_transient_failures_then_gives_up() -> None:

@@ -8,7 +8,8 @@
        修习不止入门：已入门而未登峰造极的武学同样给出精进的选项，标签随裁决给出的凭借而变（求教 / 参悟 / 随师精研 / 参照典籍 / 闭门苦练），
        凭借只读 Approval.guidance / source，这里绝不重判一遍；有伤且身边安全时给出调息疗伤。
        选项从不经大模型，因而不可能出现图谱里不存在的东西；它是快照的纯函数：服务端在玩家点选时按当前快照重算一遍即可核验，
-       无需缓存、天然防伪造。"合法"不等于"安全"：向绝顶高手出手照样是选项，后果由规则与地下城主裁定，选项不泄露胜负
+       无需缓存、天然防伪造。"合法"不等于"安全"：向绝顶高手出手照样是选项，后果由规则与地下城主裁定，选项不泄露胜负；
+       但仇人在侧时探索只给出路且排在寻常方向之首——退路永远看得见（实测：重伤后选项里只剩静观与送死）
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -23,6 +24,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.domain import rules
 from app.domain.intent import ActionType, PlayerIntent
+from app.domain.models import Attitude
 from app.domain.progression import Guidance
 from app.domain.snapshot import LocalSnapshot
 
@@ -98,8 +100,14 @@ class OptionGenerator:
                 pools[category].append(ActionOption.of(category, text, intent))
 
         shift = snap.version % len(_COMMON)
+        common = [*_COMMON[shift:], *_COMMON[:shift]]
+        if any(c.attitude is Attitude.HOSTILE and not c.subdued for c in snap.characters):
+            # 仇人在侧（实测：重伤后选项里只剩静观与送死）：探索只给出路且排在寻常方向之首——退路永远看得见
+            roads = [o for o in pools[OptionCategory.EXPLORE] if o.intent.action_type is ActionType.MOVE]
+            pools[OptionCategory.EXPLORE] = roads or pools[OptionCategory.EXPLORE]
+            common = [OptionCategory.EXPLORE, *(c for c in common if c is not OptionCategory.EXPLORE)]
         rare = [c for c in _RARE if pools[c]]
-        order = [*rare[:_RARE_SEATS], *_COMMON[shift:], *_COMMON[:shift], *rare[_RARE_SEATS:]]
+        order = [*rare[:_RARE_SEATS], *common, *rare[_RARE_SEATS:]]
         cursors = {c: snap.version % len(pools[c]) if pools[c] else 0 for c in order}
         picked: list[ActionOption] = []
         limit = self._max  # 第一轮每个方向至多一个；仍不足 min 个时，再一轮轮从各方向补到 min 为止

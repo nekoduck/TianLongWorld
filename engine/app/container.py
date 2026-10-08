@@ -103,7 +103,9 @@ async def build_container(
     parser: IntentParser = LLMIntentParser(reader_llm) if reader_llm else HeuristicIntentParser()
     if resolver is None:
         judge_llm = llm if llm is not None else build_llm(settings, LLMRole.RESOLUTION)
-        resolver = LLMResolutionAgent(judge_llm) if judge_llm else CanonicalResolver()
+        resolver = (
+            LLMResolutionAgent(judge_llm, budget=settings.llm_resolution_budget) if judge_llm else CanonicalResolver()
+        )
     narrator: Narrator = (
         FallbackNarrator(LLMNarrator(writer_llm), TemplateNarrator()) if writer_llm else TemplateNarrator()
     )

@@ -2,7 +2,7 @@
 [INPUT]: 依赖 domain/events 的全部领域事件与 EventEnvelope，依赖 domain/models 的 Attitude，依赖 domain/progression 的 MAX_HP / Mastery / Vitality /
          mastery_of / vitality / aptitude_for，依赖 domain/combat 的 CombatOutcome / CombatProposal，
          依赖 domain/rules 的 decide()（裁决），依赖 domain/intent 的 PlayerIntent，依赖 app.errors 的 UnknownPlayerError / PlayerDeadError
-[OUTPUT]: 对外提供 PlayerState（不可变状态值：practice 熟练度之和、aptitude 悟性、hp 气血，mastery / vitality 现算）、
+[OUTPUT]: 对外提供 PlayerState（不可变状态值：practice 熟练度之和、aptitude 悟性、hp 气血、came_from 来路，mastery / vitality 现算）、
           evolve(state, event) 纯函数折叠、Player 聚合根（apply / from_history / replay / spawn / ensure_alive / mastery / decide）
 [POS]: domain 的一致性边界：一位玩家的平行世界就是一条事件流，世界在这条流上相对原著的全部偏离（位置、行囊、武学火候、气血、
        被制住之人、人情冷暖、物品易手）都是 PlayerState 的字段。没有状态表——当前状态只能由 evolve 从头折叠事件流算出；
@@ -49,6 +49,7 @@ class PlayerState:
     player_id: str
     name: str
     location_id: str
+    came_from: str | None = None  # 上一次移动的出发地：重伤逃脱时沿来路退回
     aptitude: float = 1.0
     hp: int = MAX_HP
     alive: bool = True
@@ -92,8 +93,8 @@ def evolve(state: PlayerState | None, event: DomainEvent) -> PlayerState:
         raise ValueError(f"事件流必须以 PlayerSpawned 开头，却遇到 {type(event).__name__}")
 
     match event:
-        case Moved(to_location_id=destination):
-            return replace(state, location_id=destination)
+        case Moved(from_location_id=origin, to_location_id=destination):
+            return replace(state, location_id=destination, came_from=origin)
         case ItemTransferred(item_id=item, to_holder=holder):
             return replace(state, item_holders={**state.item_holders, item: holder})
         case SkillPracticed(skill_id=skill, proficiency_gained=gained):

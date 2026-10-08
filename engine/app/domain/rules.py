@@ -9,6 +9,8 @@
        物理校验看快照（出口是否相连、人是否在场、物在谁手），逻辑校验看玩家状态与本体（火候、根基、门径、谁肯传授、伤势）；
        能力成长、物品获取、人际变化只能由此处从图谱拓扑推导得出。胜负未定之事（出手）由 Rule.stakes 圈出可裁区间，
        地下城主的提议经 combat.settle 钳进区间后才成为事件——大模型在这里有一票，但只能投给区间里的候选。
+       重伤逃脱是真的逃：定案为重伤时追加一条沿来路退回的 Moved（实测：只扣血不挪步，玩家"明明逃了"却仍站在仇人面前）；
+       此情此景里根本没有的武功名（自拟招式）只是笔墨，照常以看家本领出手；修习所得随武学境界折算（progression.gain），越高深越难练。
        每种动作一条 Rule（开闭：新动作 = 新 Rule + 注册一行；新的模糊动作 = 覆写 stakes 钩子），options 生成器复用 adjudicate 过滤出合法行为
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -37,15 +39,15 @@ from app.domain.intent import ActionType, PlayerIntent
 from app.domain.models import Attitude, RelationKind, Tier, Transmission
 from app.domain.progression import (
     FOUNDATION,
-    GAIN,
     MAX_HP,
     REST_GAIN,
     Guidance,
     Mastery,
     Vitality,
     effective_tier,
+    gain,
 )
-from app.domain.snapshot import CharacterView, LocalSnapshot, SkillView
+from app.domain.snapshot import CharacterView, ExitView, LocalSnapshot, SkillView
 
 if TYPE_CHECKING:
     from app.domain.aggregates import PlayerState
@@ -198,10 +200,11 @@ class AttackRule(Rule):
         if who.subdued:
             return Rejection("ALREADY_SUBDUED", f"{who.name}已被你制住，无还手之力。")
         skill = best_skill(state, snap)
-        if intent.skill_used:
-            skill = resolve(intent.skill_used, snap.known_skills, _names)
-            if skill is None:
-                return Rejection("NOT_KNOWN", f"你并不会「{intent.skill_used}」。")
+        if intent.skill_used and (named := resolve(intent.skill_used, snap.skills, _names)) is not None:
+            if named.id not in state.skills:
+                return Rejection("NOT_KNOWN", f"你并不会「{named.name}」。")
+            skill = named
+        # 此情此景里根本没有的武功名（「黑虎掏心」）只是玩家的笔墨：照常以看家本领出手，而不是白白驳回一回合
         item = None
         if intent.item_used:
             item = resolve(intent.item_used, snap.inventory, _names)
@@ -235,7 +238,15 @@ class AttackRule(Rule):
         if ruling.outcome is CombatOutcome.DEATH:
             events.append(PlayerDied(cause=f"冒犯{foe.name}，当场毙命", killer_id=foe.id))
             return events
-        return events + _ripple(foe, state, snap)
+        events += _ripple(foe, state, snap)
+        if ruling.outcome is CombatOutcome.SEVERE_WOUND and (way := _retreat(state, snap)) is not None:
+            events.append(Moved(from_location_id=state.location_id, to_location_id=way.to_id, exit_label=way.label))
+        return events
+
+
+def _retreat(state: PlayerState, snap: LocalSnapshot) -> ExitView | None:
+    """重伤逃脱是真的逃：沿来路退回；投胎之地或来路已断，就走第一条出路（快照里出路恒按固定键排序）。无路可走才留在原地。"""
+    return next((e for e in snap.exits if e.to_id == state.came_from), snap.exits[0] if snap.exits else None)
 
 
 def _ripple(foe: CharacterView, state: PlayerState, snap: LocalSnapshot) -> list[DomainEvent]:
@@ -377,7 +388,9 @@ class LearnRule(Rule):
         self, ok: Approval, state: PlayerState, snap: LocalSnapshot, ruling: CombatRuling | None
     ) -> list[DomainEvent]:
         assert ok.skill and ok.guidance
-        return [SkillPracticed(skill_id=ok.skill, proficiency_gained=GAIN[ok.guidance], source_id=ok.source)]
+        art = snap.skill(ok.skill)
+        assert art is not None
+        return [SkillPracticed(skill_id=ok.skill, proficiency_gained=gain(ok.guidance, art.tier), source_id=ok.source)]
 
 
 def _masters(art: SkillView, snap: LocalSnapshot) -> list[CharacterView]:

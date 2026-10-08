@@ -14,7 +14,8 @@
        查询侧（无锁，并行）：新快照 ∥ 记忆召回 → 推送结果白描 → [Options] 选项生成 ∥ [Render] 叙事流式渲染 ∥ 记忆写入 → 推送终帧。
        大模型在命令侧解析意图、在可裁区间里提议，在查询侧只渲染；领域的定案隔在中间——它说什么都越不过区间，更改不了已入账的结果。
        地下城主的招式速写只在其结局被采纳时（SkillExecuted.outcome 等于提议的结局）经 NarrationRequest 传给渲染器：
-       它是散文，不入事件、不入记忆；结局未被采纳，速写与定案不符，当场作废
+       它是散文，不入事件、不入记忆；结局未被采纳，速写与定案不符，当场作废。
+       记忆召回多取一倍再按字面去重（调息两次就是两条一模一样的白描）；死者的伤势栏写「气绝」
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -57,6 +58,8 @@ from app.errors import OptionExpiredError, ProjectionError, UnknownPlayerError, 
 logger = logging.getLogger(__name__)
 
 type IntentSource = Callable[[Player, LocalSnapshot], Awaitable[tuple[PlayerIntent, str]]]
+
+DEAD = "气绝"  # 死者的伤势栏：气血归零的「奄奄一息」还有一口气，死人没有
 
 
 class TurnPipeline:
@@ -167,9 +170,11 @@ class TurnPipeline:
         first_new = envelopes[0].version if envelopes else player.version + 1
         snap, memories = await asyncio.gather(
             self.snapshot(player),
-            self._memory.recall(player.id, f"{said or ''} {player.state.name}", self._recall_k, first_new)
+            self._memory.recall(player.id, f"{said or ''} {player.state.name}", self._recall_k * 2, first_new)
             if said else _nothing(),
         )
+        # 同一句白描可能出自不同回合（调息两次就是两条一模一样的记忆）：按字面去重后再取 k 条，名额不浪费在复读上
+        recalled = tuple(dict.fromkeys(m.text for m in memories))[: self._recall_k]
         names = {**labels, **snap.labels}
         state = player.state
         facts = tuple(describe(e.event, names, state.name) for e in envelopes)
@@ -183,7 +188,7 @@ class TurnPipeline:
             request = NarrationRequest(
                 snapshot=snap,
                 facts=facts,
-                memories=tuple(m.text for m in memories),
+                memories=recalled,
                 player_text=said,
                 style=intent.narrative_style if intent else "",
                 hint=hint,
@@ -203,7 +208,7 @@ class TurnPipeline:
                 name=state.name,
                 location=snap.location.name,
                 tier=player_tier(state, snap).value,
-                health=state.vitality.value,
+                health=state.vitality.value if state.alive else DEAD,
                 alive=state.alive,
                 death_cause=state.death_cause,
                 inventory=tuple(i.name for i in snap.inventory),

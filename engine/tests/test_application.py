@@ -19,6 +19,7 @@ from app.domain.aggregates import PlayerState
 from app.domain.events import (
     ActionFailed,
     CombatOutcome,
+    Conversed,
     HealthChanged,
     ItemTransferred,
     RelationChanged,
@@ -175,6 +176,16 @@ async def test_rare_directions_hold_at_most_two_seats() -> None:
     categories = [o.category for o in OptionGenerator().generate(state, snap)]
     assert categories[:2] == [OptionCategory.RECOVER, OptionCategory.CULTIVATE]
     assert OptionCategory.ACQUIRE not in categories and len(categories) == 4  # 第三个稀缺方向让位给探索 / 交涉 / 战斗
+
+
+async def test_a_way_out_is_always_offered_when_foes_are_present() -> None:
+    grudge = RelationChanged(character_id="chr:龚光杰", attitude=Attitude.HOSTILE, cause="遭你出手相攻")
+    for version_shift in range(3):  # 寻常方向按版本轮换：无论轮到谁，仇人在侧时出路都在、静观让位
+        extra = [Conversed(npc_id="chr:辛双清")] * version_shift
+        state, snap = await scene("loc:无量山", grudge, *extra)
+        options = OptionGenerator().generate(state, snap)
+        explore = [o for o in options if o.category is OptionCategory.EXPLORE]
+        assert explore and all(o.intent.action_type is ActionType.MOVE for o in explore)
 
 
 async def test_dead_men_have_no_options() -> None:

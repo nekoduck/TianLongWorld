@@ -6,7 +6,7 @@
 [OUTPUT]: 对外提供 命令行入口 main()：`python -m app.seed extract [--max-chunks N] [--apply] [--reset] [--allow-partial]`、
           `python -m app.seed assemble [--prompt-version V] [--max-chunks N]`、`python -m app.seed export --out DIR [--max-chunks N] [--all]`、
           `python -m app.seed ingest --index I --file F [--source S]`、
-          `python -m app.seed heal [--apply] [--reset] [--export DIR | --ingest FILE --by NAME]`、
+          `python -m app.seed heal [--apply] [--reset] [--retry-null] [--export DIR | --ingest FILE --by NAME]`、
           `python -m app.seed apply [--reset]` 与 `python -m app.seed script`
 [POS]: World Seeding 的操作面：extract 读 data/source_text 的原著，经大模型抽取、确定性组装，写出 data/world/ 下的
        blueprint.json（中间表示）、seed.cypher（可交给 cypher-shell 审阅或导入）与 report.txt（丢弃 / 封存 / 孤儿 / 时间线 / 自愈明细）——
@@ -52,6 +52,7 @@ from app.infrastructure.knowledge_extractor import (
     chunk_message,
     chunk_text,
     load_corpus,
+    naming_reference,
     store_extraction,
 )
 from app.infrastructure.llm.factory import build_llm
@@ -82,8 +83,17 @@ async def extract(settings: Settings, *, max_chunks: int | None, allow_partial: 
         raise SystemExit("原著解析需要真实大模型：请在 engine/.env 配置 LLM_PROVIDER / LLM_API_KEY / LLM_EXTRACTION_MODEL")
     model, thinking = settings.llm_profile(LLMRole.EXTRACTION)
     print(f"抽取模型：{settings.llm_provider} / {model}（思考档位 {thinking or '模型默认'}，提示词 {PROMPT_VERSION}）")
-    extractor = LLMKnowledgeExtractor(llm, cache_dir=settings.world_dir / "cache")
+    naming = _naming(settings)
+    print(f"跨块命名参考：{'取自现有 blueprint.json' if naming else '无（尚无蓝图）'}")
+    extractor = LLMKnowledgeExtractor(llm, cache_dir=settings.world_dir / "cache", naming=naming)
     return await _seed(settings, extractor, max_chunks=max_chunks, allow_partial=allow_partial)
+
+
+def _naming(settings: Settings) -> str:
+    """上一版蓝图在就以它的写法作跨块命名参考；没有就不给（首次播种）。"""
+    if not settings.blueprint_path.exists():
+        return ""
+    return naming_reference(WorldBlueprint.model_validate_json(settings.blueprint_path.read_text(encoding="utf-8")))
 
 
 async def assemble(settings: Settings, *, version: str, max_chunks: int | None) -> WorldBlueprint:
@@ -134,6 +144,8 @@ def export(settings: Settings, out: Path, *, max_chunks: int | None, everything:
     pending = [c for c in _chunks(settings, max_chunks) if everything or not cache_path(cache, PROMPT_VERSION, c).exists()]
     out.mkdir(parents=True, exist_ok=True)
     (out / "EXTRACTION_SYSTEM.txt").write_text(EXTRACTION_SYSTEM, encoding="utf-8")
+    if naming := _naming(settings):  # 大模型之外的抽取器拿到与生产抽取器同一份命名参考
+        (out / "NAMING_REFERENCE.txt").write_text(naming, encoding="utf-8")
     for c in pending:
         (out / f"chunk-{c.index:03d}.txt").write_text(chunk_message(c), encoding="utf-8")
     print(f"已导出 {len(pending)} 个待抽块与抽取铁律（{PROMPT_VERSION}）到 {out}：{[c.index for c in pending]}")
@@ -156,7 +168,8 @@ def ingest(settings: Settings, index: int, file: Path, *, source: str | None) ->
 #  图谱自愈 —— 作用于正典（蓝图），再经 seeder 投影进 Neo4j
 # ============================================================
 async def heal(
-    settings: Settings, *, export_dir: Path | None = None, ingest_file: Path | None = None, by: str | None = None
+    settings: Settings, *, export_dir: Path | None = None, ingest_file: Path | None = None, by: str | None = None,
+    retry_null: bool = False,
 ) -> WorldBlueprint:
     blueprint = _load_blueprint(settings)
     cache = _healing_cache(settings)
@@ -181,7 +194,9 @@ async def heal(
         print(f"自愈模型：{settings.llm_provider} / {model}（只问缓存里还没有答案的孤儿）")
     else:
         print("LLM_PROVIDER=mock：只套用自愈缓存；尚无答案的孤儿可用 heal --export DIR 交给子代理或人工，再 heal --ingest FILE --by NAME 入缓存")
-    result = await GraphHealer(oracle, cache).heal(blueprint)
+    result = await GraphHealer(oracle, cache, retry_null=retry_null).heal(blueprint)
+    if isinstance(oracle, LLMPlacementOracle) and oracle.halted is not None:
+        print(f"自愈模型不可用（{oracle.halted}）：尚无答案的孤儿这次没有问成，额度恢复后重跑 heal 即可")
     _write_blueprint(settings, result.blueprint)
     _rewrite_healing_section(settings.world_dir / "report.txt", [*result.healed, *result.unresolved])
     print(f"自愈完成：生效的安放 {len(result.placements)} 条，仍下落不明 {len(lint(result.blueprint))} 件；已写回蓝图与 seed.cypher")
@@ -247,6 +262,7 @@ def main(argv: list[str] | None = None) -> None:
     who.add_argument("--export", type=Path, default=None, metavar="DIR", help="导出自愈铁律与全部孤儿的题面，交给子代理或人工作答")
     who.add_argument("--ingest", type=Path, default=None, metavar="FILE", help="外部自愈者的作答（JSON 对象或数组，容忍围栏）校验后入自愈缓存，再按缓存自愈")
     hl.add_argument("--by", default=None, metavar="NAME", help="--ingest 的推断者署名，如 claude-subagent 或人名")
+    hl.add_argument("--retry-null", action="store_true", help="重新询问缓存里已被判为无从推断的孤儿（默认沿用判词，不重复付费）")
     sub.add_parser("script", help="由 blueprint.json 重新生成 seed.cypher")
     args = parser.parse_args(argv)
     if args.command == "heal" and args.ingest is not None and not args.by:
@@ -274,7 +290,8 @@ def main(argv: list[str] | None = None) -> None:
             await assemble(settings, version=args.prompt_version, max_chunks=args.max_chunks)
             return
         if args.command == "heal":
-            healed = await heal(settings, export_dir=args.export, ingest_file=args.ingest, by=args.by)
+            healed = await heal(settings, export_dir=args.export, ingest_file=args.ingest, by=args.by,
+                                retry_null=args.retry_null)
             if args.apply and args.export is None:
                 await apply(settings, healed, reset=args.reset)
             return

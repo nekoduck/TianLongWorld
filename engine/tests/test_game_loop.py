@@ -58,7 +58,7 @@ async def test_the_logic_deadline_storyline(container: Container) -> None:
     resolved, done = await say(container, pid, "参悟北冥神功")
     assert resolved.facts == ("阿星参照北冥神功卷轴修习北冥神功，功力有所精进。",)
     assert done.status.skills == ("北冥神功（初窥门径）",) and done.status.tier == "三流"  # 一流内功，初窥门径打两档折扣
-    for _ in range(5):  # 悟性由 id 抽取（0.8~1.3）：练到略有小成要两到三次，不写死
+    for _ in range(8):  # 悟性由 id 抽取（0.8~1.3）、一流之功所得折半：练到略有小成要三到四次，不写死
         if done.status.skills == ("北冥神功（略有小成）",):
             break
         resolved, done = await say(container, pid, "参照卷轴苦练北冥神功")
@@ -81,8 +81,8 @@ async def test_the_logic_deadline_storyline(container: Container) -> None:
 
     history = await container.store.load(pid)
     practice = [e.event for e in history if isinstance(e.event, SkillPracticed)]
-    assert practice[0].proficiency_gained == 10 and practice[-1].source_id == "chr:段正淳"
-    assert 3 <= len(practice) <= 5  # 入门 + 一到三次参照典籍 + 拜师入门
+    assert practice[0].proficiency_gained == 5 and practice[-1].source_id == "chr:段正淳"
+    assert 4 <= len(practice) <= 6  # 入门 + 二到四次参照典籍 + 拜师入门
     assert isinstance(history[-1].event, ActionFailed)  # 失败也入账
 
 
@@ -92,7 +92,7 @@ async def test_permadeath(container: Container) -> None:
     resolved, done = await say(container, pid, "偷袭南海鳄神")
     assert resolved.facts[0] == "阿星徒手向南海鳄神出手——反被一招毙命。"
     assert done.game_over and done.options == () and not done.status.alive
-    assert done.status.death_cause == "冒犯南海鳄神，当场毙命" and done.status.health == "奄奄一息"
+    assert done.status.death_cause == "冒犯南海鳄神，当场毙命" and done.status.health == "气绝"
     with pytest.raises(PlayerDeadError):
         await play(container, SubmitText(player_id=pid, text="静观四周"))
     before = len(await container.store.load(pid))
@@ -103,18 +103,20 @@ async def test_permadeath(container: Container) -> None:
 
 
 async def test_a_severe_escape_then_rest_away_from_the_foe(container: Container) -> None:
+    """「重伤逃脱」是真的逃：夺路离开仇人，换个清静地方才调息得了；回到仇人跟前，照样无从调息。"""
     pid = await spawned_at(container, "无量山")
     resolved, done = await say(container, pid, "徒手攻击狠辣的龚光杰")
     assert resolved.facts[:2] == ("阿星徒手向龚光杰出手——身受重伤，拼死逃脱。", "阿星受了伤（与龚光杰交手）。")
-    assert done.status.alive and done.status.health == "重伤"
-    assert all(o.category is not OptionCategory.RECOVER for o in done.options)  # 仇人在侧，无从调息
-    resolved, _ = await say(container, pid, "就地打坐疗伤")
-    assert resolved.facts == ("阿星欲调息疗伤，未果：左子穆在侧虎视眈眈，你无法安心调息。",)  # 师父也记了仇
-    _, done = await say(container, pid, "去南下")
+    assert resolved.facts[-1] == "阿星经「南下」离开无量山，来到大理城。"
+    assert done.status.alive and done.status.health == "重伤" and done.status.location == "大理城"
     recover = next(o for o in done.options if o.category is OptionCategory.RECOVER)
     rested = await play(container, ChooseOption(player_id=pid, option_id=recover.id))
     assert isinstance(rested[0], TurnResolved) and rested[0].facts == ("阿星调息疗伤，伤势有所好转。",)
     assert isinstance(rested[-1], TurnCompleted) and rested[-1].status.health == "轻伤"
+    await say(container, pid, "去北上")
+    resolved, done = await say(container, pid, "就地打坐疗伤")
+    assert resolved.facts == ("阿星欲调息疗伤，未果：左子穆在侧虎视眈眈，你无法安心调息。",)  # 师父也记了仇
+    assert all(o.category is not OptionCategory.RECOVER for o in done.options)
 
 
 async def test_options_are_recomputed_and_forgeries_refused(container: Container) -> None:

@@ -157,13 +157,18 @@ async def test_names_outside_the_candidates_are_resampled_then_abandoned(tmp_pat
 async def test_unretryable_llm_errors_give_up_at_once_without_raising() -> None:
     bp = orphaned()
     broke = ScriptedLLM(LLMError("HTTP 402", retryable=False), answer("大理城"))  # type: ignore[arg-type]
-    assert await LLMPlacementOracle(broke).place(bp, lint(bp)[0]) is None
-    assert len(broke.calls) == 1
+    halted = LLMPlacementOracle(broke)
+    assert await halted.place(bp, lint(bp)[0]) is None
+    assert len(broke.calls) == 1 and halted.halted is not None  # 调用方据此明说"没问成"
     flaky = ScriptedLLM(LLMError("HTTP 429"), answer("大理城"))  # type: ignore[arg-type]
     placement = await LLMPlacementOracle(flaky, model_name="m").place(bp, lint(bp)[0])
     assert placement is not None and placement.holder == "大理城" and placement.inferred_by == "m"
-    unsure = ScriptedLLM(answer(None))  # 无从推断不是失败：不重采样，也不安放
-    assert await LLMPlacementOracle(unsure).place(bp, lint(bp)[0]) is None and len(unsure.calls) == 1
+    unsure = ScriptedLLM(answer(None))  # 无从推断不是失败：不重采样，判词连同理由交回
+    verdict = await LLMPlacementOracle(unsure).place(bp, lint(bp)[0])
+    assert verdict is not None and verdict.holder is None and verdict.rationale and len(unsure.calls) == 1
+    quoted = ScriptedLLM(f"[{answer('null')}]")  # 实测：不带 schema 时 Pro 把单件包成数组、把 null 写成字符串
+    verdict = await LLMPlacementOracle(quoted).place(bp, lint(bp)[0])
+    assert verdict is not None and verdict.holder is None and len(quoted.calls) == 1
     off_topic = ScriptedLLM(answer("大理城", item="无量剑"), "不是 JSON")
     assert await LLMPlacementOracle(off_topic).place(bp, lint(bp)[0]) is None and len(off_topic.calls) == 2
 
@@ -214,7 +219,32 @@ def test_ingest_goes_through_the_same_gate(tmp_path: Path) -> None:
         with pytest.raises(ExtractionError, match=reason):
             ingest_placements(bp, raw, cache, "张三")
     assert [p.holder for p in load_healing(cache)] == ["大理城"]  # 被拒的一条也没写进去
-    assert ingest_placements(bp, answer(None), cache, "张三") == []  # 无从推断：跳过
+    judged = ingest_placements(bp, answer(None), cache, "张三")  # 无从推断也是判词：入缓存，后来者覆盖先来者
+    assert [(p.holder, p.inferred_by) for p in judged] == [(None, "张三")]
+    assert [p.holder for p in load_healing(cache)] == [None]
+
+
+async def test_a_null_verdict_is_remembered_and_only_retried_on_request(tmp_path: Path) -> None:
+    bp, cache = orphaned(), tmp_path / "healing.json"
+    first = await GraphHealer(LLMPlacementOracle(ScriptedLLM(answer(None, rationale="本切片无段氏典藏之所")),
+                                                  model_name="m"), cache).heal(bp)
+    assert first.unresolved == ["「一阳指穴道谱诀」经 m 判为无从推断（为「一阳指」所需）：本切片无段氏典藏之所"]
+    silent = ScriptedLLM()  # 剧本为空：一旦被调用就报错
+    again = await GraphHealer(LLMPlacementOracle(silent), cache).heal(bp)
+    assert again.unresolved == first.unresolved and silent.calls == []  # 判词沿用：不重复付费，也不来回翻转
+    retried = await GraphHealer(LLMPlacementOracle(ScriptedLLM(answer("段正淳")), model_name="m2"), cache,
+                                retry_null=True).heal(bp)
+    assert item_of(retried.blueprint, SCROLL.id).owner_id == "chr:段正淳" and retried.unresolved == []
+
+
+def test_placements_without_kinship_are_flagged_for_review() -> None:
+    """闸门只认候选、拦不住不合情理：一阳指的谱诀交给与段氏毫无瓜葛的南海鳄神，报告里标出来请人复核。"""
+    bp = orphaned()
+    _, odd, _ = apply_placements(bp, [Placement(item="一阳指穴道谱诀", holder="南海鳄神", inferred_by="m")])
+    _, kin, _ = apply_placements(bp, [Placement(item="一阳指穴道谱诀", holder="段正淳", inferred_by="m")])
+    _, home, _ = apply_placements(bp, [Placement(item="一阳指穴道谱诀", holder="大理城", inferred_by="m")])
+    assert odd[0].endswith("（⚠ 与所需武学无同门关联，请人工复核）")
+    assert "⚠" not in kin[0] and "⚠" not in home[0]  # 同门之人、同门之人所在之地
 
 
 def test_seed_cli_heals_from_cache_exports_and_ingests(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

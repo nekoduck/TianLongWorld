@@ -4,9 +4,9 @@
          依赖 app.errors 的 ExtractionError / LLMError
 [OUTPUT]: 对外提供 SourceDocument / load_corpus()（读取 data/source_text，UTF-8 → GB18030 回退，经 clean_text 只留正文）、clean_text()（去水印、去序跋）、
           Chunk / chunk_text()（按回目与段落切块）、
-          抽取契约 v6 ChunkExtraction（Raw* 名称级记录：地点带 parent 上级；人物三名分立 name / titles / aliases + name_is_title；
+          抽取契约 ChunkExtraction（Raw* 名称级记录：地点带 parent 上级；人物三名分立 name / titles / aliases + name_is_title；
           武学两道门 RawAcquisition / RawPractice，旧缓存的 prerequisites 读入即升级；RawCanonEvent 记 T=0 之后的状态变化）、
-          T0_ANCHOR 时间锚点、EXTRACTION_SYSTEM 抽取铁律、escape_markup()（标签内插值转义）、
+          T0_ANCHOR 时间锚点、EXTRACTION_SYSTEM 抽取铁律 v7、naming_reference()（上一版蓝图 → 跨块命名参考）、escape_markup()（标签内插值转义）、
           KnowledgeExtractor 抽象与 LLMKnowledgeExtractor（结构化输出 + 退避重试 +
           照抄原文 ≥VERBATIM_CHARS 字的描述在写缓存前清空 + 按提示词版本分目录的磁盘缓存）、CachedExtractor（只读缓存、零费用重组装）、cache_path()、
           parse_extraction() / store_extraction()（任何抽取器的产出入缓存的唯一入口：截取 JSON → 契约校验 → 防抄清洗 → 写入）、
@@ -15,6 +15,9 @@
        产出的是名称级的原始记录；实体消歧、引用落地、拓扑补全与"宁严勿宽"的封存都在 blueprint_assembler 中确定性地完成。
        时间锚点 T=0 是契约的第一原则：状态字段一律写开篇那一刻，开篇之后发生的事写进 events——事件是证据而非状态，
        组装器凭它否决被时间线污染的开篇状态（段誉不会开篇就身负北冥神功）。
+       v7 据真实 Gemini 实测改了四处：本名只要出现过一次就作 name（flash 曾让「南海鳄神」篡位、把「岳老三」塞进别名）、
+       T=0 所在不在本段即填 null 而不补造地点、门槛与获取地点只记原文写明的、events 也记转述与"已身负"的证据（flash 召回曾只有 1/9）；
+       生产抽取器还拿到与 Claude 抽取员同一份跨块命名参考——本名能否跨块合并，主要靠它。
        任何一个块抽取失败只记入报告，不拖垮整本书；全部失败才视为管道失败。
        缓存是抽取器之间的交换契约：大模型、子代理、人工都可以当抽取器，产出经 store_extraction 同一道闸门入缓存，组装器一视同仁；
        契约升级不废旧缓存——v4 / v5 记录读入时自动升级为新形状，零费用复现旧蓝图
@@ -43,7 +46,7 @@ from app.infrastructure.cypher import CypherStatement, compile_blueprint, render
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "tlbb-extract-v6"  # 改动抽取提示词时递增，使磁盘缓存整体失效
+PROMPT_VERSION = "tlbb-extract-v7"  # 改动抽取提示词时递增，使磁盘缓存整体失效
 _ENCODINGS = ("utf-8-sig", "gb18030")
 _NUMERAL = "一二三四五六七八九十百零〇两"
 # 回目两种写法：「第一回 青衫磊落险峰行」与新修版的「一 青衫磊落险峰行」（标题是诗句，可含空格，不含句读）
@@ -286,13 +289,17 @@ EXTRACTION_SYSTEM = f"""你是《天龙八部》原著知识抽取器。你读�
 1. 只抽取本段文本写到的东西。文本没写的不补，原著后文的情节不提前写进来，你的常识不是原文。
 2. 名字必须能脱离本段唯一认出所指：
    - 人物三名分立：name 填本名（姓名或法号——此人真正叫什么）；titles 填江湖称号、绰号、名号（「恶贯满盈」「南海鳄神」「无恶不作」）；
-     aliases 填化名、旧称、封号、字号（「延庆太子」「保定帝」）。本段只以称号出现、不知本名的：name 填最常用的那个称号，并令 name_is_title 为 true。
+     aliases 填化名、旧称、封号、字号（「延庆太子」「保定帝」）。
+     本名在本段只要出现过一次，name 就填本名、name_is_title 为 false，称号一律进 titles——不论称号用得多频繁
+     （例：通篇称「南海鳄神」、只有一两处叫「岳老三」，name 填「岳老三」，他自封的排行「岳老二」进 aliases）。
+     本段从未出现本名、只以称号出现的：name 填最常用的那个称号，并令 name_is_title 为 true，titles 里不再重复它。
      只知亲属称谓、排行、身份泛称的（「爹爹」「妈妈」「老大」「夫人」「帮主」「那少女」）不要抽取此人；titles / aliases 同样不收亲属称谓、排行、泛称、外貌描写。
    - 武学只抽有专名的（如「一阳指」「凌波微步」），「轻功」「内功」「剑法」「掌法」这类泛称不抽；同一门武功只用一个名字。
 3. 地点 name 必须是独立可认的地名（「无量山」「剑湖宫」「大理城」「镇南王府」）。厅堂房间、谷中山中的某处，写成「上级地名·处所」
    （「剑湖宫·练武厅」「镇南王府·书房」），parent 填上级地名，上级地点也要列入 locations；「院子」「卧室」「山溪」「树林」这类泛称不得单独作 name。
    exits 只在文本写明两地相通或有人从一地行至另一地时记录；label 写简短的方位或路径（不超过 8 字，如「北上」「出城门」「下崖」），destination 写目的地 name。
-4. 人物：location 写此人 T=0 时所在之地（T=0 时尚未登场的，写本段首次出现之处）；faction 写门派或阵营；
+4. 人物：location 写此人 T=0 时所在之地（T=0 时尚未登场的，写本段首次出现之处）；T=0 时已登场、而其 T=0 所在本段没有写到的，
+   location 填 null，不要为凑块内自洽把本段没写到的地点补进 locations；faction 写门派或阵营；
    status 只能是 健在 / 已故，写 T=0 时的生死——T=0 之后才死的仍是 健在，死写进 events；
    tier 依描写判断武功境界，只能是 不入流 / 三流 / 二流 / 一流 / 绝顶，明写不会武功才填 不入流；
    disposition 依其为人判断，只能是 仁厚 / 中庸 / 狠辣；
@@ -300,12 +307,16 @@ EXTRACTION_SYSTEM = f"""你是《天龙八部》原著知识抽取器。你读�
    skills 只列此人 T=0 时已身负的武学；T=0 之后才学会的不列，写进 events。
 5. 武学 tier 同样依描写判断，看不出填 null。武学有两道门，只记文本写明的：
    - acquisition 是获取要求（得其门径）：transmission 填 师传 / 自悟——文本写明可凭典籍自行参悟的填 自悟，且 items 必须写明所凭的秘籍图谱，否则一律 师传；
-     items 写自悟所凭、或入门须持之物；location 写须在何地方得门径。
-   - practice 是修炼要求：skills 写须先练出根基的武学，min_tier 写修炼者须有的境界，conflicts 写与之相冲的武学。
+     items 写自悟所凭、或入门须持之物；location 只在文本写明须亲至某处方得门径时填（典籍可随身带走的不填）。
+   - practice 是修炼要求：skills 写须先练出根基的武学，min_tier 只在文本写明修炼须有某等功力时填（没写就填 不入流），conflicts 写与之相冲的武学。
 6. 物品：owner 是 T=0 时的物主，location 是 T=0 时静置之处；随身携带则只填 owner。T=0 之后才易手的，易手写进 events。
 7. 人物关系 kind 只能是 亲族 / 师徒 / 同门 / 结义 / 主仆 / 情侣 / 仇敌；取文本中最突出的一种——同门反目、彼此为敌者记 仇敌。
-8. events 只记本段发生在 T=0 之后、改变了上述状态的事：kind 只能是 习得武学 / 得到物品 / 身故；subject 写人物 name，
-   object 写习得的武学或得到的物品的 name（身故可留空）；note 用自己的话概括这件事。
+8. events 记 T=0 之后改变了上述状态的事，它是证据而非状态：kind 只能是 习得武学 / 得到物品 / 身故；subject 写人物 name，
+   object 写习得的武学或得到的物品的 name（身故可留空）；note 用自己的话概括这件事。以下三种都要记：
+   - 本段发生的（开始修习、只练成一部分也算 习得武学）；
+   - 本段转述的（「某某已给人害了」记 身故）；
+   - 本段显示某人已身负 / 持有 T=0 时尚未拥有的武学或物品（例：段誉在本段施展凌波微步、以北冥神功吸人内力——即使习得发生在前文，也记一条 习得武学）。
+   事件里的人物即使在本段只被提及，也要列入 characters（location 可为 null）。
 9. 块内自洽：人物与物品的 location、出口的 destination、武学获取要求里的地点，都必须是本段 locations 数组里列出的某个地点的 name 或别名；
    人物 skills、武学修炼要求里的武学、获取要求里的典籍，也必须分别出现在本段 martial_arts / items 数组里；
    events 的 subject 必须出现在本段 characters 里，object 必须出现在本段 martial_arts / items 里。不要写数组里没有的名字。
@@ -356,15 +367,19 @@ class CachedExtractor(KnowledgeExtractor):
 
 
 class LLMKnowledgeExtractor(KnowledgeExtractor):
-    """输出不合契约、或厂商一时失灵（限流 / 超时 / 5xx）都重来，退避翻倍；整本书几百次调用，偶发失败不该靠人重跑。"""
+    """
+    输出不合契约、或厂商一时失灵（限流 / 超时 / 5xx）都重来，退避翻倍；整本书几百次调用，偶发失败不该靠人重跑。
+    naming 是跨块命名参考（naming_reference 由上一版蓝图生成），附在抽取铁律之后：它只是写法上的提示，不进缓存键。
+    """
 
     def __init__(
-        self, llm: LLMClient, *, cache_dir: Path | None = None, attempts: int = 3, backoff: float = 5.0
+        self, llm: LLMClient, *, cache_dir: Path | None = None, attempts: int = 3, backoff: float = 5.0, naming: str = ""
     ) -> None:
         self._llm = llm
         self._cache_dir = cache_dir
         self._attempts = attempts
         self._backoff = backoff
+        self._system = f"{EXTRACTION_SYSTEM}\n\n{naming}" if naming else EXTRACTION_SYSTEM
 
     def _cache_path(self, chunk: Chunk) -> Path | None:
         return cache_path(self._cache_dir, PROMPT_VERSION, chunk) if self._cache_dir is not None else None
@@ -379,7 +394,7 @@ class LLMKnowledgeExtractor(KnowledgeExtractor):
             if attempt:
                 await asyncio.sleep(self._backoff * 2 ** (attempt - 1))
             try:
-                result = parse_extraction(await self._llm.complete(EXTRACTION_SYSTEM, user, EXTRACTION_SCHEMA))
+                result = parse_extraction(await self._llm.complete(self._system, user, EXTRACTION_SCHEMA))
             except (LLMError, ValueError, ValidationError) as exc:
                 logger.warning("%s#%d 第 %d 次抽取失败：%s", chunk.source, chunk.index, attempt + 1, exc)
                 last_error = exc
@@ -389,6 +404,27 @@ class LLMKnowledgeExtractor(KnowledgeExtractor):
             _sanitize_and_save(result, chunk, cached)
             return result
         raise ExtractionError(f"{chunk.source}#{chunk.index} 抽取失败：{last_error}")
+
+
+def naming_reference(bp: WorldBlueprint) -> str:
+    """
+    跨块命名参考：上一版蓝图里已定案的写法（地点与上级、人物的本名｜称号｜别名、武学、物品、门派）。
+    逐块抽取看不到别的块：只叫「延庆太子」的一块与只叫「恶贯满盈」的一块各说各话，有了它才合得到同一个本名之下。
+    实测这是 Claude 抽取员在本名上胜过裸跑 Gemini 的主因——生产抽取器也该拿到同一份。
+    """
+    parent = {target: loc.name for loc in bp.locations for label, target in loc.exits.items() if label.startswith("入")}
+    places = [f"- {loc.name}" + (f"  ← {parent[loc.id]}" if loc.id in parent else "") for loc in bp.locations]
+    people = [f"- {c.true_name} ｜ {'、'.join(c.titles) or '—'} ｜ {'、'.join(c.aliases) or '—'}" for c in bp.characters]
+    factions = sorted({c.faction for c in bp.characters if c.faction} | {a.faction for a in bp.martial_arts if a.faction})
+    return "\n".join([
+        "跨块命名参考：本段写到的若正是下列地方 / 人物 / 武功 / 物品，沿用这里的写法，便于跨块合并；本段没写到的一概不要加，",
+        "本段写法与此不同而确属另一处 / 另一人的，照本段写。",
+        "地点（name ← parent）：", *places,
+        "人物（本名 ｜ 称号 ｜ 别名）：", *people,
+        "武学：" + "、".join(a.name for a in bp.martial_arts),
+        "物品：" + "、".join(i.name for i in bp.items),
+        "门派：" + "、".join(factions),
+    ])
 
 
 def chunk_message(chunk: Chunk) -> str:

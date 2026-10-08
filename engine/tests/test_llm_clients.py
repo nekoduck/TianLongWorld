@@ -114,6 +114,15 @@ async def test_http_errors_become_llm_errors(wire: Any) -> None:
     with pytest.raises(LLMError, match="402") as broke:
         await anthropic().complete("s", "u")
     assert not broke.value.retryable  # 欠费：重试只会再失败一次
+    daily = {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED", "message": (  # 2026-10 实测原文（节选）
+        "Quota exceeded for metric: generativelanguage.googleapis.com/generate_requests_per_model_per_day, "
+        "limit: 250, model: gemini-3.1-pro\nPlease retry in 8h36m27s.")}}
+    wire(lambda r: httpx2.Response(429, json=daily))
+    with pytest.raises(LLMError, match="当日配额已耗尽") as exhausted:
+        await anthropic().complete("s", "u")
+    assert not exhausted.value.retryable  # 按天计的配额：几秒后重试只会再撞一次墙
+    with pytest.raises(LLMError, match="当日配额已耗尽"):
+        [c async for c in anthropic().stream("s", "u")]
 
 
 def test_portable_schema() -> None:

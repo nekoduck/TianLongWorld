@@ -32,10 +32,12 @@ v5 时代的三处已知缺陷在 v6 里的去向：
   v6 如实只记师传，一阳指不再封存，也就没有孤儿。图谱自愈代理仍是真实缺口的安全网：用 v5 缓存复现那件孤儿时，`heal --ingest` 把它安放给保定帝段正明
   （天龙寺在本切片无路可通，不是可达候选），Neo4j 里随之多出一条 `BELONGS_TO {provenance: 推断}`。
 
-复现入库的蓝图（需把原著放进 `data/source_text/`，不调用大模型）：
+复现入库的蓝图（需把原著放进 `data/source_text/`，不调用大模型）。当前代码的抽取提示词已是 `tlbb-extract-v7`（据 2026-10 真实 Gemini 实测改了四处措辞：
+本名只要出现过一次就作 name、T=0 所在不在本段即填 null、门槛与获取地点只记原文写明的、events 也记转述与"已身负"的证据），
+入库的这份蓝图出自 v6 缓存，复现须指明版本：
 
 ```bash
-python -m app.seed assemble --max-chunks 40
+python -m app.seed assemble --prompt-version tlbb-extract-v6 --max-chunks 40
 ```
 
 写入 Neo4j 时，换蓝图务必加 `--reset`：MERGE 只增不删，否则旧纪元的正典节点会混进新世界（写图后会对残留节点告警）。
