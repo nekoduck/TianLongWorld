@@ -2,7 +2,7 @@
 [INPUT]: 依赖 domain/models 的 WorldBlueprint / EntityKind / kind_of 及节点类型，依赖 domain/lore 的 Persona，依赖 json 的 dumps
 [OUTPUT]: 对外提供 CypherStatement（参数化语句）、compile_blueprint()（蓝图 → 按依赖排序的批量写图语句）、
           render_script()（同一批语句渲染为可交给 cypher-shell 的 .cypher 脚本）、cypher_literal()（值 → Cypher 字面量）、
-          CANON_LABELS（正典节点标签，含见闻 Fact）、KIND_LABELS（id 前缀 → 节点标签）
+          CANON_LABELS（正典节点标签，含见闻 Fact）、OVERLAY_LABELS（覆盖节点标签 Player / Clock / Emerged）、KIND_LABELS（id 前缀 → 节点标签）
 [POS]: infrastructure 的确定性编译器：原著解析管道的终点、Neo4j 播种器的输入。抽取出的名字一律走 $rows 参数，
        不拼进查询文本——原著里的引号与反斜杠伤不到图谱；脚本渲染只是把同一批参数序列化为字面量，二者同源（DRY）。
        硬性边：CONNECTS_TO（地点↔地点）、LOCATED_IN（人物/物品→地点）、HAS_RELATION（人物↔人物）、KNOWS_SKILL（人物→武学）、
@@ -11,7 +11,8 @@
        物品的 LOCATED_IN / BELONGS_TO 边带 provenance：自愈代理推断的安放与原著明写的安放在图里一眼分得清；下落不明的物品没有这两条边。
        P1 掌故与物性：HAS_RELATION 带 era（结于何时，方向即上首）；人物节点带 arrives_with 与 persona（外显人设 JSON，出处另存 persona_sources，
        foreshadow 永不入图）；物品节点带 portable / hazard / use（JSON）/ arrives_with；见闻是 (:Fact {id, text, sources}) 节点，
-       (知情人)-[:KNOWS_FACT]->(f)、(f)-[:ABOUT]->(主体)、(f)-[:UNLOCKS {kind}]->(所解之边的那一端)——主体与目标按 id 前缀落到各自的标签上
+       (知情人)-[:KNOWS_FACT]->(f)、(f)-[:ABOUT]->(主体)、(f)-[:UNLOCKS {kind}]->(所解之边的那一端)——主体与目标按 id 前缀落到各自的标签上。
+       约束里另有覆盖节点 (:Clock) / (:Emerged) 的 (world, id) 复合唯一与 world 索引：它们由投影写入，不由蓝图产出
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -27,6 +28,7 @@ from app.domain.models import EntityKind, WorldBlueprint, kind_of
 
 BATCH_ROWS = 500
 CANON_LABELS = ("Location", "Character", "MartialArt", "Item", "Faction", "Fact")
+OVERLAY_LABELS = ("Player", "Clock", "Emerged")  # 平行世界的覆盖节点：reset 时与正典一并清空
 KIND_LABELS = {
     EntityKind.LOCATION: "Location",
     EntityKind.CHARACTER: "Character",
@@ -52,6 +54,11 @@ CONSTRAINTS = [
     "CREATE INDEX item_canon_holder IF NOT EXISTS FOR (n:Item) ON (n.canon_holder)",
     "CREATE INDEX held_by_world IF NOT EXISTS FOR ()-[r:HELD_BY]-() ON (r.world)",
     "CREATE INDEX consumed_world IF NOT EXISTS FOR ()-[r:CONSUMED]-() ON (r.world)",
+    # 语义物理引擎的覆盖节点：id 只在本世界内唯一（同一挂处同名的时钟在每个平行世界里 id 相同）
+    "CREATE CONSTRAINT clock_world_id IF NOT EXISTS FOR (n:Clock) REQUIRE (n.world, n.id) IS UNIQUE",
+    "CREATE CONSTRAINT emerged_world_id IF NOT EXISTS FOR (n:Emerged) REQUIRE (n.world, n.id) IS UNIQUE",
+    "CREATE INDEX clock_world IF NOT EXISTS FOR (n:Clock) ON (n.world)",
+    "CREATE INDEX emerged_world IF NOT EXISTS FOR (n:Emerged) ON (n.world)",
 ]
 
 _NODE = "UNWIND $rows AS row MERGE (n:{label} {{id: row.id}}) SET n += row.props"

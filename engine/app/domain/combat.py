@@ -121,7 +121,7 @@ class CombatProposal:
 class CombatRuling:
     outcome: CombatOutcome
     hp_change: int  # ≤ 0
-    adopted: bool  # 采纳了地下城主的结局；未采纳时，它的叙事速写与定案不符，应当作废
+    adopted: bool  # 采纳了提议的结局（经闸门推出、仍在区间里）；未采纳即取确定性裁决
 
 
 def settle(stakes: Stakes, proposal: CombatProposal | None = None) -> CombatRuling:

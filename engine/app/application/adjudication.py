@@ -1,32 +1,22 @@
 """
-[INPUT]: 依赖 application/resolution_agent 的 Resolver / Resolution，依赖 domain/stakes 的 AnyStakes，
-         依赖 domain/events 的 SkillExecuted / Parleyed / Maneuvered / DomainEvent，依赖 domain/aggregates 的 PlayerState，依赖 domain/snapshot 的 LocalSnapshot
-[OUTPUT]: 对外提供 AdjudicationSlot（一回合一席裁决：resolve(stakes, scene, state, said, *, clicked) 与 adopted_sketch()）、adopted_sketch()
-[POS]: application 的「一席裁决」：一回合里谁来为胜负未定之事提议，只在这里定——
-         无赌注或结果已定（不 contested）→ None，零调用（领域取确定性裁决）；
-         点选 → 气运（FortuneResolver，确定性、不调大模型；FORTUNE_ON_CLICK 关掉时为 None，即 canonical）；
-         自由文本 → 地下城主（Resolver，每回合至多调它一次；它内部的重采样与兜底是它自己的事）。
-       三路（出手 / 交涉 / 暗中）同一个口径。速写只配它被采纳的结局：入账的 SkillExecuted / Parleyed / Maneuvered 的 outcome
-       就是提议的那一个，才交给叙事；被领域钳回确定性裁决的，速写与定案矛盾，当场作废——它本就不入事件、不入记忆
+[INPUT]: 依赖 application/resolution_agent 的 Resolver / Resolution，依赖 domain/resolution 的 Envelope，
+         依赖 domain/intent 的 PlayerIntent，依赖 domain/aggregates 的 PlayerState，依赖 domain/snapshot 的 LocalSnapshot
+[OUTPUT]: 对外提供 AdjudicationSlot（一回合一席裁决：resolve(env, scene, state, intent, said, *, clicked)）
+[POS]: application 的「一席裁决」：一回合里谁来为一招获准之举提议，只在这里定——
+         驳回（env 为 None）→ None；
+         点选 → 胜负未定（env.contested）交给气运（FortuneResolver，确定性、不调大模型；FORTUNE_ON_CLICK 关掉时为 None，即 canonical），其余 None；
+         自由文本 → 胜负未定，或此景挂着时钟（暗流可能被这一举推动）→ 地下城主（Resolver，每回合至多调它一次；它内部的重采样与兜底是它自己的事）；
+         其余 None，零调用（领域取确定性裁决）。
+       三路（出手 / 交涉 / 暗中）与结果已定之事同一个口径。推演不是散文：它的微观事实经领域闸门落为 FactEmerged 入账，叙事从账上读，
+       这里不再有「速写只配被采纳的结局」那道过滤
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
-from collections.abc import Sequence
-
 from app.application.resolution_agent import Resolution, Resolver
 from app.domain.aggregates import PlayerState
-from app.domain.events import DomainEvent, Maneuvered, Parleyed, SkillExecuted
+from app.domain.intent import PlayerIntent
+from app.domain.resolution import Envelope
 from app.domain.snapshot import LocalSnapshot
-from app.domain.stakes import AnyStakes
-
-
-def adopted_sketch(resolution: Resolution | None, events: Sequence[DomainEvent]) -> str:
-    """速写只在结局被采纳时保留：取这一回合第一条定案事件（出手 / 交涉 / 暗取），其 outcome 正是提议的结局。"""
-    if resolution is None or resolution.proposal is None or not resolution.narrative_hint:
-        return ""
-    ruled = next((e for e in events if isinstance(e, SkillExecuted | Parleyed | Maneuvered)), None)
-    adopted = ruled is not None and ruled.outcome is resolution.proposal.outcome
-    return resolution.narrative_hint if adopted else ""
 
 
 class AdjudicationSlot:
@@ -41,19 +31,21 @@ class AdjudicationSlot:
 
     async def resolve(
         self,
-        stakes: AnyStakes | None,
+        env: Envelope | None,
         scene: LocalSnapshot,
         state: PlayerState,
+        intent: PlayerIntent,
         said: str | None,
         *,
         clicked: bool,
     ) -> Resolution | None:
-        if stakes is None or not stakes.contested:
-            return None  # 确定之事：谁也不请
-        if clicked:
-            return await self._fortune.resolve(stakes, scene, state, said) if self._fortune else None
-        return await self._resolver.resolve(stakes, scene, state, said)
+        if env is None:
+            return None  # 驳回：谁也不请
+        if clicked:  # 点选不花钱：只有胜负未定之事才掷一次气运，时钟留给自由文本
+            if env.contested and self._fortune is not None:
+                return await self._fortune.resolve(env, scene, state, intent, said)
+            return None
+        if env.contested or scene.clocks:
+            return await self._resolver.resolve(env, scene, state, intent, said)
+        return None  # 确定之事、又无暗流：谁也不请
 
-    @staticmethod
-    def adopted_sketch(resolution: Resolution | None, events: Sequence[DomainEvent]) -> str:
-        return adopted_sketch(resolution, events)

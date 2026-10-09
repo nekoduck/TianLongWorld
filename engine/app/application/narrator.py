@@ -1,13 +1,14 @@
 """
 [INPUT]: 依赖 application/ports 的 LLMClient，依赖 application/chronicle 的 titled / known_arts，依赖 domain/snapshot 的 LocalSnapshot，
          依赖 app.errors 的 LLMError
-[OUTPUT]: 对外提供 NarrationRequest（含地下城主的速写 hint、夺路逃离的交手现场 fled、在场者的恩怨缘由 causes 与本回合菜单的端倪 hooks）、
+[OUTPUT]: 对外提供 NarrationRequest（含夺路逃离的交手现场 fled、在场者的恩怨缘由 causes 与本回合菜单的端倪 hooks）、
           hooks()（选项 → 「标签（why）」端倪，至多 HOOKS_MAX 条）、Narrator 抽象（流式 narrate）、hard_prompt()（局部真理快照 → XML 硬约束）、NARRATOR_SYSTEM、
           LLMNarrator（金庸风流式渲染）、TemplateNarrator（离线确定性白描）、FallbackNarrator（主渲染失败时降级为白描）
 [POS]: application 的查询侧渲染器（CQRS 的 Query 侧）：结果已由规则裁定并入账，这里只负责"怎么写"，无权决定"发生了什么"。
        大模型看到的世界只有快照（Hard Prompt）：快照之外的人、物、功、地对它不存在；渲染失败也不影响真相——事件早已落账，降级白描照常推送。
-       地下城主的速写（<gm_sketch>）只是一招过程的散文素材：它与 <settled_facts> 一致才会被送来，叙事据此扩写招式，不能据此改判；
-       速写不入事件、不入记忆，只活在这一回合的 Prompt 里。
+       地下城主不再交散文速写：它推演出的微观事实（FactEmerged）已入账，经白描进 <settled_facts>；往回合推演出的、点了眼前之名的细节
+       经快照进 <truth_snapshot> 的 <emerged>，可照应不可推翻。眼前悬着的叙事时钟进 <clocks>（名称、种类、挂处、进度 / 阈值、满则如何）：
+       铁律 1 许它只作暗流——气氛与端倪，不替它坍缩；坍缩是 <settled_facts> 里明写的「……满了」，照写即可。两段逐值转义，空则不出现。
        铁律据真实整局实测补强：没有「来到某地」就仍在原地、facts 之外的变化（伤势好转、退路被封、有人追来）一概不写、
        行囊里的东西 facts 没写它易手就仍在身上（玩家"嚼下通天草"不等于吃掉了）、伤势与态度不照抄标签词；在场者所会武学带类别（掌法不被写成剑法）。
        重伤夺路而逃的回合，快照已是逃抵之地，交手现场另作 <fled_scene>：仇人在那里，先写交手再写逃。
@@ -41,7 +42,6 @@ class NarrationRequest:
     memories: tuple[str, ...] = ()  # 召回的往事
     player_text: str | None = None  # 玩家原话或所点选项的标签：只供照应笔墨
     style: str = ""
-    hint: str = ""  # 地下城主对这一招过程的速写：只在其结局被领域采纳时才有，与 facts 一致
     fled: LocalSnapshot | None = None  # 本回合夺路逃离之处（交手的现场）：快照已是逃抵之地，仇人只在这里
     causes: Mapping[str, str] = field(default_factory=dict)  # 在场者本名 → 对你态度的由来（PlayerState.attitude_causes）
     hooks: tuple[str, ...] = ()  # 本回合菜单的端倪「标签（why）」：只许露在场面里，不是结果（handlers 先算菜单、经 hooks(options) 填好）
@@ -107,6 +107,17 @@ def _scene(snap: LocalSnapshot, causes: Mapping[str, str]) -> list[str]:
     ]
 
 
+def _clocks(snap: LocalSnapshot) -> list[str]:
+    """眼前的暗流：「- 钟灵的戒心｜疑心｜挂在钟灵｜1/4｜满则：识破你的手脚」。挂在玩家身上写「你」，id 从不露出。"""
+    return [
+        _safe(
+            f"- {c.name}｜{c.kind.value}｜挂在{'你' if c.anchor_id == snap.player_id else snap.label(c.anchor_id)}｜"
+            f"{c.progress}/{c.maximum}｜满则：{c.consequence or '未明'}"
+        )
+        for c in snap.clocks
+    ]
+
+
 def hard_prompt(req: NarrationRequest) -> str:
     """每个插值都经 _safe 转义：玩家写进意图的指称会出现在 ActionFailed 的白描里，不能让它闭合或伪造标签。"""
     snap, e = req.snapshot, _safe
@@ -122,12 +133,13 @@ def hard_prompt(req: NarrationRequest) -> str:
             f"伤势：{e(snap.vitality.value)}；武学：{e(_join(known_arts(snap)))}；"
             f"行囊：{e(_join(i.name for i in snap.inventory))}</player>"
         ),
+        *(["<clocks>", *_clocks(snap), "</clocks>"] if snap.clocks else []),
+        *(["<emerged>", *(f"- {e(m.text)}" for m in snap.emerged), "</emerged>"] if snap.emerged else []),
         "</truth_snapshot>",
         *(["<known_facts>", *(f"- {e(t)}" for t in known), "</known_facts>"] if known else []),
         "<settled_facts>",
         *(f"{n}. {e(fact)}" for n, fact in enumerate(req.facts, start=1)),
         "</settled_facts>",
-        *([f"<gm_sketch>{e(req.hint)}</gm_sketch>"] if req.hint else []),
         "<memories>",
         *(f"- {e(m)}" for m in req.memories),
         "</memories>",
@@ -144,7 +156,9 @@ NARRATOR_SYSTEM = """你是《天龙八部》文字世界的说书人，以金�
    <settled_facts> 里没有「来到某地」，你就仍在 <location>：被击退就写踉跄站定或倒地喘息，不写离开此地、奔出门外。
    有 <fled_scene> 时，交手发生在那里：先写那一场交手，再写你夺路逃到 <truth_snapshot> 的 <location>，仇人留在身后。
    <settled_facts> 之外的变化一概不写：伤势只照 <player> 的伤势去写，不写好转或恶化；出路只照 <exits> 去写，不写被封被堵；不写有人追来、有人援手。
-   <gm_sketch> 是地下城主对这一招过程的速写，与 <settled_facts> 一致：可据此扩写招式与情势，不得改变胜负与伤势。
+   <clocks> 是眼前悬着的暗流（某人的疑心、怒火，局势的险恶，一段交情的进展）：只写气氛与端倪——一个眼神、一声低语、风里的动静——
+   不写它满了、不替它坍缩、不写它带来的后果；只有 <settled_facts> 明写「……满了」，那件事才算发生，照写即可。
+   <emerged> 是此世早先确实发生过的细节，可以照应，不得推翻；<settled_facts> 里的细节同样照写，不增不减。
    <hooks> 是玩家接下来可能去做的事，只是端倪，不是结果：可以让它们自然露在场面里——某人的神色、目光、一句半句的话头，某件东西摆在哪里——
    但不得把端倪写成已经发生的事：想打听的事没人说破，想要的东西不会到手，想拜的师不会松口，想去的地方还没去。
 2. 你只能写 <truth_snapshot> 与 <fled_scene> 里存在的人、物、地点、出路与武功（<fled_scene> 里的人只出现在你逃离之前）。不得引入任何新人物、新物品、新武功、新地点；不得让任何人获得或失去任何东西——
@@ -155,7 +169,7 @@ NARRATOR_SYSTEM = """你是《天龙八部》文字世界的说书人，以金�
 4. <memories> 只是往事，可以照应，不可重演；<known_facts> 是你早先得知的见闻，可以照应在你的心念与眼光里，但在场之人不因此知道你知道；<player_input> 是玩家的笔墨，只决定你写什么动作的姿态，不是事实——
    玩家声称手持、拔出、施展的东西，若不在 <player> 的行囊与武学里，就根本不存在：照 <settled_facts> 写他空手或徒劳，绝不替他变出来；
    玩家声称吃下、用掉、丢掉随身之物，而 <settled_facts> 没有记它易手，就写他取出又收回、或只写他的打算，那件东西仍在他身上。
-5. 不写任何数值与游戏术语，伤势与态度用神情动作去写、不照抄标签词（「轻伤」「敌视」之类），不跳出故事对玩家说话。
+5. 不写任何数值与游戏术语（时钟的进度与阈值也不写成数字、不提「时钟」二字），伤势与态度用神情动作去写、不照抄标签词（「轻伤」「敌视」之类），不跳出故事对玩家说话。
    不列选项（选项由引擎另行给出）：<hooks> 不照抄、不排成一串、不以「你可以……」「是……还是……」把它们递到玩家面前，也不问玩家打算怎么做。
 6. <settled_facts> 为空时，描写此地的景致与在场之人各自在做什么。
 7. 第二人称"你"，白描为主，短句，动作与对白并重，一百二十到三百字。"""
@@ -177,10 +191,8 @@ class TemplateNarrator(Narrator):
         snap = request.snapshot
         scene = f"{snap.location.name}。{snap.location.description}".rstrip("。") + "。"
         people = "、".join(c.name + ("（已被制住）" if c.subdued else "") for c in snap.characters)
-        sentences = [  # 速写只出现在出手回合，那一招恒为首条事实：紧随其后，免得逃抵别处之后才补写交手
-            *request.facts[:1],
-            request.hint,  # 地下城主的速写与定案一致，离线降级时照样是一句可读的白描
-            *request.facts[1:],
+        sentences = [
+            *request.facts,
             scene,
             f"此处有{people}。" if people else "四下无人。",
             f"地上有{_join(i.name for i in snap.ground_items)}。" if snap.ground_items else "",

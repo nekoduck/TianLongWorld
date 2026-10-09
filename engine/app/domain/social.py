@@ -73,7 +73,7 @@ class SocialStakes:
 @dataclass(frozen=True, slots=True)
 class SocialRuling:
     outcome: SocialOutcome
-    adopted: bool  # 采纳了地下城主的结局；未采纳时它的速写作废
+    adopted: bool  # 采纳了提议的结局；未采纳即取确定性裁决
     hp_change: int = 0  # 交涉永不伤人：恒为 0，只为与 CombatRuling 同形
 
 

@@ -2,13 +2,17 @@
 [INPUT]: 依赖 domain/events 的全部领域事件，依赖 domain/combat 的 CombatOutcome，依赖 domain/outcomes 的 SocialOutcome / CovertOutcome，
          依赖 domain/intent 的 ActionType / Approach，依赖 domain/models 的 Attitude / EntityKind / kind_of，
          依赖 domain/snapshot 的 LocalSnapshot / CharacterView
-[OUTPUT]: 对外提供 describe(event, labels, player_name) —— 一条领域事件的确定性白描（一句话；不出声的事件为空串，调用方一律滤掉）；
+[OUTPUT]: 对外提供 describe(event, labels, player_name) —— 一条领域事件的确定性白描（一句话；不出声的事件为空串，调用方一律滤掉；
+          含时钟四事件、微观事实 FactEmerged 与名望 RenownChanged）；
           titled(character) —— 「段延庆（恶贯满盈）」式的称呼；known_arts(snapshot) —— 「北冥神功（略有小成）」式的武学与火候
 [POS]: application 的事实渲染器：把事件与快照翻成人话。describe 供三处消费——回合结果帧里的 facts、叙事 Prompt 里的 <settled_facts>、
        长线记忆的向量语料。它只读事件与名称表，不经大模型：记忆里存的是这里的白描而非大模型的散文，幻觉因此进不了记忆；
        也不写数值——熟练度与气血的涨落只说"有所精进""受了伤"，到了哪一步由快照里的火候与伤势去说。
        人情五档各有措辞（敌视「心生敌意」… 信赖「深为信赖」），交涉、见闻、用物、暗中取物各有一句白描。
        服药是两条事件（ItemConsumed + HealthChanged(source="item")）一句话：后者不出声（空串），免得「以金创药疗伤」之后再来一句「伤势有所好转」。
+       语义物理引擎的六条事件：时钟挂上「暗流：钟灵的戒心（1/4）」、推进「…渐深（3/4）」/ 回退「…稍解（1/4）」、
+       坍缩「…满了：识破你的手脚」、化解「…烟消云散」、微观事实照录原文、名望「某某的名声更响了 / 坏了几分（缘由）」；
+       时钟事件自带名称与进度，这里从不回查时钟表、从不露 clk: id；零步的推进与零点的名望不出声。
        titled / known_arts 是称呼与火候的唯一写法：状态栏、叙事 Hard Prompt 与地下城主的战况简报共用，三处说法不会各执一词
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -18,8 +22,13 @@ from collections.abc import Mapping
 from app.domain.combat import CombatOutcome
 from app.domain.events import (
     ActionFailed,
+    ClockAdvanced,
+    ClockCleared,
+    ClockCollapsed,
+    ClockStarted,
     Conversed,
     DomainEvent,
+    FactEmerged,
     FactLearned,
     HealthChanged,
     ItemConsumed,
@@ -30,6 +39,7 @@ from app.domain.events import (
     PlayerDied,
     PlayerSpawned,
     RelationChanged,
+    RenownChanged,
     SkillExecuted,
     SkillPracticed,
 )
@@ -77,6 +87,10 @@ _ACTION = {
     ActionType.USE: "使用随身之物",
     ActionType.INVALID: "行非常之事",
 }
+
+
+_UNDERCURRENT = "那股暗流"  # 旧账里没带名字的时钟事件：宁可含糊，也不露 clk: id
+_STOPS = ("。", "！", "？", "…", "」")
 
 
 def _by(approach: Approach) -> str:
@@ -134,6 +148,26 @@ def describe(event: DomainEvent, labels: Mapping[str, str], player_name: str) ->
             return f"{me}以{name(item)}{effect}。"
         case Maneuvered(item_id=item, target_id=target, approach=approach, outcome=outcome):
             return f"{me}{_by(approach)}暗取{name(target)}的{name(item)}——{_COVERT[outcome]}。"
+        # 语义物理引擎的六条：时钟事件自带名称与进度，白描不回查时钟表，也从不露出 clk: id
+        case ClockStarted(clock=clock):
+            return f"暗流：{clock.name}（{clock.progress}/{clock.maximum}）。"
+        case ClockAdvanced(steps=0):
+            return ""
+        case ClockAdvanced(name=title, steps=steps, progress=progress, maximum=maximum):
+            gauge = f"（{progress}/{maximum}）" if maximum else ""
+            return f"{title or _UNDERCURRENT}{'渐深' if steps > 0 else '稍解'}{gauge}。"
+        case ClockCollapsed(name=title, consequence=consequence):
+            then = consequence.rstrip("。！")
+            return f"{title}满了：{then}。" if then else f"{title}满了。"
+        case ClockCleared(name=title):
+            return f"{title or _UNDERCURRENT}烟消云散。"
+        case FactEmerged(text=text):
+            return text if text.endswith(_STOPS) else f"{text}。"
+        case RenownChanged(delta=0):
+            return ""
+        case RenownChanged(delta=delta, cause=cause):
+            why = f"（{cause}）" if cause else ""
+            return f"{me}的名声{'更响了' if delta > 0 else '坏了几分'}{why}。"
     raise TypeError(f"未知的领域事件：{type(event).__name__}")
 
 

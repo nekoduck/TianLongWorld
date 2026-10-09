@@ -1,6 +1,6 @@
 """
 [INPUT]: 依赖 app.infrastructure.persistence 的 InMemoryWorldGraph / Neo4jWorldGraph，依赖 app.infrastructure.cypher 的 compile_blueprint / render_script，
-         依赖 app.domain 的 events / models / lore（Fact / FactUnlock）/ intent / outcomes / snapshot，依赖 tests/world 的 WORLD，
+         依赖 app.domain 的 events / models / lore（Fact / FactUnlock）/ intent / outcomes / snapshot / clocks / resolution（fact_id）/ aggregates（EMERGED_MAX），依赖 tests/world 的 WORLD，
          依赖 tests/conftest 的 NEO4J_* 环境变量
 [OUTPUT]: 图谱契约测试：同一组用例在内存实现与真实 Neo4j（设置 TLBB_TEST_NEO4J_URI 时）上共跑，另有"双实现快照逐字段相等"的同构证明
 [POS]: tests 的投影正确性：正典只读、覆盖层随事件演化（熟练度在 KNOWS_SKILL 上做加法、气血钳位）、投影幂等可重试、
@@ -10,7 +10,11 @@
        （已故、未到、被制住者不算）、USE 一回合（ItemConsumed）后物品不回地上也不回正典持有者、抹去重放连同用掉的记录一起重建、
        掌故编译成参数化 Cypher 且 foreshadow 一字不入图，以及双实现在 P1 旅程每个版本与每处正典切片上逐字段相等；
        已知的见闻（INFORMED 蓝图 = LORE + 三位线人的三件事）：线人不在而主体或 unlock 目标在场（地上、行囊、在场者）时照样进快照
-       且 known=True、没打听过的平行世界看不到、抹去重放一并清掉 LEARNED；越过闸门的重复主体 / 知情人去重保序，两实现同口径
+       且 known=True、没打听过的平行世界看不到、抹去重放一并清掉 LEARNED；越过闸门的重复主体 / 知情人去重保序，两实现同口径；
+       语义物理引擎（clock_journey）：时钟挂在在场者 / 此地 / 地上之物 / 玩家自己 / 远方之人身上，推进与回退越界钳位、坍缩与销毁退场、
+       同名重挂即覆盖、不存在的时钟推进无事发生，快照只召回挂在眼前之物与玩家身上的（行囊之物随身走）且与聚合根同构；
+       微观事实超出 EMERGED_MAX 挤掉最旧的、重提即刷新，主体与此地 / 在场者 / 可见之物有交集才进快照，主体都有 label；
+       抹去重放一并重建；双实现在这段旅程每个版本上逐字段相等，Neo4j 每个世界只留 24 个 (:Emerged)、forget 后不留 (:Clock|Emerged)
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -18,17 +22,23 @@ import asyncio
 import json
 from collections.abc import AsyncIterator, Sequence
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 import pytest
 
-from app.domain.aggregates import Player
+from app.domain.aggregates import EMERGED_MAX, Player
+from app.domain.clocks import ClockKind, NarrativeClock, clock_id
 from app.domain.combat import CombatOutcome
 from app.domain.events import (
     LEGACY_MASTERY_POINTS,
+    ClockAdvanced,
+    ClockCleared,
+    ClockCollapsed,
+    ClockStarted,
     DomainEvent,
     EventEnvelope,
+    FactEmerged,
     FactLearned,
     HealthChanged,
     ItemConsumed,
@@ -57,6 +67,7 @@ from app.domain.models import (
 )
 from app.domain.outcomes import SocialOutcome
 from app.domain.progression import MAX_HP, Mastery
+from app.domain.resolution import fact_id
 from app.domain.snapshot import BondView, LocalSnapshot, PersonaView
 from app.errors import ProjectionError
 from app.infrastructure.cypher import compile_blueprint, render_script
@@ -601,5 +612,179 @@ async def test_memory_and_neo4j_agree_on_learned_facts() -> None:
             await neo.project(p, story[:upto])
             await memory.project(p, story[:upto])
             assert await neo.local_snapshot(p) == await memory.local_snapshot(p), f"第 {upto} 版快照分叉"
+    finally:
+        await neo.close()
+
+
+# ============================================================
+#  语义物理引擎：叙事时钟与微观事实挂在实体上，随快照召回；抹去重放一并重建
+# ============================================================
+def _clock(anchor: str, name: str, kind: ClockKind, maximum: Literal[4, 6, 8], progress: int = 0,
+           consequence: str = "") -> NarrativeClock:
+    return NarrativeClock(id=clock_id(anchor, name), name=name, kind=kind, anchor_id=anchor, progress=progress,
+                          maximum=maximum, consequence=consequence)
+
+
+EMERGED_TOTAL = EMERGED_MAX + 2  # 多出两条：最旧的两条被挤掉，而重提的那条刷新后留下
+
+
+def _emerged_subjects(i: int) -> tuple[str, ...]:
+    """轮着挂：此地、在场者、远方之人（段誉，在大理城）、此地与远方之人兼有、地上的玉佩。"""
+    return (("loc:无量山",), ("chr:左子穆",), ("chr:段誉",), ("chr:段誉", "loc:无量山"), ("itm:玉佩",))[i % 5]
+
+
+def _emerged_text(i: int) -> str:
+    return f"崖边松针落了第{i}回"
+
+
+def _emergence(i: int) -> FactEmerged:
+    text = _emerged_text(i)
+    return FactEmerged(fact_id=fact_id(text), text=text, subject_ids=_emerged_subjects(i))
+
+
+def clock_journey(pid: str) -> list[DomainEvent]:
+    """
+    挂上五只时钟（在场者、此地、地上之物、玩家自己、远方之人各一）→ 推进（含越界钳位）、回退（含钳到零）→ 坍缩、销毁 → 同名重挂；
+    再冒出 EMERGED_TOTAL 条微观事实并重提第一条；最后拾起玉佩去大理城：挂在行囊之物、玩家与段誉身上的时钟随之进出快照。
+    """
+    suspicion = _clock("chr:左子穆", "左子穆的疑心", ClockKind.SUSPICION, 4, 1, "识破你的手脚")
+    storm = _clock("loc:无量山", "山雨欲来", ClockKind.PERIL, 6, 2, "山洪冲下崖来")
+    bond = _clock("chr:辛双清", "与辛双清的交情", ClockKind.PROGRESS, 6, 1)
+    jade = _clock("itm:玉佩", "玉佩的来历", ClockKind.PROGRESS, 8)
+    wound = _clock(pid, "旧伤发作", ClockKind.PERIL, 4, 1, "旧伤迸裂")
+    longing = _clock("chr:段誉", "段誉的牵挂", ClockKind.PROGRESS, 6, 2)
+    return [
+        PlayerSpawned(player_id=pid, name="阿星", location_id="loc:无量山"),
+        ClockStarted(clock=suspicion, cause="你在左子穆面前顺走了东西"),
+        ClockStarted(clock=storm, cause="天色骤暗"),
+        ClockStarted(clock=bond, cause="辛双清多看了你一眼"),
+        ClockStarted(clock=jade, cause="玉佩背面有字"),
+        ClockStarted(clock=wound, cause="与龚光杰交手"),
+        ClockStarted(clock=longing, cause="远方的人"),
+        ClockAdvanced(clock_id=suspicion.id, steps=2, name=suspicion.name, progress=3, maximum=4),
+        ClockAdvanced(clock_id=suspicion.id, steps=3, name=suspicion.name, progress=3, maximum=4),  # 钳在满格之下
+        ClockAdvanced(clock_id=storm.id, steps=-3, name=storm.name, progress=0, maximum=6),  # 回退钳到零
+        ClockAdvanced(clock_id=wound.id, steps=1, name=wound.name, progress=2, maximum=4),
+        ClockCollapsed(clock_id=suspicion.id, name=suspicion.name, consequence=suspicion.consequence),
+        ClockCleared(clock_id=bond.id, name=bond.name, cause="误会冰释"),
+        ClockStarted(clock=_clock("chr:左子穆", "左子穆的疑心", ClockKind.SUSPICION, 6, 2, "又起疑心"), cause="旧事重提"),
+        ClockAdvanced(clock_id="clk:0000000000", steps=2),  # 不存在的时钟：两边都当无事发生
+        *(_emergence(i) for i in range(EMERGED_TOTAL)),
+        _emergence(0),  # 重提最旧的一条：刷新，不被挤掉
+        ItemTransferred(item_id="itm:玉佩", from_holder="loc:无量山", to_holder=pid),
+        Moved(from_location_id="loc:无量山", to_location_id="loc:大理城", exit_label="南下"),
+    ]
+
+
+CLOCKS_DONE = 15  # 时钟操作走完之后的版本（PlayerSpawned + 14 条时钟事件）
+EMERGED_DONE = CLOCKS_DONE + EMERGED_TOTAL + 1
+
+
+def _clocks(snap: LocalSnapshot) -> dict[str, tuple[str, int, int]]:
+    return {c.name: (c.anchor_id, c.progress, c.maximum) for c in snap.clocks}
+
+
+async def test_clocks_hang_on_entities_and_follow_the_scene(graph: Graph) -> None:
+    p = pid()
+    story = envelopes(p, clock_journey(p))
+
+    async def at(version: int) -> LocalSnapshot:
+        await graph.project(p, story[:version])
+        return await graph.local_snapshot(p)
+
+    snap = await at(7)
+    assert _clocks(snap) == {  # 段誉不在场：他身上的时钟照样悬着，只是不进此地的快照
+        "左子穆的疑心": ("chr:左子穆", 1, 4), "山雨欲来": ("loc:无量山", 2, 6), "与辛双清的交情": ("chr:辛双清", 1, 6),
+        "玉佩的来历": ("itm:玉佩", 0, 8), "旧伤发作": (p, 1, 4),
+    }
+    clock = next(c for c in snap.clocks if c.name == "左子穆的疑心")
+    assert clock.kind is ClockKind.SUSPICION and clock.consequence == "识破你的手脚"
+    assert snap.clocks_on("chr:左子穆") == (clock,)
+    assert [c.id for c in snap.clocks] == sorted(c.id for c in snap.clocks)
+    assert {"chr:左子穆", "loc:无量山", "itm:玉佩", p} <= set(snap.labels)  # labels 覆盖挂处
+
+    snap = await at(11)
+    assert _clocks(snap)["左子穆的疑心"] == ("chr:左子穆", 3, 4)  # 推进越界钳在满格之下
+    assert _clocks(snap)["山雨欲来"] == ("loc:无量山", 0, 6)  # 回退越界钳到零
+    assert _clocks(snap)["旧伤发作"] == (p, 2, 4)
+
+    snap = await at(CLOCKS_DONE)
+    assert _clocks(snap) == {  # 坍缩与销毁的退场；同名重挂是一只新钟（同 id、新阈值与进度）
+        "左子穆的疑心": ("chr:左子穆", 2, 6), "山雨欲来": ("loc:无量山", 0, 6), "玉佩的来历": ("itm:玉佩", 0, 8),
+        "旧伤发作": (p, 2, 4),
+    }
+    assert next(c for c in snap.clocks if c.name == "左子穆的疑心").consequence == "又起疑心"
+
+    snap = await at(len(story))  # 拾起玉佩去大理城：行囊之物与自己身上的跟着走，此地与左子穆的留在原处，段誉的现身
+    assert _clocks(snap) == {"玉佩的来历": ("itm:玉佩", 0, 8), "旧伤发作": (p, 2, 4), "段誉的牵挂": ("chr:段誉", 2, 6)}
+    other = pid()  # 平行世界：同一挂处同名的时钟 id 相同，却互不相干
+    await graph.project(other, envelopes(other, clock_journey(other)[:1]))
+    assert (await graph.local_snapshot(other)).clocks == ()
+
+
+async def test_emerged_facts_keep_the_newest_and_follow_their_subjects(graph: Graph) -> None:
+    p = pid()
+    story = envelopes(p, clock_journey(p))
+    await graph.project(p, story[:EMERGED_DONE])
+    snap = await graph.local_snapshot(p)
+    survivors = {0, *range(3, EMERGED_TOTAL)}  # 1、2 最旧被挤掉；0 重提后刷新留下
+    assert len(survivors) == EMERGED_MAX
+    here = {"loc:无量山", "chr:左子穆", "itm:玉佩"}  # 此地、在场者、地上之物；只点了段誉的不进
+    expected = {i for i in survivors if here & set(_emerged_subjects(i))}
+    assert {e.text for e in snap.emerged} == {_emerged_text(i) for i in expected}
+    both = next(e for e in snap.emerged if e.text == _emerged_text(3))
+    assert both.id == fact_id(_emerged_text(3)) and both.subject_ids == ("chr:段誉", "loc:无量山")
+    assert snap.labels["chr:段誉"] == "段誉"  # 事实主体（不在场的也算）都有名字
+    await graph.project(p, story)
+    snap = await graph.local_snapshot(p)  # 大理城：只有点了段誉或行囊里玉佩之名的
+    city = {"chr:段誉", "itm:玉佩"}
+    assert {e.text for e in snap.emerged} == {_emerged_text(i) for i in survivors if city & set(_emerged_subjects(i))}
+
+
+async def test_forget_and_replay_rebuilds_clocks_and_emerged(graph: Graph) -> None:
+    p = pid()
+    history = envelopes(p, clock_journey(p))
+    await graph.project(p, history)
+    before = await graph.local_snapshot(p)
+    assert before.clocks and before.emerged
+    await graph.forget(p)
+    await graph.project(p, history[:1])  # 抹去后只重放到落脚：时钟与事实一并抹去
+    fresh = await graph.local_snapshot(p)
+    assert fresh.clocks == () and fresh.emerged == ()
+    await graph.forget(p)
+    await graph.project(p, history)
+    assert await graph.local_snapshot(p) == before
+
+
+async def test_clock_snapshot_matches_the_aggregate(graph: Graph) -> None:
+    """快照里的时钟就是聚合根的时钟（挂在眼前的那几只）：投影与 evolve 同构。"""
+    p = pid()
+    story = envelopes(p, clock_journey(p))
+    await graph.project(p, story[:EMERGED_DONE])
+    snap = await graph.local_snapshot(p)
+    truth = Player.replay(e.event for e in story[:EMERGED_DONE])
+    assert truth is not None
+    assert snap.clocks == tuple(c for c in truth.clocks if c.anchor_id != "chr:段誉")
+
+
+@pytest.mark.neo4j
+async def test_memory_and_neo4j_agree_on_clocks_and_emerged() -> None:
+    neo = await _neo4j()
+    memory = InMemoryWorldGraph()
+    await memory.seed(WORLD)
+    try:
+        p = pid()
+        story = envelopes(p, clock_journey(p))
+        for upto in range(1, len(story) + 1):
+            await neo.project(p, story[:upto])
+            await memory.project(p, story[:upto])
+            assert await neo.local_snapshot(p) == await memory.local_snapshot(p), f"第 {upto} 版快照分叉"
+        records, _, _ = await neo._driver.execute_query(
+            "MATCH (f:Emerged {world: $pid}) RETURN count(f) AS n", pid=p)
+        assert records[0]["n"] == EMERGED_MAX  # 每个世界只留最新的二十四条
+        await neo.forget(p)
+        records, _, _ = await neo._driver.execute_query(
+            "MATCH (n:Clock|Emerged {world: $pid}) RETURN count(n) AS n", pid=p)
+        assert records[0]["n"] == 0
     finally:
         await neo.close()

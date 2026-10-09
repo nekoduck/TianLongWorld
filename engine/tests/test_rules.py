@@ -1,7 +1,7 @@
 """
 [INPUT]: 依赖 app.domain.rules 的 decide / adjudicate / stakes / resolve，依赖 app.domain.combat 的 assess / settle / CombatProposal，
-         依赖 app.domain.stakes 的 Proposal / risk_of / route_of，依赖 app.domain.aggregates 的 Player，依赖 InMemoryWorldGraph 生成快照，依赖 tests/world 的 WORLD
-[OUTPUT]: scene / act / recast / restock / reitem 助手（别的领域用例复用）；
+         依赖 app.domain.stakes 的 Proposal / risk_of / route_of，依赖 app.domain.clocks 的 NarrativeClock / ClockKind / clock_id，依赖 app.domain.aggregates 的 Player，依赖 InMemoryWorldGraph 生成快照，依赖 tests/world 的 WORLD
+[OUTPUT]: scene / act / recast / restock / reitem / owed 助手（别的领域用例复用；owed 是等价交换补到对象身上的代价时钟）；
           裁决规则的单测：每种动作的放行与驳回、模糊裁决的可裁区间与定案钳位、人情涟漪（只认开篇羁绊，「敌人之敌」升一档）、火候折算境界、
           修习的入门与精进逐条核验、仇人在侧不得修习、求教被拒的理由照实写人情、调息疗伤（source="rest"）、天降神兵此路不通；
           P1：人情按 rank 比——求教门槛随武学境界（三流须友善、二流及以上须信赖，驳回带 unlock）、物归原主直升信赖（已信赖不重复；
@@ -10,7 +10,8 @@
           驳回入账带上所图与手段、rules 拆包后旧的导入路径照旧可用；
           P1 阶段 B：取物的物性闸门（不可携带 NOT_PORTABLE 带 unlock、险物到手即受伤且留一口气）、他人之物按手段分三路（寻常驳回并提示、武力夺物同出手区间且得手即易手、
           言辞讨要、潜行偷取）、重伤逃脱避开去处有仇人的出路、SkillExecuted 记手段、Conversed 记落了地的话题、stakes 门面返回三路赌注之一、
-          通用 Proposal 与 CombatProposal 定案一致、风险档只看最坏一端
+          通用 Proposal 与 CombatProposal 定案一致（别的路线的结局连扣减一并作废）、风险档只看最坏一端；
+          语义物理引擎：好过确定性裁决的提议（轻伤代重伤、重伤代毙命）在对象身上记一格旧恨，确定性裁决不欠代价
 [POS]: tests 的逻辑死线：能力成长、物品获取、人际变化只能由图谱拓扑推导；地下城主只能在领域圈出的区间里挑结局——这里逐条钉死
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -22,9 +23,11 @@ from uuid import uuid4
 import pytest
 
 from app.domain.aggregates import Player, PlayerState
+from app.domain.clocks import ClockKind, NarrativeClock, clock_id
 from app.domain.combat import CombatOutcome, CombatProposal, assess, settle
 from app.domain.events import (
     ActionFailed,
+    ClockStarted,
     Conversed,
     DomainEvent,
     EventEnvelope,
@@ -89,6 +92,22 @@ def failure(events: list[DomainEvent]) -> ActionFailed:
 
 def practiced(skill: str, points: int, source: str | None = None) -> SkillPracticed:
     return SkillPracticed(skill_id=skill, proficiency_gained=points, source_id=source)
+
+
+COST_CLOCKS = {  # 等价交换补到对象身上的凶险时钟：（名称尾缀, 种类, 满则如何）
+    "旧恨": (ClockKind.ENMITY, "怒而动手"),  # 出手
+    "戒心": (ClockKind.SUSPICION, "看穿你的用心"),  # 交涉
+    "疑心": (ClockKind.SUSPICION, "识破你的手脚"),  # 暗取
+}
+
+
+def owed(anchor: str, who: str, tail: str, progress: int) -> ClockStarted:
+    """结局好过确定性裁决（或越出舒适区还要得手）却没付代价：领域在对象身上补挂的那只时钟（cause「代价」，阈值 4）。"""
+    kind, then = COST_CLOCKS[tail]
+    name = f"{who}的{tail}"
+    clock = NarrativeClock(id=clock_id(anchor, name), name=name, kind=kind, anchor_id=anchor, progress=progress,
+                           maximum=4, consequence=then)
+    return ClockStarted(clock=clock, cause="代价")
 
 
 # ============================================================
@@ -195,6 +214,8 @@ async def test_bare_handed_against_ruthless_gong_guangjie_ends_in_a_severe_escap
     assert lenient[0].outcome is Out.MINOR_WOUND and lenient[1] == HealthChanged(  # type: ignore[attr-defined]
         delta=-15, cause="与龚光杰交手", source_id="chr:龚光杰")
     assert not any(isinstance(e, Moved) for e in lenient)  # 轻伤只是退开，人还在原地
+    assert owed("chr:龚光杰", "龚光杰", "旧恨", 1) in lenient  # 好过确定性裁决一格：等价交换，龚光杰记下一格旧恨
+    assert not any(isinstance(e, ClockStarted) for e in events)  # 确定性裁决不欠代价
 
 
 async def test_a_severe_escape_retreats_the_way_you_came() -> None:
@@ -229,6 +250,7 @@ async def test_extreme_recklessness_is_still_fatal_unless_the_master_softens_it(
     assert events[2] == PlayerDied(cause="冒犯南海鳄神，当场毙命", killer_id="chr:南海鳄神")
     spared = decide(attack, state, snap, CombatProposal(Out.SEVERE_WOUND, -60))
     assert not any(isinstance(e, PlayerDied) for e in spared)  # 地下城主可以手下留情——区间里本就有重伤逃脱
+    assert owed("chr:南海鳄神", "南海鳄神", "旧恨", 1) in spared  # 捡回一条命也要付代价：南海鳄神记下一格旧恨
 
 
 async def test_a_neutral_grandmaster_does_not_kill_on_first_offense() -> None:

@@ -1,14 +1,15 @@
 /**
- * [INPUT]: 依赖 react 的 useState，依赖 view.ts 的 Bond / Pursuit / Tone，依赖 index.css 的 gold / ink / blood 令牌
+ * [INPUT]: 依赖 react 的 useState，依赖 view.ts 的 Bond / Pursuit / Clock / Tone，依赖 index.css 的 gold / ink / blood 令牌
  * [OUTPUT]: 对外提供 TiesStrip 组件
- * [POS]: components 的人情 / 心事条，紧贴 StatusBar 之下（随正文滚走，不与状态栏争 sticky）：
- *        人情「名 · 态度（缘由）」、心事「label — note」，两者皆空即整条不渲染（backend 永远如此）；
- *        宽屏常显，窄屏收成一行摘要、轻触展开——展开与否是本组件唯一的私有状态；只按 tone 定色，不解读态度语义
+ * [POS]: components 的人情 / 心事 / 暗流条，紧贴 StatusBar 之下（随正文滚走，不与状态栏争 sticky）：
+ *        人情「名 · 态度（缘由）」、心事「label — note」、暗流「疑心·钟灵的戒心 ▮▮▯▯」（格数即阈值，至多八格），
+ *        三者皆空即整条不渲染（backend 永远如此）；宽屏常显，窄屏收成一行摘要、轻触展开——展开与否是本组件唯一的私有状态；
+ *        只按 tone 定色，不解读态度与时钟种类的语义
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 import { useState } from 'react'
 
-import type { Bond, Pursuit, Tone } from '../view'
+import type { Bond, Clock, Pursuit, Tone } from '../view'
 
 // 态度的字色：敌视血、戒备金、其余素
 const TONES: Record<Tone, string> = {
@@ -20,18 +21,34 @@ const TONES: Record<Tone, string> = {
 interface Props {
   bonds?: readonly Bond[]
   pursuits?: readonly Pursuit[]
+  clocks?: readonly Clock[]
 }
 
-export function TiesStrip({ bonds = [], pursuits = [] }: Props) {
-  const [open, setOpen] = useState(false)
-  if (bonds.length === 0 && pursuits.length === 0) return null
+/** 进度条：满格 ▮、空格 ▯，格数即阈值（4 / 6 / 8）；读屏只念「几格中的几格」 */
+function Gauge({ progress, maximum }: { progress: number; maximum: number }) {
+  const filled = Math.max(0, Math.min(progress, maximum))
+  return (
+    <span role="img" aria-label={`${maximum} 格中的 ${filled} 格`} className="whitespace-nowrap tracking-[-0.1em]">
+      {'▮'.repeat(filled)}
+      <span className="text-stone-600">{'▯'.repeat(maximum - filled)}</span>
+    </span>
+  )
+}
 
-  const summary = [bonds.length > 0 && `人情 ${bonds.length}`, pursuits.length > 0 && `心事 ${pursuits.length}`]
+export function TiesStrip({ bonds = [], pursuits = [], clocks = [] }: Props) {
+  const [open, setOpen] = useState(false)
+  if (bonds.length === 0 && pursuits.length === 0 && clocks.length === 0) return null
+
+  const summary = [
+    bonds.length > 0 && `人情 ${bonds.length}`,
+    pursuits.length > 0 && `心事 ${pursuits.length}`,
+    clocks.length > 0 && `暗流 ${clocks.length}`,
+  ]
     .filter(Boolean)
     .join(' · ')
 
   return (
-    <aside aria-label="人情与心事" className="border-b border-ink-700/60 bg-ink-950/40 px-4 py-2 text-xs leading-relaxed">
+    <aside aria-label="人情、心事与暗流" className="border-b border-ink-700/60 bg-ink-950/40 px-4 py-2 text-xs leading-relaxed">
       <button
         type="button"
         aria-expanded={open}
@@ -61,6 +78,17 @@ export function TiesStrip({ bonds = [], pursuits = [] }: Props) {
               <span key={i} className="min-w-0 break-words text-gold-300">
                 {p.label}
                 {p.note && <span className="text-stone-500"> — {p.note}</span>}
+              </span>
+            ))}
+          </p>
+        )}
+        {clocks.length > 0 && (
+          <p className="flex min-w-0 flex-wrap gap-x-4 gap-y-1">
+            <span className="shrink-0 tracking-widest text-gold-700">暗流</span>
+            {clocks.map((c, i) => (
+              <span key={i} className={`min-w-0 break-words ${TONES[c.tone]}`}>
+                <span className="text-stone-500">{c.kind}·</span>
+                {c.name} <Gauge progress={c.progress} maximum={c.maximum} />
               </span>
             ))}
           </p>

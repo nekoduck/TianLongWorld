@@ -1,9 +1,9 @@
 /**
  * [INPUT]: 依赖 types.ts 的 ActionType
- * [OUTPUT]: 对外提供 Phase、Tone、Choice、Bond、Pursuit、GameFacade
+ * [OUTPUT]: 对外提供 Phase、Tone、Choice、Bond、Pursuit、Clock、GameFacade
  * [POS]: frontend 的视图契约（前端内部，不镜像任何后端）：useGame（backend）与 useEngineGame（engine）都交付 GameFacade，
  *        App 与组件只认这里的形状——两套后端在 hooks 层收敛，视图层不知道自己连的是哪一个；
- *        人情 / 心事 / 手段所图是 engine 才有的可选项，backend 不交付即不显示
+ *        人情 / 心事 / 暗流 / 手段所图是 engine 才有的可选项，backend 不交付即不显示
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 import type { ActionType } from './types'
@@ -43,6 +43,15 @@ export interface Pursuit {
   note: string
 }
 
+/** 暗流一只：「疑心·钟灵的戒心 ▮▮▯▯」；tone 由状态 hook 定（进展素、凶险金、只差一格血），组件不解读种类 */
+export interface Clock {
+  name: string
+  kind: string
+  progress: number
+  maximum: number
+  tone: Tone
+}
+
 export interface GameFacade {
   phase: Phase
   statusBar: string
@@ -54,9 +63,10 @@ export interface GameFacade {
   lastAction: string | null
   /** 上一招解析出的手段与所图（「言辞 · 求艺」），手段寻常时为空；附在题记后（engine） */
   manner?: string | null
-  /** 人情与心事（engine）：缺省或为空则不显示 */
+  /** 人情、心事与暗流（engine）：缺省或为空则不显示 */
   bonds?: readonly Bond[]
   pursuits?: readonly Pursuit[]
+  clocks?: readonly Clock[]
   /** 正在推演的这一招，显示在缓冲提示里 */
   pendingAction: string | null
   /** 每次新场景 +1，驱动打字机与面板重置 */

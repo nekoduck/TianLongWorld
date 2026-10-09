@@ -3,7 +3,8 @@
          依赖 app.domain.stakes 的 Proposal，依赖 tests/test_rules 的 scene / act / recast / reitem / ROOTED
 [OUTPUT]: 暗中取物的单测：区间矩阵（境界差、失主戒心 −1、骗取信你之人 +1、失主被制住 +2；≤ −2 只有失手）按「无痕 / 未遂 / 败露 / 失手」连续切片、
           settle 出界取确定性裁决、效果（无痕易手、未遂只留 Maneuvered、败露易手且失主敌视、失手只结仇、已敌视不重复入账、永不伤人）；
-          经 rules 端到端：潜行偷剑、计谋骗剑、高一境稳稳得手、险物到手照样受伤而不致死、差两境以上（偷绝顶之人）只有失手、东西绝不到手
+          经 rules 端到端：潜行偷剑、计谋骗剑（败露是越出舒适区的得手：失主记两格疑心）、高一境稳稳得手、险物到手照样受伤而不致死、
+          差两境以上（偷绝顶之人）只有失手、东西绝不到手
 [POS]: tests 的暗中死线：被察觉才是代价；暗中行事永不致死
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -17,7 +18,7 @@ from app.domain.models import Attitude, Tier
 from app.domain.outcomes import CovertOutcome, SocialOutcome
 from app.domain.rules import decide, stakes
 from app.domain.stakes import Proposal
-from tests.test_rules import PID, ROOTED, act, recast, reitem, scene
+from tests.test_rules import PID, ROOTED, act, owed, recast, reitem, scene
 
 C = CovertOutcome
 P = Approach
@@ -87,6 +88,7 @@ async def test_stealing_the_sword_by_stealth_and_by_guile() -> None:
         Maneuvered(item_id="itm:无量剑", target_id="chr:左子穆", approach=P.STEALTH, outcome=C.EXPOSED),
         ItemTransferred(item_id="itm:无量剑", from_holder="chr:左子穆", to_holder=PID),
         RelationChanged(character_id="chr:左子穆", attitude=Attitude.HOSTILE, cause="撞破你行窃", basis="败露"),
+        owed("chr:左子穆", "左子穆", "疑心", 2),  # 势均力敌还要得手：越出舒适区两格，付不出就记成疑心
     ]
     con = act(ActionType.TAKE, target_entity="无量剑", approach=P.GUILE)
     caught = decide(con, state, snap, Proposal(C.CAUGHT))

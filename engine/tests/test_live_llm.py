@@ -1,10 +1,10 @@
 """
 [INPUT]: 依赖 app.config 的 Settings / LLMRole（读 engine/.env 的真实配置），依赖 app.infrastructure.llm 的 build_llm 与 CallBudget，
-         依赖 app.application 的 LLMIntentParser / LLMNarrator / LLMResolutionAgent，依赖 app.domain.rules 的 stakes，
+         依赖 app.application 的 LLMIntentParser / LLMNarrator / LLMResolutionAgent，依赖 app.domain.rules 的 envelope，依赖 app.domain.resolution 的 ResolutionOutput / settle，
          依赖 app.infrastructure.knowledge_extractor 的抽取管道，
          依赖 tests/test_rules 的 scene() 快照工厂，依赖 tests/fixtures/sample_passage.txt（自撰梗概，非原著文本）
 [OUTPUT]: 真实大模型回归用例（标记 live，设置 TLBB_TEST_LIVE_LLM=1 才跑，会产生费用）：运行期三职责各走一遍真实厂商——
-          意图解析把华丽描写降维且规整为正名、叙事流式且分片、地下城主对龚光杰一战给出区间内的结局（而非失灵退回规则）；
+          意图解析把华丽描写降维且规整为正名、叙事流式且分片、地下城主对龚光杰一战交出合契约的推演（推理四段 + 符号层，而非失灵退回规则）且推出的结局过得了闸门（不被整份作废）；
           结构化抽取被厂商接受并能组装成蓝图——抽取由 Claude 子代理承担，这一例另须 TLBB_TEST_LIVE_EXTRACTION=1
 [POS]: tests 的提示词与厂商契约护栏：改动提示词、schema 规整或换模型之后跑一次，确认真实模型仍守协议；
        整场共用一份保险丝（至多 LIVE_CALLS 次请求），一次回归的花费有顶
@@ -21,8 +21,9 @@ from app.application.narrator import LLMNarrator, NarrationRequest
 from app.application.ports import LLMClient
 from app.application.resolution_agent import LLMResolutionAgent
 from app.config import LLMRole, Settings
+from app.domain import rules
 from app.domain.intent import ActionType, PlayerIntent
-from app.domain.rules import stakes
+from app.domain.resolution import ResolutionOutput, settle
 from app.infrastructure.knowledge_extractor import LLMKnowledgeExtractor, SeedingPipeline, SourceDocument
 from app.infrastructure.llm.budget import CallBudget
 from app.infrastructure.llm.factory import build_llm
@@ -68,14 +69,17 @@ async def test_live_narration_streams() -> None:
     assert len(chunks) > 1 and len("".join(chunks)) >= 60
 
 
-async def test_live_game_master_rules_inside_the_rails() -> None:
+async def test_live_game_master_reasons_through_the_gate() -> None:
     state, snap = await scene("loc:无量山")
-    at_stake = stakes(PlayerIntent(action_type=ActionType.ATTACK, target_entity="龚光杰"), state, snap)
-    assert at_stake is not None and at_stake.contested
+    intent = PlayerIntent(action_type=ActionType.ATTACK, target_entity="龚光杰")
+    env = rules.envelope(intent, state, snap)
+    assert env is not None and env.contested
     agent = LLMResolutionAgent(client(LLMRole.RESOLUTION))
-    resolution = await agent.resolve(at_stake, snap, state, "我赤手空拳，大喝一声扑向那狠辣的东宗弟子")
-    assert resolution.by == "地下城主" and resolution.proposal is not None  # 守住了契约，而不是失灵退回规则
-    assert resolution.proposal.outcome in at_stake.admissible and resolution.narrative_hint
+    resolution = await agent.resolve(env, snap, state, intent, "我赤手空拳，大喝一声扑向那狠辣的东宗弟子")
+    assert resolution.by == "地下城主" and isinstance(resolution.proposal, ResolutionOutput)  # 守住了契约，而不是失灵退回规则
+    assert resolution.proposal.collision and resolution.proposal.convergence  # 先推理、后符号
+    ruled = settle(env, resolution.proposal, state, snap)
+    assert ruled.adopted and ruled.outcome in env.admissible, ruled.notes  # 推出的结局过得了闸门，而不是整份作废
 
 
 async def test_live_extraction_is_accepted_and_assembles() -> None:

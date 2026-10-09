@@ -4,7 +4,8 @@
 [OUTPUT]: 对外提供 Container（总线 + 流水线 + 投影协调者 + 播种器 + 关闭钩子）、build_container()（按配置装配整个引擎）
 [POS]: 引擎唯一的组合根（依赖注入）：只有这里知道"端口背后是谁"。四类后端各自二选一（memory / 生产实现），大模型缺席时
        换上离线解析器、规则裁决与白描说书人；意图解析、地下城主与叙事渲染按职责各取一套（模型, 思考档位）、共用一份调用次数保险丝（LLM_CALL_LIMIT）；
-       一席裁决（AdjudicationSlot）把地下城主交给自由文本回合、把气运（FortuneResolver，FORTUNE_ON_CLICK 缺省开，关掉即确定性裁决）交给点选回合；
+       一席裁决（AdjudicationSlot）把地下城主（语义物理引擎 LLMResolutionAgent，canon_names 取正典蓝图的全部名录作事实预筛）交给自由文本回合、
+       把气运（FortuneResolver，FORTUNE_ON_CLICK 缺省开，关掉即确定性裁决）交给点选回合；
        意图守卫豁免原著里撞上禁词的正名（WorldviewGuard.for_canon，Neo4j 后端读入库的 blueprint.json）；其余模块只依赖抽象，互不 new 对方。
        测试经 blueprint / llm / resolver 参数注入替身，与生产走同一条装配路径
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -67,7 +68,7 @@ async def build_container(
 ) -> Container:
     """
     llm 是测试替身：同时顶替意图、地下城主与叙事三种在线职责（剧本按调用顺序编排）。
-    resolver 显式指定地下城主，优先于 llm——测试借此注入一个越界的地下城主，证明钳位与速写作废由领域与流水线守住，
+    resolver 显式指定地下城主，优先于 llm——测试借此注入一个越界的地下城主，证明钳位与整份作废由领域闸门守住，
     而不依赖 LLMResolutionAgent 自己守规矩。地下城主只为自由文本回合发言；点选回合归气运（不花钱），由 fortune_on_click 开关。
     """
     closers: list[Callable[[], Awaitable[None]]] = []
@@ -113,7 +114,9 @@ async def build_container(
     if resolver is None:
         judge_llm = llm if llm is not None else build_llm(settings, LLMRole.RESOLUTION, fuse)
         resolver = (
-            LLMResolutionAgent(judge_llm, budget=settings.llm_resolution_budget) if judge_llm else CanonicalResolver()
+            LLMResolutionAgent(judge_llm, budget=settings.llm_resolution_budget, canon_names=_canon_names(canon))
+            if judge_llm
+            else CanonicalResolver()
         )
     narrator: Narrator = (
         FallbackNarrator(LLMNarrator(writer_llm), TemplateNarrator()) if writer_llm else TemplateNarrator()
@@ -144,3 +147,12 @@ def _blueprint_on_disk(settings: Settings) -> WorldBlueprint | None:
         return WorldBlueprint.model_validate_json(settings.blueprint_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+
+
+def _canon_names(blueprint: WorldBlueprint | None) -> frozenset[str]:
+    """原著名录（人物本名 / 称号 / 别名，地点、武学、物品的名字）：地下城主的微观事实点了其中、却不在此景的名字即丢——推演不得凭空请人入场。"""
+    if blueprint is None:
+        return frozenset()
+    people = (n for c in blueprint.characters for n in c.names)
+    things = (n for e in (*blueprint.locations, *blueprint.martial_arts, *blueprint.items) for n in e.names)
+    return frozenset(n for n in (*people, *things) if n)

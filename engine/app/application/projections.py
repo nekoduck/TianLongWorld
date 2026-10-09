@@ -5,7 +5,8 @@
 [POS]: application 的投影协调者：事件流是唯一真相，图谱与向量记忆都只是它的两份投影。
        图谱投影是强一致的——下一步的快照与裁决依赖它，所以同步执行，落后则在下一回合开始前用事件流自愈；
        记忆投影是尽力而为的——它只影响叙事的照应，失败只记日志，凭 (玩家, 版本) 幂等主键随时可重放补齐；
-       不出声的事件（白描为空串，如服药那条 HealthChanged）不入记忆
+       不出声的事件（白描为空串，如服药那条 HealthChanged、零步的时钟推进、零点的名望）不入记忆；
+       时钟与微观事实的事件自带名称与正文，重建时不为 clk: / emg: id 取名
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -17,6 +18,7 @@ from app.domain.events import EventEnvelope, PlayerSpawned
 from app.domain.ports import EventStore, MemoryRecord, NarrativeMemory, WorldProjector, WorldReader
 
 logger = logging.getLogger(__name__)
+_SELF_NAMED = ("clk:", "emg:")  # 时钟与微观事实的事件自带名称与正文，白描不经名字表，不必取名
 
 
 class ProjectionCoordinator:
@@ -66,7 +68,10 @@ class ProjectionCoordinator:
         await self._projector.project(player_id, history)
         ids = {player_id}
         for envelope in history:
-            ids |= {v for v in envelope.event.model_dump().values() if isinstance(v, str) and ":" in v}
+            ids |= {
+                v for v in envelope.event.model_dump().values()
+                if isinstance(v, str) and ":" in v and not v.startswith(_SELF_NAMED)
+            }
         labels = await self._reader.labels(ids)
         name = next((e.event.name for e in history if isinstance(e.event, PlayerSpawned)), player_id)
         await self.chronicle(player_id, name, history, labels)

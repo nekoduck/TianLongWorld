@@ -1,7 +1,8 @@
 """
 [INPUT]: 依赖 domain/ports 的 WorldReader / WorldProjector / WorldSeeder，依赖 domain/aggregates 的 PlayerState / evolve，
          依赖 domain/models 的本体与 WorldBlueprint，依赖 domain/lore 的 Fact，依赖 domain/snapshot 的视图，依赖 app.errors 的 ProjectionError
-[OUTPUT]: 对外提供 InMemoryWorldGraph —— 图谱三端口的进程内实现（快照含 P1 的 era / lead / persona / facts / hostile_ahead / 物性）
+[OUTPUT]: 对外提供 InMemoryWorldGraph —— 图谱三端口的进程内实现（快照含 P1 的 era / lead / persona / facts / hostile_ahead / 物性，
+          以及语义物理引擎的 clocks / emerged）
 [POS]: persistence 的零依赖图谱：正典是一份 WorldBlueprint 的索引，每个平行世界的覆盖层就是一个 PlayerState——
        投影直接复用领域的 evolve 折叠（投影与聚合根同构，无第二套状态机：熟练度、气血、悟性都原样投进快照）；
        下落不明的物品没有持有者，因而不出现在任何快照里；后来才到场（arrives_with）的人与物 P1 不进任何场景；
@@ -9,6 +10,8 @@
        人设只给外显部分（PersonaView），见闻在知情人之一在场、或玩家已知（PlayerState.known_facts）且其主体或 unlock 目标
        在场（此地、在场者、可见之物）时进快照，known 标明已知，主体与知情人去重保序（与 Neo4j 的 MERGE 同口径）；
        labels 把 fact:<slug> 映射为见闻正文；
+       叙事时钟与微观事实同样由 evolve 折叠（PlayerState.clocks / emerged，后者至多 EMERGED_MAX 条、重提即刷新）：时钟挂在此地、
+       在场者、可见之物或玩家自己身上才进快照，微观事实的主体与 {此地, 在场者, 可见之物} 有交集才进快照；抹去重放随覆盖层一并重建；
        与 Neo4jWorldGraph 同守一份契约（tests/test_world_graph.py 双实现共跑，快照逐字段相等）
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -23,6 +26,7 @@ from app.domain.ports import WorldProjector, WorldReader, WorldSeeder
 from app.domain.snapshot import (
     BondView,
     CharacterView,
+    EmergedView,
     ExitView,
     FactView,
     ItemView,
@@ -187,6 +191,12 @@ class InMemoryWorldGraph(WorldReader, WorldProjector, WorldSeeder):
                     subject_ids=tuple(dict.fromkeys(f.subject_ids)), knower_ids=tuple(dict.fromkeys(f.knower_ids)),
                 )
                 for f in self._facts.values() if self._fact_here(f, st, here, scene)
+            ],
+            # 语义物理引擎的此世之物：时钟挂在眼前之物或玩家自己身上才召回，微观事实点了此地、在场者或可见之物之名才召回
+            clocks=[c for c in st.clocks if c.anchor_id in scene or c.anchor_id == player_id],
+            emerged=[
+                EmergedView(id=e.id, text=e.text, subject_ids=e.subject_ids)
+                for e in st.emerged if scene & set(e.subject_ids)
             ],
         )
         return snapshot.model_copy(update={"labels": await self.labels(snapshot.referenced_ids())})

@@ -1,8 +1,9 @@
 """
 [INPUT]: 依赖 neo4j 的 AsyncGraphDatabase / AsyncDriver / AsyncManagedTransaction，依赖 domain/ports 的 WorldReader / WorldProjector / WorldSeeder，
          依赖 domain/events 的领域事件，依赖 domain/combat 的 CombatOutcome，依赖 domain/progression 的 MAX_HP，
+         依赖 domain/clocks 的 NarrativeClock，依赖 domain/aggregates 的 EMERGED_MAX，
          依赖 domain/models 的 Attitude / CharacterStatus / Era / ItemUse / Acquisition / Practice / kind_of / WorldBlueprint，依赖 domain/snapshot 的视图，
-         依赖 infrastructure/cypher 的 compile_blueprint / CANON_LABELS / KIND_LABELS，依赖 app.errors 的 ProjectionError
+         依赖 infrastructure/cypher 的 compile_blueprint / CANON_LABELS / OVERLAY_LABELS / KIND_LABELS，依赖 app.errors 的 ProjectionError
 [OUTPUT]: 对外提供 Neo4jWorldGraph（connect / close + 图谱三端口 + stale_canon 旧纪元残留检查）
 [POS]: persistence 的生产图谱快照。正典 = 播种写入的节点与硬性边，永不被事件改写；
        平行世界 = 以玩家为锚的覆盖层：(:Player) 节点（name / alive / version 检查点 / aptitude 悟性 / hp 气血）、LOCATED_IN（所在）、
@@ -16,6 +17,10 @@
        出口的 hostile_ahead 是去处在场者里有没有对本世界玩家 REGARDS 敌视且未被 SUBDUED 的人；人设读 persona JSON 的外显部分；
        见闻 = 经 KNOWS_FACT 取知情人在场者 ∪ 经 LEARNED 取已知且 ABOUT / UNLOCKS 指向此地、在场者或可见之物者（known 标明已知），
        ABOUT / UNLOCKS 还原主体与解锁；labels 把 fact:<slug> 映射为见闻正文。
+       语义物理引擎：(:Clock {id, world, name, kind, progress, maximum, consequence})-[:ON]->(挂处：Character / Location / Item / Player)
+       由 ClockStarted 写入、ClockAdvanced 钳位加减、ClockCollapsed / ClockCleared 删除；(:Emerged {id, world, text, seq, subject_ids})-[:ABOUT]->(主体)
+       由 FactEmerged 写入（seq = 信封版本，重提刷新），每个世界只留 seq 最新的 EMERGED_MAX 条；RenownChanged 只进聚合。
+       快照召回挂在此地、在场者、可见之物、玩家自己身上的时钟，与主体 ABOUT 此地、在场者或可见之物的微观事实；forget 连同它们一起抹去。
        每种事件一个投影函数（开闭）；投影在单个写事务内推进检查点，版本不超过检查点的事件被跳过（幂等，可安全重试）
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -26,11 +31,18 @@ from typing import Any
 
 from neo4j import AsyncDriver, AsyncGraphDatabase, AsyncManagedTransaction
 
+from app.domain.aggregates import EMERGED_MAX
+from app.domain.clocks import NarrativeClock
 from app.domain.combat import CombatOutcome
 from app.domain.events import (
     LEGACY_MASTERY_POINTS,
+    ClockAdvanced,
+    ClockCleared,
+    ClockCollapsed,
+    ClockStarted,
     DomainEvent,
     EventEnvelope,
+    FactEmerged,
     FactLearned,
     HealthChanged,
     ItemConsumed,
@@ -48,6 +60,7 @@ from app.domain.progression import MAX_HP
 from app.domain.snapshot import (
     BondView,
     CharacterView,
+    EmergedView,
     ExitView,
     FactView,
     ItemView,
@@ -57,7 +70,7 @@ from app.domain.snapshot import (
     SkillView,
 )
 from app.errors import ProjectionError
-from app.infrastructure.cypher import CANON_LABELS, KIND_LABELS, compile_blueprint
+from app.infrastructure.cypher import CANON_LABELS, KIND_LABELS, OVERLAY_LABELS, compile_blueprint
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +78,7 @@ _LABEL = KIND_LABELS
 
 type _Tx = AsyncManagedTransaction
 type _Projector = Callable[[_Tx, str, Any], Awaitable[None]]
+type _VersionedProjector = Callable[[_Tx, str, Any, int], Awaitable[None]]
 
 
 # ============================================================
@@ -162,8 +176,69 @@ async def _died(tx: _Tx, pid: str, e: PlayerDied) -> None:
     await tx.run("MATCH (p:Player {id: $pid}) SET p.alive = false, p.death_cause = $cause", pid=pid, cause=e.cause)
 
 
+# ---------------- 语义物理引擎：叙事时钟与微观事实（本世界的覆盖节点，world = 玩家 id） ----------------
+async def _clock_started(tx: _Tx, pid: str, e: ClockStarted) -> None:
+    """时钟成节点挂到实体上：同一世界同 id 即同一只（重挂即覆盖，与 clocks.started 同口径），ON 边随之改挂。"""
+    c = e.clock
+    anchor = _LABEL[kind_of(c.anchor_id)]  # 标签取自代码常量表，只有数据走参数
+    await tx.run(
+        f"""
+        MERGE (k:Clock {{world: $pid, id: $id}})
+        SET k.name = $name, k.kind = $kind, k.progress = $progress, k.maximum = $maximum, k.consequence = $consequence
+        WITH k
+        OPTIONAL MATCH (k)-[old:ON]->()
+        DELETE old
+        WITH DISTINCT k
+        MATCH (a:{anchor} {{id: $anchor}})
+        MERGE (k)-[:ON]->(a)
+        """,
+        pid=pid, id=c.id, name=c.name, kind=c.kind.value, progress=c.progress, maximum=c.maximum,
+        consequence=c.consequence, anchor=c.anchor_id,
+    )
+
+
+async def _clock_advanced(tx: _Tx, pid: str, e: ClockAdvanced) -> None:
+    """推进或回退，钳在 [0, maximum − 1]（与 clocks.advanced 同口径）：满格由 ClockCollapsed 明写，投影从不替它坍缩。"""
+    await tx.run(
+        "MATCH (k:Clock {world: $pid, id: $id}) "
+        "WITH k, k.progress + $steps AS p "
+        "SET k.progress = CASE WHEN p < 0 THEN 0 WHEN p > k.maximum - 1 THEN k.maximum - 1 ELSE p END",
+        pid=pid, id=e.clock_id, steps=e.steps,
+    )
+
+
+async def _clock_retired(tx: _Tx, pid: str, e: ClockCollapsed | ClockCleared) -> None:
+    """坍缩或销毁：时钟退场，节点连边一并删去。"""
+    await tx.run("MATCH (k:Clock {world: $pid, id: $id}) DETACH DELETE k", pid=pid, id=e.clock_id)
+
+
+async def _emerged(tx: _Tx, pid: str, e: FactEmerged, version: int) -> None:
+    """
+    微观事实成节点、ABOUT 它点了名的实体；seq 记信封版本，重提同一条即刷新 seq 与主体。
+    每个世界只留 seq 最新的 EMERGED_MAX 条——与聚合根「新者在前、重提提到最前、至多 EMERGED_MAX」同口径。
+    主体另存 subject_ids 属性：快照按它原样还原，ABOUT 边供图上遍历与场景过滤。
+    """
+    await tx.run(
+        "MERGE (f:Emerged {world: $pid, id: $id}) SET f.text = $text, f.seq = $seq, f.subject_ids = $subjects "
+        "WITH f OPTIONAL MATCH (f)-[old:ABOUT]->() DELETE old",
+        pid=pid, id=e.fact_id, text=e.text, seq=version, subjects=list(e.subject_ids),
+    )
+    by_label: dict[str, list[str]] = {}
+    for subject in e.subject_ids:
+        by_label.setdefault(_LABEL[kind_of(subject)], []).append(subject)
+    for label, ids in by_label.items():
+        await tx.run(
+            f"MATCH (f:Emerged {{world: $pid, id: $id}}) UNWIND $ids AS s MATCH (n:{label} {{id: s}}) MERGE (f)-[:ABOUT]->(n)",
+            pid=pid, id=e.fact_id, ids=ids,
+        )
+    await tx.run(
+        "MATCH (f:Emerged {world: $pid}) WITH f ORDER BY f.seq DESC SKIP $keep DETACH DELETE f",
+        pid=pid, keep=EMERGED_MAX,
+    )
+
+
 async def _nothing(tx: _Tx, pid: str, e: DomainEvent) -> None:
-    """Conversed / ActionFailed / Parleyed / Maneuvered：只是历史或只进聚合（心事线索），不改变图谱的快照。"""
+    """Conversed / ActionFailed / Parleyed / Maneuvered：只是历史或只进聚合（心事线索）；RenownChanged 的名望只进聚合与状态栏——都不改变图谱的快照。"""
 
 
 _PROJECTORS: dict[str, _Projector] = {
@@ -181,6 +256,14 @@ _PROJECTORS: dict[str, _Projector] = {
     "FactLearned": _learned,
     "ItemConsumed": _consumed,
     "Maneuvered": _nothing,
+    "ClockStarted": _clock_started,
+    "ClockAdvanced": _clock_advanced,
+    "ClockCollapsed": _clock_retired,
+    "ClockCleared": _clock_retired,
+    "RenownChanged": _nothing,
+}
+_VERSIONED: dict[str, _VersionedProjector] = {  # 需要信封版本的投影（按新旧裁剪的微观事实）
+    "FactEmerged": _emerged,
 }
 
 
@@ -255,6 +338,16 @@ RETURN f.id AS id, f.text AS text,
        EXISTS { MATCH (:Player {id: $pid})-[:LEARNED {world: $pid}]->(f) } AS known
 """
 
+_Q_CLOCKS = """
+MATCH (k:Clock {world: $pid})-[:ON]->(a) WHERE a.id IN $anchors
+RETURN k {.id, .name, .kind, .progress, .maximum, .consequence, anchor_id: a.id} AS k
+"""
+
+_Q_EMERGED = """
+MATCH (f:Emerged {world: $pid}) WHERE EXISTS { MATCH (f)-[:ABOUT]->(s) WHERE s.id IN $scene }
+RETURN f.id AS id, f.text AS text, f.subject_ids AS subject_ids
+"""
+
 _ART = "a {.id, .name, .aliases, .tier, .kind, .faction, .description, .acquisition, .practice} AS a"
 _Q_SKILLS = f"""
 MATCH (a:MartialArt) WHERE a.id IN $ids RETURN {_ART}
@@ -292,7 +385,7 @@ class Neo4jWorldGraph(WorldReader, WorldProjector, WorldSeeder):
     # ---------------- 播种 ----------------
     async def seed(self, blueprint: WorldBlueprint, *, reset: bool = False) -> None:
         if reset:
-            labels = " OR ".join(f"n:{label}" for label in (*CANON_LABELS, "Player"))
+            labels = " OR ".join(f"n:{label}" for label in (*CANON_LABELS, *OVERLAY_LABELS))
             await self._driver.execute_query(f"MATCH (n) WHERE {labels} DETACH DELETE n", database_=self._db)
         # 约束是模式变更，不能与数据写入同处一个事务：逐条自动提交
         for statement in compile_blueprint(blueprint):
@@ -334,7 +427,11 @@ class Neo4jWorldGraph(WorldReader, WorldProjector, WorldSeeder):
                 continue
             if envelope.version != version + 1:
                 raise ProjectionError(f"{player_id} 的投影缺口：检查点 {version}，收到第 {envelope.version} 版")
-            await _PROJECTORS[envelope.event.type](tx, player_id, envelope.event)
+            kind = envelope.event.type
+            if kind in _VERSIONED:
+                await _VERSIONED[kind](tx, player_id, envelope.event, envelope.version)
+            else:
+                await _PROJECTORS[kind](tx, player_id, envelope.event)
             version = envelope.version
         if version != start:
             await tx.run("MATCH (p:Player {id: $pid}) SET p.version = $v", pid=player_id, v=version)
@@ -349,6 +446,9 @@ class Neo4jWorldGraph(WorldReader, WorldProjector, WorldSeeder):
     async def forget(self, player_id: str) -> None:
         await self._driver.execute_query(
             "MATCH ()-[r:HELD_BY|CONSUMED|LEARNED {world: $pid}]->() DELETE r", pid=player_id, database_=self._db
+        )
+        await self._driver.execute_query(
+            "MATCH (n:Clock|Emerged {world: $pid}) DETACH DELETE n", pid=player_id, database_=self._db
         )
         await self._driver.execute_query(
             "MATCH (p:Player {id: $pid}) DETACH DELETE p", pid=player_id, database_=self._db
@@ -425,6 +525,11 @@ async def _snapshot_tx(tx: _Tx, player_id: str) -> LocalSnapshot:
     ]
     scene = [loc["id"], *present, *(i.id for i in items)]  # 此地、在场者、看得见的物（地上 / 人手 / 行囊）
     facts = [FactView(**r.data()) async for r in await tx.run(_Q_FACTS, pid=player_id, chars=present, scene=scene)]
+    clocks = [  # 挂在此地、在场者、可见之物或玩家自己身上的
+        NarrativeClock.model_validate(k)
+        async for k in _column(await tx.run(_Q_CLOCKS, pid=player_id, anchors=[*scene, player_id]), "k")
+    ]
+    emerged = [EmergedView(**r.data()) async for r in await tx.run(_Q_EMERGED, pid=player_id, scene=scene)]
 
     inventory = [i.id for i in items if i.holder_id == player_id]
     practice = {row["id"]: int(row["points"] or 0) for row in head["practice"]}
@@ -454,5 +559,7 @@ async def _snapshot_tx(tx: _Tx, player_id: str) -> LocalSnapshot:
         player_aptitude=float(head["aptitude"]),
         player_hp=int(head["hp"]),
         facts=facts,
+        clocks=clocks,
+        emerged=emerged,
     )
     return snapshot.model_copy(update={"labels": await _labels_tx(tx, sorted(snapshot.referenced_ids()))})

@@ -4,9 +4,9 @@
  * [OUTPUT]: 对外提供 useEngineGame() -> GameFacade（与 useGame 同形，另带 resume）
  * [POS]: hooks 的 engine 状态机，VITE_ENGINE 时取代 useGame 成为前端唯一的状态源。帧驱动：turn_resolved 开新一幕并立题记
  *        （facts，手段非寻常时附「手段 · 所图」），narration_delta 逐片累加进 scene（打字机随文本增长接着吐字），
- *        turn_completed 落定选项（角标先风险档后方向）、状态栏、人情 / 心事与生死；P1 字段缺省时一切照旧；
+ *        turn_completed 落定选项（角标先风险档后方向）、状态栏（名望有才显示）、人情 / 心事 / 暗流与生死；P1 与时钟字段缺省时一切照旧；
  *        断线 / 选项过期 / 连接被 Fast Refresh 关掉都进入「悄悄续局」：旧菜单作废、交互区锁进缓冲提示，quiet resume 的终帧
- *        只换回菜单、状态栏、人情心事与生死（此景、题记、打字机进度与输入草稿原样保留，零大模型）
+ *        只换回菜单、状态栏、人情心事暗流与生死（此景、题记、打字机进度与输入草稿原样保留，零大模型）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import { EngineSocket, storedPlayer } from '../api/ws'
 import type { EngineIntent, EngineOption, PlayerStatus, ServerFrame } from '../engineTypes'
 import type { ActionType } from '../types'
-import type { Bond, Choice, GameFacade, Phase, Pursuit, Tone } from '../view'
+import type { Bond, Choice, Clock, GameFacade, Phase, Pursuit, Tone } from '../view'
 
 const NAMELESS = '无名氏'
 const LOST = '与江湖失去联系，正在重连……'
@@ -36,6 +36,7 @@ interface EngineView {
   manner: string | null
   bonds: readonly Bond[]
   pursuits: readonly Pursuit[]
+  clocks: readonly Clock[]
   pendingAction: string | null
   turn: number
   error: string | null
@@ -60,6 +61,7 @@ const INITIAL: EngineView = {
   manner: null,
   bonds: [],
   pursuits: [],
+  clocks: [],
   pendingAction: null,
   turn: 0,
   error: null,
@@ -75,18 +77,24 @@ const statusOf = (s: PlayerStatus) =>
     `【位置：${s.location}】`,
     `【境界：${s.tier}】`,
     `【伤势：${s.health}${!s.alive && s.death_cause ? `（${s.death_cause}）` : ''}】`,
+    ...(s.renown ? [`【名望：${s.renown}】`] : []),
     `【武学：${s.skills.join(', ') || '不会武功'}】`,
     `【行囊：${s.inventory.join(', ') || '空无一物'}】`,
   ].join(' | ')
 
 // ============================================================
 //  人情 / 心事（P1 起下发）：态度定色——敌视血、戒备金、友善与信赖素
+//  暗流（语义物理引擎起下发）：进展素，凶险金，只差一格就满的血
 // ============================================================
 const TONE_BY_ATTITUDE: Record<string, Tone> = { 敌视: 'risk', 戒备: 'probe' }
 
-const tiesOf = (s: PlayerStatus): Pick<EngineView, 'bonds' | 'pursuits'> => ({
+const clockTone = (kind: string, progress: number, maximum: number): Tone =>
+  kind === '进展' ? 'calm' : maximum - progress <= 1 ? 'risk' : 'probe'
+
+const tiesOf = (s: PlayerStatus): Pick<EngineView, 'bonds' | 'pursuits' | 'clocks'> => ({
   bonds: (s.bonds ?? []).map((b) => ({ ...b, tone: TONE_BY_ATTITUDE[b.attitude] ?? 'calm' })),
   pursuits: s.pursuits ?? [],
+  clocks: (s.clocks ?? []).map((c) => ({ ...c, tone: clockTone(c.kind, c.progress, c.maximum) })),
 })
 
 /** 题记的「手段 · 所图」：手段寻常（或旧 engine 不下发）即不显示 */
@@ -345,6 +353,7 @@ export function useEngineGame(): GameFacade {
     manner: state.manner,
     bonds: state.bonds,
     pursuits: state.pursuits,
+    clocks: state.clocks,
     pendingAction: state.pendingAction,
     turn: state.turn,
     error: state.error,

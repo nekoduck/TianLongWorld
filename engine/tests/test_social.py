@@ -7,7 +7,8 @@
           永不伤人）；经 rules 的端到端：言辞结交、打探只学到此人所知且 unlock 落了地的见闻（话题收窄、已知不再学）、言辞讨要、
           以言辞求艺遇 UNWILLING 改走交涉而从不传功（如愿后寻常再求才传）、二流以上求艺永无如愿、威逼被制住之人交出兵器、借势的靠山与见闻筹码、同一手段纠缠扣分；
           Parleyed 带所图的标的 subject_id；筹码只认 known=True 的见闻（知情人不在场照样能用）、打探只认 known=False 者；
-          取他人之物以格子的所图为准（言辞说「夺」照样是讨要）；威逼图不来结交 / 化解 / 求艺（改为打探，无可打探则无如愿）
+          取他人之物以格子的所图为准（言辞说「夺」照样是讨要）；威逼图不来结交 / 化解 / 求艺（改为打探，无可打探则无如愿）；
+          等价交换：好过确定性裁决的如愿在对象身上记一格戒心（制住之后的威逼本就是确定性裁决，不欠）
 [POS]: tests 的交涉死线：大模型只能在这里圈出的区间里挑，交涉永远推不到信赖、永远不致死
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -33,7 +34,7 @@ from app.domain.rules import decide, normalized, stakes
 from app.domain.snapshot import FactView, LocalSnapshot
 from app.domain.social import SocialRuling, SocialStakes, assess_social, effects, settle_social
 from app.domain.stakes import Proposal
-from tests.test_rules import PID, ROOTED, act, recast, scene
+from tests.test_rules import PID, ROOTED, act, owed, recast, scene
 
 S = SocialOutcome
 P = Approach
@@ -177,6 +178,7 @@ async def test_probing_learns_only_what_the_present_knower_knows() -> None:
     assert events == [
         Parleyed(npc_id="chr:左子穆", aim=Aim.PROBE, approach=P.WORDS, outcome=S.GRANTED, subject_id="fact:比剑"),
         FactLearned(fact_id="fact:比剑", source_id="chr:左子穆"),
+        owed("chr:左子穆", "左子穆", "戒心", 1),  # 好过确定性裁决（松动）一格：等价交换补一格戒心
     ]  # 辛双清的「西宗另有隐秘」不是左子穆所知；话题收窄到牵涉辛双清的那几条
     state, snap = await scene("loc:无量山", friend, FactLearned(fact_id="fact:比剑", source_id="chr:左子穆"))
     snap = with_facts(snap)
@@ -195,6 +197,7 @@ async def test_asking_for_an_item_hands_it_over_only_when_granted() -> None:
     assert decide(beg, state, snap, Proposal(S.GRANTED)) == [
         Parleyed(npc_id="chr:左子穆", aim=Aim.ASK, approach=P.WORDS, outcome=S.GRANTED, subject_id="itm:无量剑"),
         ItemTransferred(item_id="itm:无量剑", from_holder="chr:左子穆", to_holder=PID),
+        owed("chr:左子穆", "左子穆", "戒心", 1),
     ]
     assert not any(isinstance(e, ItemTransferred) for e in decide(beg, state, snap))  # 确定性裁决是松动
 
@@ -214,6 +217,7 @@ async def test_pleading_to_learn_parleys_and_never_teaches() -> None:
     assert events == [
         Parleyed(npc_id="chr:辛双清", aim=Aim.LEARN, approach=P.WORDS, outcome=S.GRANTED, subject_id="art:无量剑法"),
         RelationChanged(character_id="chr:辛双清", attitude=Attitude.FRIENDLY, cause="为你言辞所动", basis="如愿"),
+        owed("chr:辛双清", "辛双清", "戒心", 1),  # 动了心，也存了一分戒心：如愿的代价
     ]
     state, snap = await scene("loc:无量山", *events)
     assert decide(act(ActionType.LEARN, skill_used="无量剑法", target_entity="辛双清"), state, snap) == [
@@ -243,7 +247,7 @@ async def test_a_subdued_man_hands_over_his_sword_under_threat() -> None:
         Parleyed(npc_id="chr:左子穆", aim=Aim.ASK, approach=P.FORCE, outcome=S.GRANTED, subject_id="itm:无量剑"),
         ItemTransferred(item_id="itm:无量剑", from_holder="chr:左子穆", to_holder=PID),
         RelationChanged(character_id="chr:左子穆", attitude=Attitude.WARY, cause="被你威逼，畏而不服", basis="如愿"),
-    ]
+    ]  # 制住之后威逼本就是确定性裁决：不比它好，不欠代价
 
 
 async def test_leverage_comes_from_present_patrons_and_known_facts() -> None:
@@ -311,6 +315,7 @@ async def test_sweet_words_cannot_seize_an_item_the_cell_names_the_aim() -> None
     assert decide(grab, state, snap, Proposal(S.GRANTED)) == [
         Parleyed(npc_id="chr:左子穆", aim=Aim.ASK, approach=P.WORDS, outcome=S.GRANTED, subject_id="itm:无量剑"),
         ItemTransferred(item_id="itm:无量剑", from_holder="chr:左子穆", to_holder=PID),
+        owed("chr:左子穆", "左子穆", "戒心", 1),
     ]
     sneak = act(ActionType.TAKE, target_entity="无量剑", approach=P.STEALTH, aim=Aim.ASK)
     assert normalized(sneak, state, snap).aim is Aim.SEIZE
@@ -335,4 +340,5 @@ async def test_a_threat_buys_neither_friendship_nor_teaching() -> None:
         Parleyed(npc_id="chr:左子穆", aim=Aim.PROBE, approach=P.FORCE, outcome=S.GRANTED, subject_id="fact:比剑"),
         FactLearned(fact_id="fact:比剑", source_id="chr:左子穆"),
         RelationChanged(character_id="chr:左子穆", attitude=Attitude.WARY, cause="被你威逼，畏而不服", basis="如愿"),
+        owed("chr:左子穆", "左子穆", "戒心", 1),
     ]

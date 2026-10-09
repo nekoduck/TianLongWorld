@@ -15,9 +15,9 @@
          结局由属性变化推出（制住 → 得手、所图得成 → 如愿 / 无痕、对方人情跌落 → 碰壁 / 翻脸 / 被察觉……），推出的结局须在 rules 圈出的可裁区间里，
          出界即整份推演作废、取确定性裁决——越级取胜依旧不在区间里，大模型说得再动听也写不进账；
          量级：声明「暗流」就只许软结局并必须挂上或推进一只时钟（没挂就由领域按路线补挂），硬结局与时钟坍缩一律是「爆炸」；
-         等价交换：结局好过确定性裁决几格、或越出舒适区还要得手，就得付同样多格的代价（名望、旁人的人情、暗取时的气血、凶险时钟的格数），
+         等价交换：结局好过确定性裁决几格、或越出舒适区还要得手，就得付同样多格的代价（名望、旁人的人情、暗取时的气血、凶险时钟净添的格数——回退与销毁扣回），
                    付不够的由领域补成对象身上一只凶险时钟的格数——补满了它当场坍缩；
-         时钟：只挂在眼前之物上、总数与每个挂处都有上限、一次推进至多三格，满格即按种类坍缩为硬结算（翻脸、剑拔弩张、受创脱身、交情更进一步）；
+         时钟：只挂在眼前之物上、总数与每个挂处都有上限、一次推进至多三格、一回合每只至多动一次（补代价除外），满格即按种类坍缩为硬结算（翻脸、剑拔弩张、受创脱身、交情更进一步）；
          微观事实：至多三条一行中文、不得夹带改变属性 / 归属 / 生死 / 位置的字眼，点了名的场景实体随事件入图。
        交涉永不伤人、暗中与交涉永不致死，这两条旧铁律在新闸门里照样成立。没有大模型（离线、点选、保险丝熔断）时，
        规则或气运的结局经 output_for 变成同形的推演输出走同一道闸门——等价交换对谁都一样
@@ -327,15 +327,27 @@ def _mid(outcome: CombatOutcome) -> int:
     return (low + high) // 2
 
 
+def _own_band(outcome: CombatOutcome) -> tuple[int, int]:
+    """这一格独占的气血带：与更轻一格共用的端点（轻伤的 −10 也是相持的下沿，_derive 平局取轻者）让给那一格，钳进来的数才推得回自身。"""
+    low, high = HP_BANDS[outcome]
+    graded = (CombatOutcome.STALEMATE, CombatOutcome.MINOR_WOUND, CombatOutcome.SEVERE_WOUND)  # 只凭气血推结局的三格
+    if outcome in graded and any(HP_BANDS[o][0] <= high <= HP_BANDS[o][1] for o in graded[: graded.index(outcome)]):
+        high -= 1
+    return low, high
+
+
 def output_for(env: Envelope, outcome: Outcome | None = None, hp_change: int | None = None) -> ResolutionOutput:
     """
     规则或气运给出的结局 → 同形的推演输出（属性变化与之一一对应），好与大模型的推演走同一道闸门。
-    出手的扣减先钳进那一格结局的气血带，免得推回来落到别的结局上。
+    出手的扣减先钳进那一格结局独占的气血带（_own_band：与轻一格共用的端点让出去），免得推回来落到别的结局上。
     """
-    o = outcome if outcome is not None and outcome in env.admissible else env.canonical  # 出界、别的路线的结局：取确定性裁决
+    inside = outcome is not None and outcome in env.admissible
+    o = outcome if inside else env.canonical  # 出界、别的路线的结局：取确定性裁决
+    if not inside:  # 出界的提议连扣减一并作废（取确定性裁决的气血带中值），与旧 settle_any 的口径一致
+        hp_change = None
     name, deltas, trigger = env.target_name, dict[str, int](), ActionTrigger.NONE
     if isinstance(o, CombatOutcome):
-        low, high = HP_BANDS[o]
+        low, high = _own_band(o)
         hp = min(high, max(low, -abs(hp_change))) if hp_change is not None else _mid(o)
         deltas[DeltaKind.HP.value] = hp
         if o is CombatOutcome.SUCCESS:
@@ -492,8 +504,19 @@ class _Clocks:
         self.touched: set[str] = set()
         self.events: list[DomainEvent] = []
         self.collapsed: list[NarrativeClock] = []
-        self.threat_ticks = 0
+        self.threat_net = 0  # 凶险时钟本回合净添的格数（回退、销毁扣回）：先挂后退、先挂后销都付不了账
         self.moved = False  # 本回合挂上或推进过至少一只
+
+    @property
+    def threat_ticks(self) -> int:
+        return max(0, self.threat_net)
+
+    def _again(self, clock: NarrativeClock, cause: str, notes: list[str]) -> bool:
+        """一回合每只至多动一次（新建、推进、回退、销毁都算）；唯一的例外是领域补代价时推进同名的那只。"""
+        if clock.id in self.touched and not cause.startswith("代价"):
+            notes.append(f"时钟「{clock.name}」本回合已动过")
+            return True
+        return False
 
     def find(self, ref: str) -> NarrativeClock | None:
         return self.scene.get(ref) or next((c for c in self.scene.values() if c.name == ref), None)
@@ -514,11 +537,10 @@ class _Clocks:
         self.events.append(ClockStarted(clock=clock, cause=cause))
         self.moved = True
         if kind.threat:
-            self.threat_ticks += clock.progress
+            self.threat_net += clock.progress
 
     def advance(self, clock: NarrativeClock, steps: int, cause: str, notes: list[str]) -> None:
-        if clock.id in self.touched and steps > 0 and not cause.startswith("代价"):
-            notes.append(f"时钟「{clock.name}」本回合已动过")
+        if self._again(clock, cause, notes):
             return
         self.touched.add(clock.id)
         if clock.progress + steps >= clock.maximum:
@@ -527,7 +549,7 @@ class _Clocks:
             self.scene.pop(clock.id, None)
             self.active -= 1
         else:
-            steps = max(-clock.progress, steps)
+            steps = max(-clock.progress, steps)  # 回退至多退到零
             if steps:
                 moved = clock.model_copy(update={"progress": clock.progress + steps})
                 self.events.append(ClockAdvanced(clock_id=clock.id, steps=steps, name=clock.name, progress=moved.progress,
@@ -535,11 +557,15 @@ class _Clocks:
                 self.scene[clock.id] = moved
         if steps > 0:
             self.moved = True
-            if clock.kind.threat:
-                self.threat_ticks += steps
+        if clock.kind.threat:
+            self.threat_net += min(steps, clock.remaining)  # 坍缩那一下只算到满格为止
 
-    def clear(self, clock: NarrativeClock, cause: str) -> None:
+    def clear(self, clock: NarrativeClock, cause: str, notes: list[str]) -> None:
+        if self._again(clock, cause, notes):
+            return
         self.touched.add(clock.id)
+        if clock.kind.threat:
+            self.threat_net -= clock.progress
         self.events.append(ClockCleared(clock_id=clock.id, name=clock.name, cause=cause))
         self.scene.pop(clock.id, None)
         self.active -= 1
@@ -558,14 +584,14 @@ class _Clocks:
             notes.append(f"眼前没有「{m.clock}」这只时钟")
             return
         if m.op is ClockOp.CLEAR:
-            self.clear(clock, "化解")
+            self.clear(clock, "化解", notes)
         else:
             self.advance(clock, m.steps if m.op is ClockOp.ADVANCE else -m.steps, "推演", notes)
 
 
 def _default_clock(env: Envelope, regard_shift: int, *, cost: bool) -> tuple[str, ClockKind, int, str]:
     """领域补挂的时钟（名称、种类、阈值、满则如何）：暗流没挂钟、代价没付够时用。"""
-    who = env.target_name or "此地"
+    who = (env.target_name or "此地")[: NAME_CHARS - 4]  # 最长的模板「与某某的交情」多四个字：名字再长也挂得上
     if env.route is Route.COMBAT:
         return (f"{who}的旧恨" if cost else f"{who}的杀意"), ClockKind.ENMITY, 4, "怒而动手"
     if env.route is Route.SOCIAL and regard_shift >= 0 and not cost:

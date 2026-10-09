@@ -2,10 +2,11 @@
  * [INPUT]: 无（与 engine/app/presentation/protocol.py 的帧、engine/app/application/bus.py 的 PlayerStatus 逐字段镜像）
  * [OUTPUT]: 对外提供 客户端帧 SpawnFrame / ResumeFrame / ActFrame / ChooseFrame / ClientFrame，
  *           服务端帧 SessionFrame / TurnResolvedFrame / NarrationDeltaFrame / TurnCompletedFrame / ErrorFrame / ServerFrame，
- *           以及 EngineActionType、Approach、Aim、EngineIntent、Risk、EngineOption、Bond、Pursuit、PlayerStatus
+ *           以及 EngineActionType、Approach、Aim、EngineIntent、Risk、EngineOption、Bond、Pursuit、ClockKind、ClockInfo、PlayerStatus
  * [POS]: frontend 的 engine 线协议类型，与 types.ts（backend 协议）并列；只被 api/ws.ts 与 hooks/useEngineGame.ts 引用。
  *        ResumeFrame.quiet 为真即悄悄续局：只回 session 与叙事为空的终帧，零大模型。
- *        P1 加法一律可缺省（旧 engine 不下发）：intent 的手段 / 所图 / 话题、option.risk、status 的人情 bonds 与心事 pursuits
+ *        P1 加法一律可缺省（旧 engine 不下发）：intent 的手段 / 所图 / 话题、option.risk、status 的人情 bonds 与心事 pursuits；
+ *        语义物理引擎的加法同样可缺省：status 的眼前暗流 clocks（id 与挂处不下发）与名望 renown（语义标签）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md；字段变化必须与 engine 的 protocol.py / bus.py 同步
  */
 
@@ -110,7 +111,20 @@ export interface Pursuit {
   note: string
 }
 
-/** bus.PlayerStatus：只有语义标签，没有数值 */
+/** domain/clocks.ClockKind：时钟种类（进展有利，其余凶险） */
+export type ClockKind = '疑心' | '敌意' | '危机' | '进展'
+
+/** bus.ClockInfo：眼前的一只叙事时钟（凶险在前、近坍缩在前，至多 4 只） */
+export interface ClockInfo {
+  /** 「钟灵的戒心」 */
+  name: string
+  kind: ClockKind
+  progress: number
+  /** 4 / 6 / 8 */
+  maximum: number
+}
+
+/** bus.PlayerStatus：只有语义标签，没有数值（时钟的格数是叙事节拍，不是属性） */
 export interface PlayerStatus {
   name: string
   location: string
@@ -127,6 +141,10 @@ export interface PlayerStatus {
   bonds?: Bond[]
   /** 心事（P1 起下发） */
   pursuits?: Pursuit[]
+  /** 眼前的暗流（语义物理引擎起下发） */
+  clocks?: ClockInfo[]
+  /** 名望：声名狼藉 / 略有恶名 / 籍籍无名 / 小有名气 / 名动一方 / 威震江湖；空串即旧服务端未填 */
+  renown?: string
 }
 
 // ============================================================

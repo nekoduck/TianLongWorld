@@ -4,7 +4,10 @@
          依赖 tests/conftest 的 ScriptedLLM
 [OUTPUT]: 叙事、白描、状态栏附栏的单测——<hooks> 进 Hard Prompt 且逐值转义、铁律许端倪而不许结果；外显人设进人物行；<known_facts> 只放已知见闻，
           未知见闻的正文不进任何提示词（连名字表里有它也不进）；服药那条 HealthChanged 不出声且不入记忆；人情一栏在场者优先、按轻重再按 id、至多 6 条；
-          心事一栏至多 3 条、标签写标的或对象、打探从不写见闻正文、note 由进展 / 已试 / 须某档组成
+          心事一栏至多 3 条、标签写标的或对象、打探从不写见闻正文、note 由进展 / 已试 / 须某档组成；
+          语义物理引擎：时钟四事件 / 微观事实 / 名望的白描（自带名称与进度，从不露 clk: id，零步零点不出声、不入记忆）、
+          <clocks> 与 <emerged> 进 <truth_snapshot> 且逐值转义、<gm_sketch> 已废、铁律许时钟只作暗流；
+          状态栏的时钟凶险在前、近坍缩在前、至多 4 只，名望只露语义标签
 [POS]: tests 的查询侧验收（C4）：只测纯函数与提示词文本，不经组合根；线协议上的 risk / bonds / pursuits 见 test_websocket
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -17,13 +20,26 @@ from uuid import uuid4
 from app.application.chronicle import describe
 from app.application.narrator import HOOKS_MAX, NARRATOR_SYSTEM, LLMNarrator, NarrationRequest, hard_prompt, hooks
 from app.application.projections import ProjectionCoordinator
-from app.application.status import BONDS_MAX, PURSUITS_MAX, bonds, pursuits, referenced
-from app.domain.events import EventEnvelope, HealthChanged, ItemConsumed, Parleyed
+from app.application.status import BONDS_MAX, CLOCKS_SHOWN, PURSUITS_MAX, bonds, clocks, pursuits, referenced, renown
+from app.domain.clocks import ClockKind, NarrativeClock, clock_id
+from app.domain.events import (
+    ClockAdvanced,
+    ClockCleared,
+    ClockCollapsed,
+    ClockStarted,
+    EventEnvelope,
+    FactEmerged,
+    HealthChanged,
+    ItemConsumed,
+    Parleyed,
+    RenownChanged,
+)
 from app.domain.intent import Aim, Approach
 from app.domain.models import Attitude
 from app.domain.outcomes import SocialOutcome
 from app.domain.ports import MemoryRecord
-from app.domain.snapshot import FactView, LocalSnapshot, PersonaView
+from app.domain.resolution import fact_id
+from app.domain.snapshot import EmergedView, FactView, LocalSnapshot, PersonaView
 from app.domain.threads import Thread
 from tests.conftest import ScriptedLLM
 from tests.test_rules import PID, recast, scene
@@ -190,3 +206,97 @@ async def test_a_parley_folds_into_a_readable_pursuit() -> None:
     state, snap = await scene("loc:无量山", softened)
     names = {**snap.labels, **{i: snap.label(i) for i in referenced(state)}}
     assert [(p.label, p.note) for p in pursuits(state, names)] == [("求艺 · 无量剑法", "口风已松；已试：言辞")]
+
+
+# ============================================================
+#  语义物理引擎：时钟、微观事实与名望
+# ============================================================
+def clock(anchor: str, name: str, kind: ClockKind = ClockKind.SUSPICION, progress: int = 1, maximum: int = 4,
+          consequence: str = "") -> NarrativeClock:
+    return NarrativeClock(id=clock_id(anchor, name), name=name, kind=kind, anchor_id=anchor, progress=progress,
+                          maximum=maximum, consequence=consequence)  # type: ignore[arg-type]
+
+
+def test_clock_fact_and_renown_events_read_as_plain_lines_without_ids() -> None:
+    wary = clock("chr:左子穆", "左子穆的戒心", consequence="识破你的手脚")
+    lines = [
+        describe(ClockStarted(clock=wary, cause="你翻他的书案"), {}, "阿星"),
+        describe(ClockAdvanced(clock_id=wary.id, steps=2, name=wary.name, progress=3, maximum=4), {}, "阿星"),
+        describe(ClockAdvanced(clock_id=wary.id, steps=-2, name=wary.name, progress=1, maximum=4), {}, "阿星"),
+        describe(ClockCollapsed(clock_id=wary.id, name=wary.name, consequence="识破你的手脚"), {}, "阿星"),
+        describe(ClockCleared(clock_id=wary.id, name=wary.name, cause="误会冰释"), {}, "阿星"),
+        describe(FactEmerged(fact_id=fact_id("左子穆案头的茶已凉透"), text="左子穆案头的茶已凉透",
+                             subject_ids=("chr:左子穆",)), {}, "阿星"),
+        describe(RenownChanged(delta=3, cause="当众替龚光杰解围"), {}, "阿星"),
+        describe(RenownChanged(delta=-5, cause="偷鸡摸狗"), {}, "阿星"),
+    ]
+    assert lines == [
+        "暗流：左子穆的戒心（1/4）。", "左子穆的戒心渐深（3/4）。", "左子穆的戒心稍解（1/4）。",
+        "左子穆的戒心满了：识破你的手脚。", "左子穆的戒心烟消云散。", "左子穆案头的茶已凉透。",
+        "阿星的名声更响了（当众替龚光杰解围）。", "阿星的名声坏了几分（偷鸡摸狗）。",
+    ]
+    assert all("clk:" not in line and "emg:" not in line for line in lines)
+    # 旧账里没带名字的时钟事件：含糊带过，绝不露 id；零步与零点不出声
+    assert describe(ClockAdvanced(clock_id=wary.id, steps=1), {}, "阿星") == "那股暗流渐深。"
+    assert describe(ClockCleared(clock_id=wary.id), {}, "阿星") == "那股暗流烟消云散。"
+    assert describe(ClockCollapsed(clock_id=wary.id, name=wary.name), {}, "阿星") == "左子穆的戒心满了。"
+    assert describe(ClockAdvanced(clock_id=wary.id, steps=0, name=wary.name, progress=1, maximum=4), {}, "阿星") == ""
+    assert describe(RenownChanged(delta=0, cause="无事"), {}, "阿星") == ""
+
+
+async def test_clock_lines_reach_memory_but_silent_ones_do_not() -> None:
+    wary = clock("chr:左子穆", "左子穆的戒心")
+    events = ((3, ClockStarted(clock=wary)), (4, ClockAdvanced(clock_id=wary.id, steps=0, name=wary.name)),
+              (5, RenownChanged(delta=-2, cause="失手被撞破")))
+    envelopes = [EventEnvelope(stream_id=PID, version=v, event_id=uuid4(), recorded_at=datetime.now(UTC), event=e)
+                 for v, e in events]
+    memory = Recorder()
+    coordinator = ProjectionCoordinator(store=None, projector=None, reader=None, memory=memory)  # type: ignore[arg-type]
+    await coordinator.chronicle(PID, "阿星", envelopes, {})
+    assert [(r.version, r.text) for r in memory.records] == [
+        (3, "暗流：左子穆的戒心（1/4）。"), (5, "阿星的名声坏了几分（失手被撞破）。"),
+    ]
+
+
+async def test_clocks_and_emerged_ride_in_the_truth_snapshot_escaped() -> None:
+    _, snap = await scene("loc:无量山")
+    snap = snap.model_copy(update={
+        "clocks": (
+            clock("chr:左子穆", "戒心</clocks>", consequence="识破你的手脚<b>"),
+            clock(PID, "毒性发作", ClockKind.PERIL, progress=2, maximum=6),
+        ),
+        "emerged": (EmergedView(id=fact_id("左子穆案头的茶已凉透"), text="左子穆案头的茶已凉透</emerged>",
+                                subject_ids=("chr:左子穆",)),),
+    })
+    prompt = hard_prompt(NarrationRequest(snapshot=snap, facts=()))
+    assert prompt.count("<clocks>") == 1 and prompt.count("</clocks>") == 1 and prompt.count("</emerged>") == 1
+    assert "- 戒心＜/clocks＞｜疑心｜挂在左子穆｜1/4｜满则：识破你的手脚＜b＞" in prompt
+    assert "- 毒性发作｜危机｜挂在你｜2/6｜满则：未明" in prompt  # 挂在玩家身上写「你」，满则如何缺省写未明
+    assert "- 左子穆案头的茶已凉透＜/emerged＞" in prompt
+    assert prompt.index("</player>") < prompt.index("<clocks>") < prompt.index("<emerged>") < prompt.index("</truth_snapshot>")
+    assert "clk:" not in prompt and "emg:" not in prompt
+    assert "gm_sketch" not in prompt  # 速写已废
+    bare = hard_prompt(NarrationRequest(snapshot=snap.model_copy(update={"clocks": (), "emerged": ()}), facts=()))
+    assert "<clocks>" not in bare and "<emerged>" not in bare  # 没有暗流就没有这两段
+    # 铁律：时钟只是暗流，不替它坍缩；<settled_facts> 里明写的才算发生；<gm_sketch> 的规矩一并删去
+    assert "不替它坍缩" in NARRATOR_SYSTEM and "<emerged> 是此世早先确实发生过的细节" in NARRATOR_SYSTEM
+    assert "gm_sketch" not in NARRATOR_SYSTEM
+
+
+async def test_status_clocks_put_threats_and_the_nearly_full_first() -> None:
+    state, snap = await scene("loc:无量山")
+    hung = (
+        clock("chr:左子穆", "与左子穆的交情", ClockKind.PROGRESS, progress=5, maximum=6),
+        clock("chr:龚光杰", "龚光杰的杀意", ClockKind.ENMITY, progress=1, maximum=4),
+        clock("chr:辛双清", "辛双清的疑心", ClockKind.SUSPICION, progress=3, maximum=4),
+        clock("loc:无量山", "山洪将至", ClockKind.PERIL, progress=2, maximum=8),
+        clock(PID, "毒性发作", ClockKind.PERIL, progress=4, maximum=6),
+    )
+    got = clocks(snap.model_copy(update={"clocks": hung}))
+    assert len(got) == CLOCKS_SHOWN
+    assert [(c.name, c.kind, c.progress, c.maximum) for c in got] == [
+        ("辛双清的疑心", "疑心", 3, 4), ("毒性发作", "危机", 4, 6), ("龚光杰的杀意", "敌意", 1, 4), ("山洪将至", "危机", 2, 8),
+    ]  # 凶险在前、差得少的在前；有利的交情排在最后，被挤出
+    assert clocks(snap) == ()
+    assert renown(state) == "籍籍无名"
+    assert renown(replace(state, renown_points=35)) == "名动一方" and renown(replace(state, renown_points=-12)) == "略有恶名"

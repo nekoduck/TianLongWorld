@@ -1,11 +1,14 @@
 """
-[INPUT]: 依赖 app.domain 的 models / lore / intent / outcomes / events / aggregates / progression / snapshot，依赖 tests/world 的 WORLD
+[INPUT]: 依赖 app.domain 的 models / lore / intent / outcomes / events / aggregates / progression / snapshot / clocks，依赖 tests/world 的 WORLD
 [OUTPUT]: 本体完整性、事件不可变与 JSONB 往返及旧账上抛、渐进式状态的折算、聚合根纯函数折叠（含焦点与恩怨缘由）的单测；
           P1 词汇：人情阶梯 rank / step、关系 era 与物性缺省、掌故闸门（人设与见闻的悬空引用、知情人须与主体有涉、unlock 须落在边上、字数与出处、
           主体与知情人不得重复、关系边只认开篇、后来才到场的物品不作主体与险物目标）、
           手段 / 所图 / 话题与 USE、四种新事件往返、旧账缺新字段照读、HealthChanged 上抛（调息疗伤 → rest）与焦点只因调息而不新鲜、
           快照新视图的缺省值与固定排序；P1 阶段 B 的折叠：已知见闻、用掉之物离开行囊（易手覆盖照旧）、交涉与暗取进焦点 / 近来手段 / 尝试次数 / 心事线索、
-          物品最初的来路 taken_from（转手再拿回来不改）；ActionFailed.target_id / subject_id 与 Parleyed.subject_id 往返且旧账缺省为 None
+          物品最初的来路 taken_from（转手再拿回来不改）；ActionFailed.target_id / subject_id 与 Parleyed.subject_id 往返且旧账缺省为 None；
+          语义物理引擎：六种新事件（ClockStarted / ClockAdvanced / ClockCollapsed / ClockCleared / FactEmerged / RenownChanged）往返与边界、
+          NarrativeClock 的闸门（满格不悬着、阈值三档、id 与挂处的前缀）、时钟按 id 折叠且折叠从不替它坍缩（推进钳在阈值减一、回退钳在零、同 id 再挂即覆盖）、
+          微观事实新者在前至多 EMERGED_MAX 条且重提即提到最前、名望钳在 ±100 并折算为六档说法、快照的时钟与事实按 id 排序且挂处与主体进名称表
 [POS]: tests 的领域地基：蓝图是最后一道闸门（悬空引用 / 根基成环 / 人物主键不是本名 / 关系边自环或一对人两条边一律拒收，下落不明的物品合法存在）；
        "当前状态 = reduce(evolve, 历史)"——不查状态表，只凭事件流重算位置、行囊、火候与气血；拿到秘籍不等于学会
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -17,14 +20,20 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from app.domain.aggregates import Player, evolve
+from app.domain.aggregates import EMERGED_MAX, Player, evolve
+from app.domain.clocks import ClockKind, NarrativeClock, clock_id
 from app.domain.combat import CombatOutcome
 from app.domain.events import (
     EVENT_ADAPTER,
     LEGACY_MASTERY_POINTS,
     ActionFailed,
+    ClockAdvanced,
+    ClockCleared,
+    ClockCollapsed,
+    ClockStarted,
     Conversed,
     EventEnvelope,
+    FactEmerged,
     FactLearned,
     HealthChanged,
     ItemConsumed,
@@ -35,6 +44,7 @@ from app.domain.events import (
     PlayerDied,
     PlayerSpawned,
     RelationChanged,
+    RenownChanged,
     SkillExecuted,
     SkillPracticed,
     decode_event,
@@ -63,18 +73,22 @@ from app.domain.models import (
 from app.domain.outcomes import CovertOutcome, SocialOutcome
 from app.domain.progression import (
     MAX_HP,
+    RENOWN_MAX,
     Guidance,
     Mastery,
+    Renown,
     Vitality,
     aptitude_for,
     effective_tier,
     gain,
     mastery_of,
+    renown,
     vitality,
 )
 from app.domain.snapshot import (
     BondView,
     CharacterView,
+    EmergedView,
     ExitView,
     FactView,
     ItemView,
@@ -314,6 +328,10 @@ def test_knowers_may_be_fellows_or_bound_to_the_subject() -> None:
 # ============================================================
 #  事件
 # ============================================================
+DOUBT = NarrativeClock(id=clock_id("chr:左子穆", "左子穆的疑心"), name="左子穆的疑心", kind=ClockKind.SUSPICION,
+                       anchor_id="chr:左子穆", progress=1, maximum=4, consequence="识破你的手脚")
+FLOOD = NarrativeClock(id=clock_id("loc:无量山", "山洪将至"), name="山洪将至", kind=ClockKind.PERIL,
+                       anchor_id="loc:无量山", progress=2, maximum=6, consequence="洪水漫过山道")
 ALL_EVENTS = [
     PlayerSpawned(player_id=PID, name="阿星", location_id="loc:无量山", aptitude=1.2),
     Moved(from_location_id="loc:无量山", to_location_id="loc:大理城", exit_label="南下"),
@@ -335,6 +353,14 @@ ALL_EVENTS = [
     FactLearned(fact_id="fact:东西宗比剑", source_id="chr:左子穆"),
     ItemConsumed(item_id="itm:金创药", effect="疗伤"),
     Maneuvered(item_id="itm:无量剑", target_id="chr:左子穆", approach=Approach.STEALTH, outcome=CovertOutcome.FOILED),
+    ClockStarted(clock=DOUBT, cause="推演"),
+    ClockStarted(clock=FLOOD, cause="暗流"),
+    ClockAdvanced(clock_id=DOUBT.id, steps=2, name="左子穆的疑心", progress=3, maximum=4, cause="推演"),
+    ClockAdvanced(clock_id=FLOOD.id, steps=-1, name="山洪将至", progress=1, maximum=6, cause="推演"),
+    ClockCollapsed(clock_id=DOUBT.id, name="左子穆的疑心", consequence="识破你的手脚"),
+    ClockCleared(clock_id=FLOOD.id, name="山洪将至", cause="化解"),
+    FactEmerged(fact_id="emg:0123456789", text="左子穆的剑穗上沾着湖边的青苔", subject_ids=("chr:左子穆",)),
+    RenownChanged(delta=-5, cause="左子穆的疑心满了：识破你的手脚"),
     PlayerDied(cause="冒犯", killer_id="chr:南海鳄神"),
 ]
 
@@ -612,3 +638,74 @@ def test_p1_snapshot_views_default_and_order_canonically() -> None:
     assert {"itm:朱蛤", "chr:辛双清", "chr:左子穆"} <= snap.referenced_ids()  # 名称表须覆盖见闻牵涉的一切
     assert LocalSnapshot(player_id=PID, player_name="阿星", alive=True, version=1,
                          location=LocationView(id="loc:无量山", name="无量山")).facts == ()
+
+
+# ============================================================
+#  语义物理引擎的折叠：时钟、微观事实、名望
+# ============================================================
+def test_clock_fact_and_renown_events_are_bounded_and_read_old_ledgers() -> None:
+    with pytest.raises(ValidationError, match="已满"):
+        NarrativeClock.model_validate(DOUBT.model_dump() | {"progress": 4})  # 满格即坍缩退场，不能悬着
+    for bad in ({"maximum": 5}, {"id": "clk:xyz"}, {"anchor_id": "左子穆"}, {"name": ""}, {"name": "一" * 13}, {"progress": -1}):
+        with pytest.raises(ValidationError):
+            NarrativeClock.model_validate(DOUBT.model_dump() | bad)
+    assert DOUBT.remaining == 3 and clock_id("chr:左子穆", "左子穆的疑心") == DOUBT.id != clock_id("chr:龚光杰", "左子穆的疑心")
+    assert [k.threat for k in ClockKind] == [True, True, True, False]
+    with pytest.raises(ValidationError):
+        FactEmerged(fact_id="emg:x", text="一" * 41)
+    with pytest.raises(ValidationError):
+        RenownChanged(delta=21, cause="c")
+    with pytest.raises(ValidationError):
+        ClockAdvanced(clock_id=DOUBT.id, steps=9)
+    bare = decode_event({"type": "ClockAdvanced", "clock_id": DOUBT.id, "steps": 1})
+    assert isinstance(bare, ClockAdvanced) and (bare.name, bare.progress, bare.cause) == ("", 0, "")
+    fact = decode_event({"type": "FactEmerged", "fact_id": "emg:1", "text": "风声紧了"})
+    assert isinstance(fact, FactEmerged) and fact.subject_ids == ()
+
+
+def test_clocks_fold_by_id_and_folding_never_collapses_them() -> None:
+    base = [PlayerSpawned(player_id=PID, name="阿星", location_id="loc:无量山")]
+    state = Player.replay([*base, ClockStarted(clock=DOUBT), ClockStarted(clock=FLOOD)])
+    assert state is not None and [c.id for c in state.clocks] == sorted([DOUBT.id, FLOOD.id])  # 按 id 排序，与快照同口径
+    state = Player.replay([*base, ClockStarted(clock=DOUBT), ClockStarted(clock=FLOOD),
+                           ClockAdvanced(clock_id=DOUBT.id, steps=8), ClockAdvanced(clock_id=FLOOD.id, steps=-8),
+                           ClockAdvanced(clock_id="clk:0000000000", steps=1)])
+    assert state is not None and len(state.clocks) == 2
+    assert state.clock(DOUBT.id).progress == 3  # type: ignore[union-attr]  # 钳在阈值减一：满格只由 ClockCollapsed 明写
+    assert state.clock(FLOOD.id).progress == 0  # type: ignore[union-attr]  # 回退至多退到零；没挂的时钟推进不了
+    restarted = Player.replay([*base, ClockStarted(clock=DOUBT), ClockStarted(clock=DOUBT.model_copy(update={"progress": 2}))])
+    assert restarted is not None and [c.progress for c in restarted.clocks] == [2]  # 同 id 再挂即覆盖，不会两只
+    gone = Player.replay([*base, ClockStarted(clock=DOUBT), ClockStarted(clock=FLOOD),
+                          ClockCollapsed(clock_id=DOUBT.id, name=DOUBT.name), ClockCleared(clock_id=FLOOD.id)])
+    assert gone is not None and gone.clocks == () and gone.clock(DOUBT.id) is None
+
+
+def test_emerged_facts_keep_the_newest_and_renown_is_clamped_and_semantic() -> None:
+    base = [PlayerSpawned(player_id=PID, name="阿星", location_id="loc:无量山")]
+    born = Player.replay(base)
+    assert born is not None and (born.clocks, born.emerged, born.renown_points, born.renown) == ((), (), 0, Renown.UNKNOWN)
+    facts = [FactEmerged(fact_id=f"emg:{i:010d}", text=f"细节{i}", subject_ids=("chr:左子穆",)) for i in range(EMERGED_MAX + 1)]
+    state = Player.replay([*base, *facts])
+    assert state is not None and len(state.emerged) == EMERGED_MAX
+    assert state.emerged[0].id == facts[-1].fact_id and facts[0].fact_id not in {f.id for f in state.emerged}  # 新者在前，最旧的退场
+    again = Player.replay([*base, *facts, facts[5]])
+    assert again is not None and again.emerged[0].id == facts[5].fact_id and len({f.id for f in again.emerged}) == EMERGED_MAX
+    assert again.emerged[0].subject_ids == ("chr:左子穆",) and again.emerged[0].text == "细节5"
+    famed = Player.replay([*base, *(RenownChanged(delta=20, cause="c") for _ in range(6))])
+    assert famed is not None and (famed.renown_points, famed.renown) == (RENOWN_MAX, Renown.LEGEND)  # 钳在 +100
+    fallen = Player.replay([*base, *(RenownChanged(delta=-20, cause="c") for _ in range(6)), RenownChanged(delta=5, cause="c")])
+    assert fallen is not None and (fallen.renown_points, fallen.renown) == (-RENOWN_MAX + 5, Renown.INFAMOUS)
+    assert [renown(p) for p in (-30, -29, -10, -9, 9, 10, 29, 30, 59, 60)] == [
+        Renown.INFAMOUS, Renown.NOTORIOUS, Renown.NOTORIOUS, Renown.UNKNOWN, Renown.UNKNOWN,
+        Renown.NOTED, Renown.NOTED, Renown.FAMED, Renown.FAMED, Renown.LEGEND]
+
+
+def test_the_snapshot_orders_clocks_and_names_what_they_hang_on() -> None:
+    snap = LocalSnapshot(
+        player_id=PID, player_name="阿星", alive=True, version=1, location=LocationView(id="loc:无量山", name="无量山"),
+        clocks=[FLOOD, DOUBT], emerged=[EmergedView(id="emg:b", text="乙", subject_ids=("chr:龚光杰",)),
+                                         EmergedView(id="emg:a", text="甲")],
+    )
+    assert [c.id for c in snap.clocks] == sorted([DOUBT.id, FLOOD.id]) and [e.id for e in snap.emerged] == ["emg:a", "emg:b"]
+    assert snap.clocks_on("chr:左子穆") == (DOUBT,) and snap.clocks_on("chr:龚光杰") == ()
+    assert {"chr:左子穆", "loc:无量山", "chr:龚光杰"} <= snap.referenced_ids()  # 时钟的挂处与事实的主体都要有名

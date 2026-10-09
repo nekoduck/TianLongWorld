@@ -1,8 +1,8 @@
 """
 [INPUT]: 依赖 pydantic v2 的 BaseModel / Field，依赖 domain/intent 的 PlayerIntent，依赖 application/options 的 ActionOption
 [OUTPUT]: 对外提供 命令 Command / SpawnPlayer / ResumePlayer（quiet 只重新接上、不复述此景）/ SubmitText / ChooseOption、
-          回合消息 SessionOpened / TurnResolved / NarrationDelta / TurnCompleted 与 PlayerStatus（境界 / 伤势 / 武学火候皆为语义标签，
-          另有人情 Bond 与心事 Pursuit 两栏，由 application/status 现算）、
+          回合消息 SessionOpened / TurnResolved / NarrationDelta / TurnCompleted 与 PlayerStatus（境界 / 伤势 / 武学火候 / 名望皆为语义标签，
+          另有人情 Bond、心事 Pursuit 两栏与眼前的叙事时钟 ClockInfo，由 application/status 现算）、
           CommandHandler 抽象、CommandBus（按命令类型分派到处理器，返回回合消息的异步流）
 [POS]: application 的边界契约：命令进、消息流出。presentation 只认识这里的类型，不认识聚合根、图谱与大模型；
        处理器以异步流回传消息，流式叙事因此是协议的一等公民而非事后补丁。新增命令 = 新命令类 + 新处理器 + 注册一行（开闭）。
@@ -69,6 +69,15 @@ class Pursuit(_Message):
     note: str = ""  # 「口风已松；已试：言辞」
 
 
+class ClockInfo(_Message):
+    """眼前的一只叙事时钟：语义名称、种类与格数。id 与挂处的 id 从不下发——前端只画进度条。"""
+
+    name: str  # 「钟灵的戒心」
+    kind: str  # 疑心 / 敌意 / 危机 / 进展
+    progress: int
+    maximum: int  # 4 / 6 / 8
+
+
 class PlayerStatus(_Message):
     """状态栏：只有语义标签，没有数值——熟练度与气血是领域内部的整数，玩家看到的永远是火候与伤势。"""
 
@@ -82,6 +91,8 @@ class PlayerStatus(_Message):
     skills: tuple[str, ...] = ()  # 「北冥神功（略有小成）」：武学连同火候
     bonds: tuple[Bond, ...] = ()  # 人情：在场者优先、至多 6 条（status.bonds）
     pursuits: tuple[Pursuit, ...] = ()  # 心事：至多 3 条（status.pursuits）
+    clocks: tuple[ClockInfo, ...] = ()  # 眼前的暗流：至多 4 只（status.clocks）
+    renown: str = ""  # 名望的语义标签（籍籍无名……）；空即旧服务端未填
 
 
 class SessionOpened(_Message):
