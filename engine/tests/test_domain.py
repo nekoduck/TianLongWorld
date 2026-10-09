@@ -1,6 +1,9 @@
 """
-[INPUT]: 依赖 app.domain 的 models / events / aggregates / progression，依赖 tests/world 的 WORLD
-[OUTPUT]: 本体完整性、事件不可变与 JSONB 往返及旧账上抛、渐进式状态的折算、聚合根纯函数折叠（含焦点与恩怨缘由）的单测
+[INPUT]: 依赖 app.domain 的 models / lore / intent / outcomes / events / aggregates / progression / snapshot，依赖 tests/world 的 WORLD
+[OUTPUT]: 本体完整性、事件不可变与 JSONB 往返及旧账上抛、渐进式状态的折算、聚合根纯函数折叠（含焦点与恩怨缘由）的单测；
+          P1 词汇：人情阶梯 rank / step、关系 era 与物性缺省、掌故闸门（人设与见闻的悬空引用、知情人须与主体有涉、unlock 须落在边上、字数与出处）、
+          手段 / 所图 / 话题与 USE、四种新事件往返与照读不崩、旧账缺新字段照读、HealthChanged 上抛（调息疗伤 → rest）与焦点只因调息而不新鲜、
+          快照新视图的缺省值与固定排序
 [POS]: tests 的领域地基：蓝图是最后一道闸门（悬空引用 / 根基成环 / 人物主键不是本名一律拒收，下落不明的物品合法存在）；
        "当前状态 = reduce(evolve, 历史)"——不查状态表，只凭事件流重算位置、行囊、火候与气血；拿到秘籍不等于学会
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -20,9 +23,13 @@ from app.domain.events import (
     ActionFailed,
     Conversed,
     EventEnvelope,
+    FactLearned,
     HealthChanged,
+    ItemConsumed,
     ItemTransferred,
+    Maneuvered,
     Moved,
+    Parleyed,
     PlayerDied,
     PlayerSpawned,
     RelationChanged,
@@ -30,21 +37,28 @@ from app.domain.events import (
     SkillPracticed,
     decode_event,
 )
-from app.domain.intent import ActionType, PlayerIntent
+from app.domain.intent import ActionType, Aim, Approach, PlayerIntent
+from app.domain.lore import Fact, FactUnlock, Persona
 from app.domain.models import (
     Acquisition,
     Attitude,
     Character,
+    CharacterRelation,
+    Disposition,
+    Era,
     Item,
+    ItemUse,
     Location,
     MartialArt,
     Practice,
     Provenance,
+    RelationKind,
     Tier,
     Transmission,
     WorldBlueprint,
     prerequisite_cycle,
 )
+from app.domain.outcomes import CovertOutcome, SocialOutcome
 from app.domain.progression import (
     MAX_HP,
     Guidance,
@@ -55,6 +69,16 @@ from app.domain.progression import (
     gain,
     mastery_of,
     vitality,
+)
+from app.domain.snapshot import (
+    BondView,
+    CharacterView,
+    ExitView,
+    FactView,
+    ItemView,
+    LocalSnapshot,
+    LocationView,
+    PersonaView,
 )
 from app.errors import PlayerDeadError, UnknownPlayerError
 from tests.world import WORLD
@@ -117,6 +141,118 @@ def test_items_may_be_lost_but_never_misplaced() -> None:
 def test_intent_normalizes_instead_of_rejecting() -> None:
     intent = PlayerIntent(action_type="ATTACK", target_entity="  ", item_used="剑" * 50, narrative_style=None)
     assert intent.target_entity is None and len(intent.item_used or "") == 24 and intent.narrative_style == ""
+    assert intent.approach is Approach.PLAIN and intent.aim is None and intent.topic is None  # 旧意图一律寻常
+
+
+def test_intent_carries_approach_aim_and_topic() -> None:
+    asked = PlayerIntent(action_type="LEARN", skill_used="无量剑法", approach="言辞", aim="求艺", topic=" 东西宗比剑 ")
+    assert (asked.approach, asked.aim, asked.topic) == (Approach.WORDS, Aim.LEARN, "东西宗比剑")
+    assert PlayerIntent(action_type="TALK", topic="").topic is None
+    assert len(PlayerIntent(action_type="TALK", topic="话" * 50).topic or "") == 24  # 与其余指称同样规整
+    assert PlayerIntent(action_type="USE", item_used="金创药").action_type is ActionType.USE
+    with pytest.raises(ValidationError):
+        PlayerIntent(action_type="TALK", approach="法术")
+
+
+# ============================================================
+#  P1 本体：人情阶梯、关系 era、物性、掌故闸门
+# ============================================================
+def test_attitude_is_a_five_step_ladder() -> None:
+    assert [a.rank for a in Attitude] == [-2, -1, 0, 1, 2]
+    assert [a.value for a in (Attitude.HOSTILE, Attitude.NEUTRAL, Attitude.FRIENDLY)] == ["敌视", "漠然", "友善"]  # 旧值不动
+    assert Attitude.NEUTRAL.step(1) is Attitude.FRIENDLY and Attitude.FRIENDLY.step(1) is Attitude.TRUSTED
+    assert Attitude.TRUSTED.step(3) is Attitude.TRUSTED and Attitude.WARY.step(-5) is Attitude.HOSTILE  # 钳在两端
+    assert Attitude.HOSTILE.step(2) is Attitude.NEUTRAL and Attitude.WARY.step(0) is Attitude.WARY
+
+
+def test_p1_ontology_defaults_keep_old_blueprints_valid() -> None:
+    rel = WORLD.relations[0]
+    assert rel.era is Era.OPENING  # 审计之前一律视为开篇
+    duan = next(c for c in WORLD.characters if c.id == "chr:段誉")
+    assert duan.foreshadow == "" and duan.arrives_with is None
+    jade = next(i for i in WORLD.items if i.id == "itm:玉佩")
+    assert jade.portable and jade.hazard is None and jade.use is None and jade.arrives_with is None
+    assert WORLD.personas == () and WORLD.facts == ()
+    assert ItemUse(effect="疗伤").potency == 1
+    with pytest.raises(ValidationError):
+        ItemUse(effect="疗伤", potency=4)
+    with pytest.raises(ValidationError):
+        ItemUse(effect="续命")
+
+
+def _lore(**extra: object) -> WorldBlueprint:
+    """在 WORLD 上叠一件有毒之物与掌故，经蓝图闸门重新校验（model_copy 不校验）。"""
+    toad = Item(id="itm:朱蛤", name="朱蛤", kind="毒物", location_id="loc:无量山", portable=False, hazard="剧毒")
+    return WorldBlueprint.model_validate({**WORLD.model_dump(), "items": (*WORLD.items, toad), **extra})
+
+
+PERSONA = Persona(character_id="chr:左子穆", likes=("门下弟子争气",), worry="西宗夺剑湖宫", sources=("chunk:3",))
+RIVALRY = Fact(
+    id="fact:东西宗比剑", text="无量剑东西二宗五年一比剑，胜者入住剑湖宫",
+    subject_ids=("chr:左子穆", "chr:辛双清"), knower_ids=("chr:左子穆", "chr:龚光杰"),
+    unlock=FactUnlock(kind="LEVERAGE", target_id="chr:左子穆"), sources=("ev:3",),
+)
+
+
+def test_lore_lands_on_the_blueprint() -> None:
+    sword = Fact(id="fact:左子穆的剑法", text="左子穆精于无量剑法", subject_ids=("chr:左子穆",),
+                 knower_ids=("chr:辛双清",), unlock=FactUnlock(kind="TEACHING", target_id="art:无量剑法"), sources=("chunk:3",))
+    venom = Fact(id="fact:朱蛤有毒", text="山间朱蛤剧毒，碰不得", subject_ids=("itm:朱蛤",), knower_ids=("chr:辛双清",),
+                 unlock=FactUnlock(kind="HAZARD", target_id="itm:朱蛤"), sources=("chunk:9",))
+    worry = Fact(id="fact:左子穆的心事", text="左子穆最怕西宗夺去剑湖宫", subject_ids=("chr:左子穆",),
+                 knower_ids=("chr:左子穆",), unlock=FactUnlock(kind="MOTIVE", target_id="chr:左子穆"), sources=("chunk:3",))
+    bp = _lore(personas=(PERSONA,), facts=(RIVALRY, sword, venom, worry))
+    assert len(bp.facts) == 4 and bp.personas == (PERSONA,)
+    toad = next(i for i in bp.items if i.id == "itm:朱蛤")
+    assert not toad.portable and toad.hazard == "剧毒"
+
+
+@pytest.mark.parametrize(
+    ("extra", "message"),
+    [
+        ({"personas": (PERSONA.model_copy(update={"character_id": "chr:无名氏"}),)}, "人设引用了不存在的人物"),
+        ({"personas": (PERSONA, PERSONA)}, "重复的人设"),
+        ({"facts": (RIVALRY, RIVALRY)}, "重复的见闻"),
+        ({"facts": (RIVALRY.model_copy(update={"subject_ids": ("chr:无名氏",)}),)}, "主体不存在"),
+        ({"facts": (RIVALRY.model_copy(update={"knower_ids": ("loc:无量山",)}),)}, "知情人不是蓝图里的人物"),
+        ({"facts": (RIVALRY.model_copy(update={"knower_ids": ("chr:乔峰",)}),)}, "与主体无涉"),  # 不同门、无关系边
+        ({"facts": (RIVALRY.model_copy(update={"unlock": FactUnlock(kind="TEACHING", target_id="art:一阳指")}),)},
+         "落不到蓝图的边上"),  # 两位主体都不会一阳指
+        ({"facts": (RIVALRY.model_copy(update={"unlock": FactUnlock(kind="LEVERAGE", target_id="chr:段誉")}),)},
+         "落不到蓝图的边上"),  # 段誉与主体之间没有关系边
+        ({"facts": (RIVALRY.model_copy(update={"unlock": FactUnlock(kind="HAZARD", target_id="itm:玉佩")}),)},
+         "落不到蓝图的边上"),  # 玉佩无毒
+        ({"facts": (RIVALRY.model_copy(update={"unlock": FactUnlock(kind="MOTIVE", target_id="chr:左子穆")}),)},
+         "落不到蓝图的边上"),  # 没有人设
+    ],
+)
+def test_lore_gate_rejects(extra: dict[str, object], message: str) -> None:
+    with pytest.raises(ValidationError, match=message):
+        _lore(**extra)
+
+
+def test_lore_fields_are_bounded() -> None:
+    with pytest.raises(ValidationError):
+        Persona(character_id="chr:左子穆", likes=("话" * 17,), sources=("chunk:1",))  # 每条 ≤16 字
+    with pytest.raises(ValidationError):
+        Persona(character_id="chr:左子穆", sources=())  # 须有出处
+    with pytest.raises(ValidationError):
+        Persona(character_id="chr:左子穆", sources=("第三回",))  # 出处须是 ev:<块> 或 chunk:<块>
+    with pytest.raises(ValidationError):
+        RIVALRY.model_validate({**RIVALRY.model_dump(), "text": "话" * 41})  # 见闻 ≤40 字
+    with pytest.raises(ValidationError):
+        RIVALRY.model_validate({**RIVALRY.model_dump(), "id": "东西宗比剑"})  # id 须是 fact:<slug>
+    with pytest.raises(ValidationError):
+        RIVALRY.model_validate({**RIVALRY.model_dump(), "knower_ids": ()})  # 没有知情人的见闻无从打探
+
+
+def test_knowers_may_be_fellows_or_bound_to_the_subject() -> None:
+    """知情人须与主体有涉：本人、同门（同一门派）、或有关系边；物品的"本人"是物主，武学是身负者，地点是身在其中者。"""
+    fellow = RIVALRY.model_copy(update={"knower_ids": ("chr:龚光杰",), "unlock": None})  # 与左子穆同门
+    kin = Fact(id="fact:玉佩", text="玉佩是段家之物", subject_ids=("itm:玉佩",), knower_ids=("chr:段誉",), sources=("chunk:1",))
+    bp = _lore(facts=(fellow, kin))  # 段誉与物主段正淳有父子之边
+    assert {f.id for f in bp.facts} == {"fact:东西宗比剑", "fact:玉佩"}
+    assert CharacterRelation(source_id="chr:甲", target_id="chr:乙", kind=RelationKind.KIN).era is Era.OPENING
 
 
 # ============================================================
@@ -132,6 +268,17 @@ ALL_EVENTS = [
     Conversed(npc_id="chr:段誉"),
     RelationChanged(character_id="chr:段正淳", attitude=Attitude.FRIENDLY, cause="物归原主"),
     ActionFailed(action=ActionType.MOVE, target="少林寺", reason_code="NO_PATH", reason="无路"),
+    ActionFailed(action=ActionType.LEARN, target="一阳指", reason_code="UNWILLING", reason="交情尚浅", unlock="信赖",
+                 aim=Aim.LEARN, approach=Approach.WORDS),
+    HealthChanged(delta=5, cause="服用金创药", source_id="itm:金创药", source="item"),
+    Conversed(npc_id="chr:左子穆", topic_id="fact:东西宗比剑"),
+    RelationChanged(character_id="chr:龚光杰", attitude=Attitude.WARY, cause="师徒左子穆受你攻击", basis="师徒"),
+    SkillExecuted(skill_id=None, target_id="chr:龚光杰", outcome=CombatOutcome.STALEMATE, approach=Approach.GUILE),
+    Parleyed(npc_id="chr:左子穆", aim=Aim.LEARN, approach=Approach.WORDS, outcome=SocialOutcome.SOFTENED,
+             leverage_ids=("fact:东西宗比剑",)),
+    FactLearned(fact_id="fact:东西宗比剑", source_id="chr:左子穆"),
+    ItemConsumed(item_id="itm:金创药", effect="疗伤"),
+    Maneuvered(item_id="itm:无量剑", target_id="chr:左子穆", approach=Approach.STEALTH, outcome=CovertOutcome.FOILED),
     PlayerDied(cause="冒犯", killer_id="chr:南海鳄神"),
 ]
 
@@ -155,6 +302,45 @@ def test_legacy_vocabulary_is_upcast_on_read() -> None:
     assert isinstance(repelled, SkillExecuted) and repelled.outcome is CombatOutcome.MINOR_WOUND
     old_spawn = decode_event({"type": "PlayerSpawned", "player_id": PID, "name": "阿星", "location_id": "loc:无量山"})
     assert isinstance(old_spawn, PlayerSpawned) and old_spawn.aptitude == 1.0  # 悟性之前的旧账：中人之资
+
+
+def test_old_ledgers_read_without_the_new_fields() -> None:
+    """P1 给旧事件加的字段一律有缺省值：账本里没有它们的旧账照读。"""
+    failed = decode_event({"type": "ActionFailed", "action": "TALK", "target": None, "reason_code": "X", "reason": "y"})
+    assert isinstance(failed, ActionFailed) and (failed.unlock, failed.aim, failed.approach) == ("", None, Approach.PLAIN)
+    talked = decode_event({"type": "Conversed", "npc_id": "chr:段誉"})
+    assert isinstance(talked, Conversed) and talked.topic_id is None
+    hit = decode_event({"type": "SkillExecuted", "skill_id": None, "target_id": "chr:段誉", "outcome": "得手"})
+    assert isinstance(hit, SkillExecuted) and hit.approach is Approach.PLAIN
+    regard = decode_event({"type": "RelationChanged", "character_id": "chr:段誉", "attitude": "友善", "cause": "c"})
+    assert isinstance(regard, RelationChanged) and regard.basis == "" and regard.attitude is Attitude.FRIENDLY
+
+
+def test_rest_is_upcast_from_the_legacy_cause() -> None:
+    """唯一的上抛：source 之前的调息写的是 cause="调息疗伤"——读作 rest；别的旧账读作 blow；写明了 source 的一字不动。"""
+    rest = decode_event({"type": "HealthChanged", "delta": 25, "cause": "调息疗伤"})
+    assert isinstance(rest, HealthChanged) and rest.source == "rest"
+    blow = decode_event({"type": "HealthChanged", "delta": -18, "cause": "与左子穆交手", "source_id": "chr:左子穆"})
+    assert isinstance(blow, HealthChanged) and blow.source == "blow"
+    explicit = decode_event({"type": "HealthChanged", "delta": 25, "cause": "调息疗伤", "source": "item"})
+    assert isinstance(explicit, HealthChanged) and explicit.source == "item"
+
+
+def test_only_resting_lets_the_focus_go_stale() -> None:
+    """焦点「不新鲜」认 source="rest"：服药的气血回升不是走开；旧账里的调息经上抛同样算数。"""
+    talk = [PlayerSpawned(player_id=PID, name="阿星", location_id="loc:无量山"), Conversed(npc_id="chr:左子穆")]
+    dosed = Player.replay([*talk, HealthChanged(delta=10, cause="服用金创药", source_id="itm:金创药", source="item")])
+    assert dosed is not None and dosed.focus_fresh
+    legacy = decode_event({"type": "HealthChanged", "delta": 10, "cause": "调息疗伤"})
+    rested = Player.replay([*talk, legacy])
+    assert rested is not None and not rested.focus_fresh
+
+
+def test_the_new_vocabulary_folds_without_breaking() -> None:
+    """Parleyed / FactLearned / ItemConsumed / Maneuvered 眼下照读而不改状态（折叠在阶段 B）。"""
+    base = [PlayerSpawned(player_id=PID, name="阿星", location_id="loc:无量山")]
+    news = [e for e in ALL_EVENTS if isinstance(e, Parleyed | FactLearned | ItemConsumed | Maneuvered)]
+    assert len(news) == 4 and Player.replay([*base, *news]) == Player.replay(base)
 
 
 def test_events_are_immutable() -> None:
@@ -221,7 +407,7 @@ def test_replay_is_a_pure_reduce() -> None:
     once, twice = Player.replay(events), Player.replay(events)
     assert once == twice and once is not twice
     assert once is not None and once.subdued == frozenset() and once.skills == {"art:无量剑法"}
-    assert once.hp == MAX_HP - 18 and once.vitality is Vitality.HURT
+    assert once.hp == MAX_HP - 18 + 5 and once.vitality is Vitality.HURT  # 交手所伤，服药略回
 
 
 def test_skill_level_is_the_reduce_of_practice_scaled_by_aptitude() -> None:
@@ -303,3 +489,35 @@ def test_unknown_and_dead_players_cannot_act() -> None:
     dead = Player.from_history(PID, _history(ALL_EVENTS[0], ALL_EVENTS[-1]))
     with pytest.raises(PlayerDeadError, match="已经死了"):
         dead.ensure_alive()
+
+
+# ============================================================
+#  P1 快照视图：缺省值让图谱实现不填也能构造，新集合同样按固定键排序
+# ============================================================
+def test_p1_snapshot_views_default_and_order_canonically() -> None:
+    assert ExitView(label="南下", to_id="loc:大理城", to_name="大理城").hostile_ahead is False
+    jade = ItemView(id="itm:玉佩", name="玉佩", holder_id="loc:无量山")
+    assert jade.portable and jade.hazard is None and jade.use is None
+    master = CharacterView(
+        id="chr:左子穆", name="左子穆", tier=Tier.THIRD, disposition=Disposition.NEUTRAL,
+        bonds=[{"other_id": "chr:龚光杰", "kind": "师徒", "lead": True}, {"other_id": "chr:龚光杰", "kind": "师徒"}],
+    )  # 图谱实现没填的新字段取缺省值，排序键与实现无关
+    assert [(b.lead, b.era) for b in master.bonds] == [(False, Era.OPENING), (True, Era.OPENING)]
+    assert master.persona is None and BondView(other_id="chr:甲", kind=RelationKind.KIN).lead is False
+    told = CharacterView(id="chr:甲", name="甲", tier=Tier.NONE, disposition=Disposition.NEUTRAL,
+                         persona=PersonaView(likes=("清静",), worry="西宗"))
+    assert told.persona is not None and told.persona.dislikes == ()
+    snap = LocalSnapshot(
+        player_id=PID, player_name="阿星", alive=True, version=1,
+        location=LocationView(id="loc:无量山", name="无量山"),
+        facts=[
+            FactView(id="fact:b", text="乙", subject_ids=("chr:辛双清", "chr:左子穆"), knower_ids=("chr:左子穆",)),
+            FactView(id="fact:a", text="甲", subject_ids=("itm:朱蛤",), knower_ids=("chr:辛双清",),
+                     unlock=FactUnlock(kind="HAZARD", target_id="itm:朱蛤")),
+        ],
+    )
+    assert [f.id for f in snap.facts] == ["fact:a", "fact:b"]
+    assert snap.facts[1].subject_ids == ("chr:左子穆", "chr:辛双清")  # 集合字段按 id 排序
+    assert {"itm:朱蛤", "chr:辛双清", "chr:左子穆"} <= snap.referenced_ids()  # 名称表须覆盖见闻牵涉的一切
+    assert LocalSnapshot(player_id=PID, player_name="阿星", alive=True, version=1,
+                         location=LocationView(id="loc:无量山", name="无量山")).facts == ()

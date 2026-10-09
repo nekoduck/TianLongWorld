@@ -4,10 +4,12 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "dev:mock": "vite --mode mock",
+    "dev": "vite --mode engine",
     "dev:engine": "vite --mode engine",
-    "build": "tsc && vite build",
+    "dev:backend": "vite",
+    "dev:mock": "vite --mode mock",
+    "build": "tsc && vite build --mode engine",
+    "build:backend": "tsc && vite build",
     "typecheck": "tsc",
     "preview": "vite preview"
   },

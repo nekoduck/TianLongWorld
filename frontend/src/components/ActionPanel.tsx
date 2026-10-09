@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 react 的 useState，依赖 types.ts 的 ActionType，依赖 view.ts 的 Choice / Tone
  * [OUTPUT]: 对外提供 ActionPanel 组件
- * [POS]: components 的底部交互区：通用抉择按钮（backend 为 A/B/C 三档，engine 为 3~4 招，角标注 hint）+ 自定义动作输入；
+ * [POS]: components 的底部交互区：通用抉择按钮（backend 为 A/B/C 三档，engine 为 3~4 招，角标「key · hint」即风险档或方向 · why）+ 自定义动作输入；
  *        只按 tone 定色、不解读选项语义；ready 为假时隐身且 inert
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */

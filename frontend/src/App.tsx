@@ -1,8 +1,8 @@
 /**
  * [INPUT]: 依赖 hooks/useGame（backend）或 hooks/useEngineGame（engine）的状态机——模块级按 VITE_ENGINE 二选一，
- *          依赖 hooks/useTypewriter 的打字机，依赖 view.ts 的 GameFacade，依赖 components/* 全部六个组件
+ *          依赖 hooks/useTypewriter 的打字机，依赖 view.ts 的 GameFacade，依赖 components/* 全部七个组件
  * [OUTPUT]: 对外提供 App 根组件（default export）
- * [POS]: frontend 的布局编排者：三段式（状态栏 / 叙事视窗 / 交互区）+ 入世页 + 死亡锁死；只做组合，不持有业务逻辑。
+ * [POS]: frontend 的布局编排者：三段式（状态栏 + 人情心事条 / 叙事视窗 / 交互区）+ 入世页 + 死亡锁死；只做组合，不持有业务逻辑。
  *        engine 流式叙事时打字机随文本增长接着吐字（resetKey 每回合才变）；可交互 = 终帧已到（playing）且打字机已追平；
  *        缓冲期间的 error（engine 断线重连、选项过期）随缓冲提示显示，交互区此时隐身
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -12,6 +12,7 @@ import { DeathScreen } from './components/DeathScreen'
 import { LoadingOracle } from './components/LoadingOracle'
 import { SceneView } from './components/SceneView'
 import { StatusBar } from './components/StatusBar'
+import { TiesStrip } from './components/TiesStrip'
 import { TitleScreen } from './components/TitleScreen'
 import { useEngineGame } from './hooks/useEngineGame'
 import { useGame } from './hooks/useGame'
@@ -39,6 +40,7 @@ export default function App() {
         className={`flex flex-1 flex-col transition-[filter,opacity] duration-[1500ms] ${mourning ? 'opacity-50 grayscale' : ''}`}
       >
         <StatusBar text={game.statusBar} />
+        <TiesStrip bonds={game.bonds} pursuits={game.pursuits} />
         <main className="flex flex-1 items-center justify-center px-4 py-10 sm:px-8">
           {game.phase === 'loading' ? (
             <LoadingOracle action={game.pendingAction} note={game.error} />
@@ -48,6 +50,7 @@ export default function App() {
               text={typer.text}
               typing={!typer.done || game.phase === 'streaming'}
               lastAction={game.lastAction}
+              manner={game.manner}
               facts={game.facts}
               dead={dead}
               onSkip={typer.skip}

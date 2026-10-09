@@ -1,11 +1,13 @@
 """
-[INPUT]: 依赖 domain/events 的全部领域事件，依赖 domain/combat 的 CombatOutcome，依赖 domain/intent 的 ActionType，依赖 domain/models 的 Attitude / EntityKind / kind_of，
+[INPUT]: 依赖 domain/events 的全部领域事件，依赖 domain/combat 的 CombatOutcome，依赖 domain/outcomes 的 SocialOutcome / CovertOutcome，
+         依赖 domain/intent 的 ActionType / Approach，依赖 domain/models 的 Attitude / EntityKind / kind_of，
          依赖 domain/snapshot 的 LocalSnapshot / CharacterView
 [OUTPUT]: 对外提供 describe(event, labels, player_name) —— 一条领域事件的确定性白描（一句话）；
           titled(character) —— 「段延庆（恶贯满盈）」式的称呼；known_arts(snapshot) —— 「北冥神功（略有小成）」式的武学与火候
 [POS]: application 的事实渲染器：把事件与快照翻成人话。describe 供三处消费——回合结果帧里的 facts、叙事 Prompt 里的 <settled_facts>、
        长线记忆的向量语料。它只读事件与名称表，不经大模型：记忆里存的是这里的白描而非大模型的散文，幻觉因此进不了记忆；
        也不写数值——熟练度与气血的涨落只说"有所精进""受了伤"，到了哪一步由快照里的火候与伤势去说。
+       人情五档各有措辞（敌视「心生敌意」… 信赖「深为信赖」），交涉、见闻、用物、暗中取物各有一句白描。
        titled / known_arts 是称呼与火候的唯一写法：状态栏、叙事 Hard Prompt 与地下城主的战况简报共用，三处说法不会各执一词
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -17,17 +19,22 @@ from app.domain.events import (
     ActionFailed,
     Conversed,
     DomainEvent,
+    FactLearned,
     HealthChanged,
+    ItemConsumed,
     ItemTransferred,
+    Maneuvered,
     Moved,
+    Parleyed,
     PlayerDied,
     PlayerSpawned,
     RelationChanged,
     SkillExecuted,
     SkillPracticed,
 )
-from app.domain.intent import ActionType
+from app.domain.intent import ActionType, Approach
 from app.domain.models import Attitude, EntityKind, kind_of
+from app.domain.outcomes import CovertOutcome, SocialOutcome
 from app.domain.snapshot import CharacterView, LocalSnapshot
 
 _OUTCOME = {
@@ -37,7 +44,26 @@ _OUTCOME = {
     CombatOutcome.SEVERE_WOUND: "身受重伤，拼死逃脱",
     CombatOutcome.DEATH: "反被一招毙命",
 }
-_ATTITUDE = {Attitude.HOSTILE: "心生敌意", Attitude.FRIENDLY: "生出好感", Attitude.NEUTRAL: "不再放在心上"}
+_ATTITUDE = {
+    Attitude.HOSTILE: "心生敌意",
+    Attitude.WARY: "心存戒备",
+    Attitude.NEUTRAL: "不再放在心上",
+    Attitude.FRIENDLY: "生出好感",
+    Attitude.TRUSTED: "深为信赖",
+}
+_PARLEY = {
+    SocialOutcome.GRANTED: "如愿以偿",
+    SocialOutcome.SOFTENED: "对方口风已松",
+    SocialOutcome.NOTHING: "无果而终",
+    SocialOutcome.REBUFFED: "碰了一鼻子灰",
+    SocialOutcome.FALLOUT: "对方当场翻脸",
+}
+_COVERT = {
+    CovertOutcome.CLEAN: "得手，神不知鬼不觉",
+    CovertOutcome.EXPOSED: "得手，却被察觉",
+    CovertOutcome.FOILED: "未能得手，好在无人察觉",
+    CovertOutcome.CAUGHT: "失手，当场被撞破",
+}
 _ACTION = {
     ActionType.MOVE: "前往他处",
     ActionType.OBSERVE: "静观",
@@ -47,8 +73,13 @@ _ACTION = {
     ActionType.GIVE: "赠物",
     ActionType.LEARN: "修习武学",
     ActionType.REST: "调息疗伤",
+    ActionType.USE: "使用随身之物",
     ActionType.INVALID: "行非常之事",
 }
+
+
+def _by(approach: Approach) -> str:
+    return "" if approach is Approach.PLAIN else f"以{approach.value}"
 
 
 def describe(event: DomainEvent, labels: Mapping[str, str], player_name: str) -> str:
@@ -92,6 +123,14 @@ def describe(event: DomainEvent, labels: Mapping[str, str], player_name: str) ->
             return f"{me}欲{_ACTION[action]}，未果：{reason}"
         case PlayerDied(cause=cause):
             return f"{me}殒命：{cause}。"
+        case Parleyed(npc_id=npc, aim=aim, approach=approach, outcome=outcome):
+            return f"{me}{_by(approach)}向{name(npc)}{aim.value}，{_PARLEY[outcome]}。"
+        case FactLearned(fact_id=fact, source_id=src):
+            return f"{me}从{name(src)}处打听到「{name(fact)}」。"
+        case ItemConsumed(item_id=item, effect=effect):
+            return f"{me}以{name(item)}{effect}。"
+        case Maneuvered(item_id=item, target_id=target, approach=approach, outcome=outcome):
+            return f"{me}{_by(approach)}暗取{name(target)}的{name(item)}——{_COVERT[outcome]}。"
     raise TypeError(f"未知的领域事件：{type(event).__name__}")
 
 

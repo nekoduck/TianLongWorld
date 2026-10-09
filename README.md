@@ -6,13 +6,13 @@
 
 ## 快速开始
 
-**后端**（默认 Mock 导演，无需任何 API Key）
+**引擎**（默认入口。TLBB-Engine：原著图谱 + 事件溯源 + 流式叙事，选项跟着剧情走；全内存 + Mock，零依赖零费用）
 
 ```bash
-cd backend
-python -m venv .venv
-.venv/bin/pip install -r requirements-dev.txt
-.venv/bin/uvicorn app.main:app --reload --port 8000
+cd engine
+python3.12 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+LLM_PROVIDER=mock EVENT_STORE=memory GRAPH_BACKEND=memory QDRANT_URL=:memory: \
+  .venv/bin/uvicorn app.main:app --port 8001     # 去掉 LLM_PROVIDER=mock 即按 engine/.env 接真实大模型
 ```
 
 **前端**
@@ -20,24 +20,26 @@ python -m venv .venv
 ```bash
 cd frontend
 npm install
-npm run dev        # 打开 http://localhost:5173 ，/api 自动代理到 :8000
-npm run dev:mock   # 或：完全脱离后端，用静态数据跑通 UI
+npm run dev        # 打开 http://localhost:5173 ，/ws 自动代理到 :8001（dev:engine 同义）
 ```
 
-**玩引擎版**（TLBB-Engine：原著图谱 + 事件溯源 + 流式叙事，选项跟着剧情走）
+**另一选择：旧 MVP 后端**（状态树导演，默认 Mock 导演，无需任何 API Key）
 
 ```bash
-cd engine
-python3.12 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-LLM_PROVIDER=mock .venv/bin/uvicorn app.main:app --port 8001   # 零费用试玩；去掉 LLM_PROVIDER=mock 即按 engine/.env 接真实大模型
-cd ../frontend && npm run dev:engine                          # /ws 自动代理到 :8001
+cd backend
+python -m venv .venv
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/uvicorn app.main:app --reload --port 8000
+cd ../frontend && npm run dev:backend   # /api 自动代理到 :8000
+npm run dev:mock                        # 或：完全脱离后端，用 backend 协议的静态数据跑通 UI
 ```
 
 **测试**
 
 ```bash
-cd backend && .venv/bin/pytest -q
-cd frontend && npm run build
+(cd engine && .venv/bin/pytest -q)
+(cd backend && .venv/bin/pytest -q)
+(cd frontend && npm run build && npm run build:backend)   # 两种产物各做一遍 tsc strict + vite 构建
 ```
 
 ## 接入真实大模型

@@ -1,6 +1,6 @@
 """
 [INPUT]: 依赖 domain/rules 的 adjudicate / Approval / best_skill，依赖 domain/intent 的 ActionType / PlayerIntent，依赖 domain/progression 的 Guidance / Vitality，
-         依赖 domain/models 的 Attitude（认出仇人在侧），依赖 domain/snapshot 的 LocalSnapshot，PlayerState 仅作类型标注（读 focus / focus_fresh / came_from / fled_from / vitality）
+         依赖 domain/models 的 Attitude（认出仇人在侧只认敌视、交情按 rank 比），依赖 domain/snapshot 的 LocalSnapshot，PlayerState 仅作类型标注（读 focus / focus_fresh / came_from / fled_from / vitality）
 [OUTPUT]: 对外提供 OptionCategory（战斗 / 交涉 / 探索 / 修习 / 取物 / 休养）、ActionOption（id + 标签 + 方向 + why 上榜缘由 + 服务端持有的意图）、
           OptionGenerator（(玩家状态, 快照) → 3~4 个跟着剧情走的合法行动选项）
 [POS]: application 的动态选项生成器（显著性菜单 Slate）：遍历快照里的合法边——出路（CONNECTS_TO）、在场之人（LOCATED_IN）、
@@ -217,7 +217,7 @@ class OptionGenerator:
             if anchor.startswith("chr:"):
                 if anchor in foes:
                     return "仇怨未了"
-                if state.attitude_of(anchor) is Attitude.FRIENDLY:
+                if state.attitude_of(anchor).rank >= Attitude.FRIENDLY.rank:  # 友善与信赖都算交情
                     return "与你有交情"
                 return "方才打过交道" if s.focus == 0 and state.focus_fresh else "先前打过交道"
             if action is ActionType.LEARN:

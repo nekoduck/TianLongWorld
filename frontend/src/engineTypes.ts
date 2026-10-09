@@ -2,9 +2,10 @@
  * [INPUT]: 无（与 engine/app/presentation/protocol.py 的帧、engine/app/application/bus.py 的 PlayerStatus 逐字段镜像）
  * [OUTPUT]: 对外提供 客户端帧 SpawnFrame / ResumeFrame / ActFrame / ChooseFrame / ClientFrame，
  *           服务端帧 SessionFrame / TurnResolvedFrame / NarrationDeltaFrame / TurnCompletedFrame / ErrorFrame / ServerFrame，
- *           以及 EngineActionType、EngineIntent、EngineOption、PlayerStatus
+ *           以及 EngineActionType、Approach、Aim、EngineIntent、Risk、EngineOption、Bond、Pursuit、PlayerStatus
  * [POS]: frontend 的 engine 线协议类型，与 types.ts（backend 协议）并列；只被 api/ws.ts 与 hooks/useEngineGame.ts 引用。
- *        ResumeFrame.quiet 为真即悄悄续局：只回 session 与叙事为空的终帧，零大模型
+ *        ResumeFrame.quiet 为真即悄悄续局：只回 session 与叙事为空的终帧，零大模型。
+ *        P1 加法一律可缺省（旧 engine 不下发）：intent 的手段 / 所图 / 话题、option.risk、status 的人情 bonds 与心事 pursuits
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md；字段变化必须与 engine 的 protocol.py / bus.py 同步
  */
 
@@ -42,7 +43,23 @@ export type ClientFrame = SpawnFrame | ResumeFrame | ActFrame | ChooseFrame
 // ============================================================
 //  回合载荷
 // ============================================================
-export type EngineActionType = 'MOVE' | 'OBSERVE' | 'TALK' | 'ATTACK' | 'TAKE' | 'GIVE' | 'LEARN' | 'REST' | 'INVALID'
+export type EngineActionType =
+  | 'MOVE'
+  | 'OBSERVE'
+  | 'TALK'
+  | 'ATTACK'
+  | 'TAKE'
+  | 'GIVE'
+  | 'USE'
+  | 'LEARN'
+  | 'REST'
+  | 'INVALID'
+
+/** domain/intent.Approach：手段（寻常即未特意讲究手段） */
+export type Approach = '寻常' | '武力' | '言辞' | '人情' | '计谋' | '潜行' | '借势'
+
+/** domain/intent.Aim：所图 */
+export type Aim = '制人' | '夺物' | '脱身' | '求艺' | '打探' | '结交' | '化解' | '讨要' | '示警'
 
 /** domain/intent.PlayerIntent：意图解析的结果，只读回显 */
 export interface EngineIntent {
@@ -53,7 +70,16 @@ export interface EngineIntent {
   narrative_style: string
   /** 仅 INVALID：驳回理由 */
   reason: string | null
+  /** 手段（P1 起下发，缺省视同寻常） */
+  approach?: Approach
+  /** 所图（P1 起下发） */
+  aim?: Aim | null
+  /** 话题指称：人 / 物 / 功 / 地 / 见闻，落不了地即为空（P1 起下发） */
+  topic?: string | null
 }
+
+/** 风险档：只看可裁区间最坏的一端，不露结局 */
+export type Risk = '稳妥' | '有险' | '凶险'
 
 /** application/options.ActionOption 的下发子集：意图留在服务端，前端只能点选 id */
 export interface EngineOption {
@@ -64,7 +90,24 @@ export interface EngineOption {
   /** 为何在菜单上：≤12 字的确定性短语（P0 起下发） */
   why?: string
   /** 风险档：只露区间最坏的一端（P1 起下发） */
-  risk?: string
+  risk?: Risk
+}
+
+/** 人情：对玩家态度不是漠然的人（在场者优先，至多 6 条） */
+export interface Bond {
+  name: string
+  /** 敌视 / 戒备 / 友善 / 信赖 */
+  attitude: string
+  /** 缘由：「你打伤其得意门徒」 */
+  cause: string
+}
+
+/** 心事：未了的所图（至多 3 条） */
+export interface Pursuit {
+  /** 「求艺 · 白虹贯日」 */
+  label: string
+  /** 「口风已松；已试：言辞」 */
+  note: string
 }
 
 /** bus.PlayerStatus：只有语义标签，没有数值 */
@@ -80,6 +123,10 @@ export interface PlayerStatus {
   inventory: string[]
   /** 「北冥神功（略有小成）」：武学连同火候 */
   skills: string[]
+  /** 人情（P1 起下发） */
+  bonds?: Bond[]
+  /** 心事（P1 起下发） */
+  pursuits?: Pursuit[]
 }
 
 // ============================================================

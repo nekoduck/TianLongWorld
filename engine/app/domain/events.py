@@ -1,13 +1,16 @@
 """
-[INPUT]: 依赖 pydantic v2 的 BaseModel / TypeAdapter / Field(discriminator)，依赖 domain/models 的 Attitude，依赖 domain/intent 的 ActionType，
-         依赖 domain/combat 的 CombatOutcome
-[OUTPUT]: 对外提供 不可变领域事件 DomainEvent 基类及 PlayerSpawned / Moved（fleeing 标明夺路而逃）/ ItemTransferred / SkillPracticed / SkillExecuted /
-          HealthChanged / Conversed / RelationChanged / ActionFailed / PlayerDied、AnyEvent 判别联合、EVENT_ADAPTER（JSONB 编码）、
+[INPUT]: 依赖 pydantic v2 的 BaseModel / TypeAdapter / Field(discriminator)，依赖 domain/models 的 Attitude / Remedy，
+         依赖 domain/intent 的 ActionType / Approach / Aim，依赖 domain/combat 的 CombatOutcome，依赖 domain/outcomes 的 SocialOutcome / CovertOutcome
+[OUTPUT]: 对外提供 不可变领域事件 DomainEvent 基类及 PlayerSpawned / Moved（fleeing 标明夺路而逃）/ ItemTransferred / SkillPracticed /
+          SkillExecuted（approach 手段）/ HealthChanged（source：blow 伤人 / rest 调息 / item 服药）/ Conversed（topic_id 话题）/
+          RelationChanged（basis 关系称谓或缘由类别）/ ActionFailed（unlock 怎样才行、aim / approach 当时的所图与手段）/ PlayerDied /
+          Parleyed 交涉 / FactLearned 得知见闻 / ItemConsumed 用掉随身之物 / Maneuvered 暗中取物、AnyEvent 判别联合、EVENT_ADAPTER（JSONB 编码）、
           decode_event()（JSONB 解码：先经上抛器把旧账升级为现行词汇）、EventEnvelope（流内版本 + 事件 id + 记录时间）
 [POS]: domain 的事实词汇：世界此刻的一切都由这些事件经纯函数折叠而来；事件一经写入永不修改，
        新增事件类型只需在此加一个类并挂进 AnyEvent（开闭），时间戳只在信封上，事件本体保持确定性以便裁决可单测。
        词汇演进靠上抛（upcast）而不是改历史：废弃的 SkillLearned（"获得即学会"）在读出时折算为一次 SkillPracticed，
-       旧的「受挫」折算为「轻伤」——账本里的字节永远是当年写下的样子
+       旧的「受挫」折算为「轻伤」，旧账里 cause=="调息疗伤" 而没有 source 的气血回升读作 source="rest"——账本里的字节永远是当年写下的样子。
+       一切新字段都有缺省值，旧账照读；唯一需要上抛的是 HealthChanged.source
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -20,8 +23,9 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from app.domain.combat import CombatOutcome
-from app.domain.intent import ActionType
-from app.domain.models import Attitude
+from app.domain.intent import ActionType, Aim, Approach
+from app.domain.models import Attitude, Remedy
+from app.domain.outcomes import CovertOutcome, SocialOutcome
 
 
 class DomainEvent(BaseModel):
@@ -73,20 +77,26 @@ class SkillExecuted(DomainEvent):
     target_id: str
     item_id: str | None = None
     outcome: CombatOutcome
+    approach: Approach = Approach.PLAIN  # 武力 / 计谋……旧账缺省为寻常
 
 
 class HealthChanged(DomainEvent):
-    """气血涨落：负为受伤、正为调息复原。折叠时钳在 [0, MAX_HP]；归零不等于死——死亡永远是一条明写的 PlayerDied。"""
+    """
+    气血涨落：负为受伤、正为复原。折叠时钳在 [0, MAX_HP]；归零不等于死——死亡永远是一条明写的 PlayerDied。
+    source 说的是"哪一类涨落"：blow 交手或险物所伤、rest 调息、item 服药敷药；source_id 是伤人者（chr:）或所用之物（itm:）。
+    """
 
     type: Literal["HealthChanged"] = "HealthChanged"
     delta: int
     cause: str
-    source_id: str | None = None  # 伤人者（chr:），自行调息为 None
+    source_id: str | None = None  # 伤人者（chr:）或所用之物；自行调息为 None
+    source: Literal["blow", "rest", "item"] = "blow"
 
 
 class Conversed(DomainEvent):
     type: Literal["Conversed"] = "Conversed"
     npc_id: str
+    topic_id: str | None = None  # 落了地的话题（实体或见闻 id）
 
 
 class RelationChanged(DomainEvent):
@@ -94,6 +104,7 @@ class RelationChanged(DomainEvent):
     character_id: str
     attitude: Attitude
     cause: str
+    basis: str = ""  # 关系称谓（「师徒」）或缘由类别（「物归原主」）：供人情阶梯的例外与恩怨的写法辨认
 
 
 class ActionFailed(DomainEvent):
@@ -104,12 +115,52 @@ class ActionFailed(DomainEvent):
     target: str | None
     reason_code: str
     reason: str
+    unlock: str = ""  # 怎样才行（「信赖」「略有小成」……）：供心事线索与选项提示
+    aim: Aim | None = None
+    approach: Approach = Approach.PLAIN
 
 
 class PlayerDied(DomainEvent):
     type: Literal["PlayerDied"] = "PlayerDied"
     cause: str
     killer_id: str | None = None
+
+
+class Parleyed(DomainEvent):
+    """交涉一场：对谁、图什么、凭什么手段、结局如何。leverage_ids 是领域从已知见闻里按 unlock 边确定性选出的筹码，大模型不提议。"""
+
+    type: Literal["Parleyed"] = "Parleyed"
+    npc_id: str
+    aim: Aim
+    approach: Approach
+    outcome: SocialOutcome
+    leverage_ids: tuple[str, ...] = ()
+
+
+class FactLearned(DomainEvent):
+    """得知一件见闻（fact:）：从谁那里听来（chr:）。"""
+
+    type: Literal["FactLearned"] = "FactLearned"
+    fact_id: str
+    source_id: str
+
+
+class ItemConsumed(DomainEvent):
+    """用掉一件随身之物（服药、敷药）：它从此不在任何地方。气血的回升另由 HealthChanged(source="item") 明写。"""
+
+    type: Literal["ItemConsumed"] = "ItemConsumed"
+    item_id: str
+    effect: Remedy
+
+
+class Maneuvered(DomainEvent):
+    """暗中取物（计谋 / 潜行）：向谁下手、得手与否、察觉与否。易手另由 ItemTransferred 明写。"""
+
+    type: Literal["Maneuvered"] = "Maneuvered"
+    item_id: str
+    target_id: str
+    approach: Approach
+    outcome: CovertOutcome
 
 
 AnyEvent = Annotated[
@@ -122,7 +173,11 @@ AnyEvent = Annotated[
     | Conversed
     | RelationChanged
     | ActionFailed
-    | PlayerDied,
+    | PlayerDied
+    | Parleyed
+    | FactLearned
+    | ItemConsumed
+    | Maneuvered,
     Field(discriminator="type"),
 ]
 
@@ -144,9 +199,15 @@ def _skill_executed(raw: dict[str, Any]) -> dict[str, Any]:
     return {**raw, "outcome": "轻伤"} if raw.get("outcome") == "受挫" else raw
 
 
+def _health_changed(raw: dict[str, Any]) -> dict[str, Any]:
+    """source 之前的旧账：调息写的是 cause="调息疗伤"、没有来源——读作 rest，其余一律是 blow（缺省）。"""
+    return {**raw, "source": "rest"} if "source" not in raw and raw.get("cause") == "调息疗伤" else raw
+
+
 UPCASTERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "SkillLearned": _skill_learned,
     "SkillExecuted": _skill_executed,
+    "HealthChanged": _health_changed,
 }
 
 

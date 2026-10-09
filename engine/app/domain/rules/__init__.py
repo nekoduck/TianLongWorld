@@ -1,0 +1,125 @@
+"""
+[INPUT]: 依赖 rules/base 的裁决结果与助手、rules/physical / talk / martial 的各条 Rule，依赖 domain/combat 的 Stakes / settle / CombatProposal，
+         依赖 domain/events 的 ActionFailed / DomainEvent，依赖 domain/intent 的 ActionType / PlayerIntent，依赖 domain/snapshot 的 LocalSnapshot；
+         PlayerState 仅作类型标注（避免与 aggregates 成环）
+[OUTPUT]: 对外提供 门面 adjudicate()（合法性：指称落地 + 物理/逻辑双重校验）、stakes()（胜负未定之事的可裁区间）、decide()（合法性 + 定案 → 事件）、
+          RULES 注册表，并原样转出 Rejection / Approval / Verdict / Rule / resolve / skill_tier / player_tier / best_skill / retreat /
+          required_regard / TRUST_RESTORED 与各条 Rule——拆包之前从 app.domain.rules 能导入的一切，拆包之后照样能导入
+[POS]: domain 的裁决核心（Decider）门面：纯函数，不做 IO、不调大模型、不看时钟。
+       物理校验看快照（出口是否相连、人是否在场、物在谁手），逻辑校验看玩家状态与本体（火候、根基、门径、谁肯传授、伤势）；
+       能力成长、物品获取、人际变化只能由此处从图谱拓扑推导得出。胜负未定之事（出手）由 Rule.stakes 圈出可裁区间，
+       地下城主的提议经 combat.settle 钳进区间后才成为事件——大模型在这里有一票，但只能投给区间里的候选。
+       每种动作一条 Rule（开闭：新动作 = 新 Rule + 注册一行；新的模糊动作 = 覆写 stakes 钩子），options 生成器复用 adjudicate 过滤出合法行为。
+       驳回入账为 ActionFailed，带上 unlock（怎样才行）与玩家当时的所图、手段
+[PROTOCOL]: 变更时更新此头部，然后检查 rules/CLAUDE.md
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from app.domain.combat import CombatProposal, Stakes, settle
+from app.domain.events import ActionFailed, DomainEvent
+from app.domain.intent import ActionType, PlayerIntent
+from app.domain.rules.base import (
+    Approval,
+    Rejection,
+    Rule,
+    Verdict,
+    best_skill,
+    player_tier,
+    resolve,
+    skill_tier,
+)
+from app.domain.rules.martial import AttackRule, LearnRule, required_regard, retreat
+from app.domain.rules.physical import InvalidRule, MoveRule, ObserveRule, RestRule, TakeRule, UseRule
+from app.domain.rules.talk import TRUST_RESTORED, GiveRule, TalkRule
+from app.domain.snapshot import LocalSnapshot
+
+if TYPE_CHECKING:
+    from app.domain.aggregates import PlayerState
+
+__all__ = [
+    "RULES",
+    "TRUST_RESTORED",
+    "Approval",
+    "AttackRule",
+    "GiveRule",
+    "InvalidRule",
+    "LearnRule",
+    "MoveRule",
+    "ObserveRule",
+    "Rejection",
+    "RestRule",
+    "Rule",
+    "TakeRule",
+    "TalkRule",
+    "UseRule",
+    "Verdict",
+    "_retreat",
+    "adjudicate",
+    "best_skill",
+    "decide",
+    "player_tier",
+    "required_regard",
+    "resolve",
+    "retreat",
+    "skill_tier",
+    "stakes",
+]
+
+_retreat = retreat  # 拆包前的旧名：脱身席的注释与用例以它指称"重伤逃脱的去处"
+
+RULES: dict[ActionType, Rule] = {
+    ActionType.OBSERVE: ObserveRule(),
+    ActionType.MOVE: MoveRule(),
+    ActionType.TALK: TalkRule(),
+    ActionType.ATTACK: AttackRule(),
+    ActionType.TAKE: TakeRule(),
+    ActionType.GIVE: GiveRule(),
+    ActionType.LEARN: LearnRule(),
+    ActionType.REST: RestRule(),
+    ActionType.USE: UseRule(),
+    ActionType.INVALID: InvalidRule(),
+}
+
+
+# ============================================================
+#  门面
+# ============================================================
+def adjudicate(intent: PlayerIntent, state: PlayerState, snap: LocalSnapshot) -> Verdict:
+    return RULES[intent.action_type].adjudicate(intent, state, snap)
+
+
+def stakes(intent: PlayerIntent, state: PlayerState, snap: LocalSnapshot) -> Stakes | None:
+    """这一举动若获准，胜负是否未定、可裁区间几何。驳回的举动与结果确定的举动都没有赌注。"""
+    verdict = adjudicate(intent, state, snap)
+    if isinstance(verdict, Rejection):
+        return None
+    return RULES[intent.action_type].stakes(verdict, state, snap)
+
+
+def decide(
+    intent: PlayerIntent, state: PlayerState, snap: LocalSnapshot, proposal: CombatProposal | None = None
+) -> list[DomainEvent]:
+    """
+    意图 → 定案 → 事件。驳回同样入账为 ActionFailed：失败也是历史。
+    胜负未定之事，地下城主的提议（proposal）经 settle 钳进可裁区间；没有提议即取区间里的确定性裁决——离线也能玩。
+    """
+    verdict = adjudicate(intent, state, snap)
+    if isinstance(verdict, Rejection):
+        return [
+            ActionFailed(
+                action=intent.action_type,
+                target=intent.target_entity or intent.skill_used or intent.item_used,
+                reason_code=verdict.code,
+                reason=verdict.reason,
+                unlock=verdict.unlock,
+                aim=intent.aim,
+                approach=intent.approach,
+            )
+        ]
+    rule = RULES[intent.action_type]
+    at_stake = rule.stakes(verdict, state, snap)
+    ruling = settle(at_stake, proposal) if at_stake is not None else None
+    return rule.consequences(verdict, state, snap, ruling)

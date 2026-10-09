@@ -1,8 +1,11 @@
 """
 [INPUT]: 依赖 pydantic v2 的 BaseModel / field_validator，依赖 enum 的 StrEnum
-[OUTPUT]: 对外提供 ActionType（含 REST 调息与 INVALID 的系统指令集）、PlayerIntent（结构化意图）
+[OUTPUT]: 对外提供 ActionType（含 REST 调息、USE 使用随身之物与 INVALID 的系统指令集）、Approach 手段（寻常 / 武力 / 言辞 / 人情 / 计谋 / 潜行 / 借势）、
+          Aim 所图（制人 / 夺物 / 脱身 / 求艺 / 打探 / 结交 / 化解 / 讨要 / 示警）、PlayerIntent（结构化意图：动作 + 指称 + 手段 + 所图 + 话题）
 [POS]: domain 的命令语言——玩家的华丽描写被降维后的唯一形状。定义在 domain 而非 application：
-       裁决规则（rules.py）与聚合根消费它，领域层不得反向依赖应用层；application/intent_parser.py 负责产出它
+       裁决规则（rules/）与聚合根消费它，领域层不得反向依赖应用层；application/intent_parser.py 负责产出它。
+       手段与所图只是"玩家想怎么做、图什么"的说法：(动作, 手段) 合不合兼容表、所图缺省怎么推断，由 domain/approach.py 规整（阶段 B）；
+       topic 与其余指称一样保留原话、超长截断、空串置空，落不了地由规则置之不理
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -25,7 +28,34 @@ class ActionType(StrEnum):
     GIVE = "GIVE"  # 赠物：把随身之物交给在场之人
     LEARN = "LEARN"  # 修习武学：未入门则求门径（师传 / 自悟），已入门则精进（名师点拨 / 参照典籍 / 闭门苦练）
     REST = "REST"  # 调息疗伤：恢复气血
+    USE = "USE"  # 使用随身之物：服药、敷药
     INVALID = "INVALID"  # 违背世界观或无法落地的操作
+
+
+class Approach(StrEnum):
+    """手段：同一个动作可以怎么做。寻常即不带特别手段（旧意图一律如此）。"""
+
+    PLAIN = "寻常"
+    FORCE = "武力"
+    WORDS = "言辞"
+    FAVOR = "人情"
+    GUILE = "计谋"
+    STEALTH = "潜行"
+    LEVERAGE = "借势"
+
+
+class Aim(StrEnum):
+    """所图：这一举想换来什么。None 即没说，由 approach.py 按动作与人情推断。"""
+
+    SUBDUE = "制人"
+    SEIZE = "夺物"
+    ESCAPE = "脱身"
+    LEARN = "求艺"
+    PROBE = "打探"
+    BEFRIEND = "结交"
+    DEFUSE = "化解"
+    ASK = "讨要"
+    WARN = "示警"
 
 
 class PlayerIntent(BaseModel):
@@ -42,8 +72,11 @@ class PlayerIntent(BaseModel):
     skill_used: str | None = None
     narrative_style: str = ""
     reason: str | None = None  # 仅 INVALID：驳回理由，呈现给玩家
+    approach: Approach = Approach.PLAIN
+    aim: Aim | None = None
+    topic: str | None = None  # 话题指称（人 / 物 / 功 / 地 / 见闻），落不了地即置之不理
 
-    @field_validator("target_entity", "item_used", "skill_used", mode="before")
+    @field_validator("target_entity", "item_used", "skill_used", "topic", mode="before")
     @classmethod
     def _ref(cls, value: Any) -> str | None:
         # 大模型偶尔写空串或超长指称：规整而非拒收——拒收会让整回合因一个修饰词失败

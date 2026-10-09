@@ -135,7 +135,7 @@ async def _died(tx: _Tx, pid: str, e: PlayerDied) -> None:
 
 
 async def _nothing(tx: _Tx, pid: str, e: DomainEvent) -> None:
-    """Conversed / ActionFailed：只是历史，不改变图谱。"""
+    """Conversed / ActionFailed：只是历史，不改变图谱；P1 的 Parleyed / FactLearned / ItemConsumed / Maneuvered 与 evolve 同口径，暂不改覆盖层。"""
 
 
 _PROJECTORS: dict[str, _Projector] = {
@@ -149,6 +149,10 @@ _PROJECTORS: dict[str, _Projector] = {
     "PlayerDied": _died,
     "Conversed": _nothing,
     "ActionFailed": _nothing,
+    "Parleyed": _nothing,
+    "FactLearned": _nothing,
+    "ItemConsumed": _nothing,
+    "Maneuvered": _nothing,
 }
 
 

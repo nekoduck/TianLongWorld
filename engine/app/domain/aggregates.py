@@ -1,5 +1,5 @@
 """
-[INPUT]: 依赖 domain/events 的全部领域事件与 EventEnvelope，依赖 domain/models 的 Attitude，依赖 domain/progression 的 MAX_HP / Mastery / Vitality /
+[INPUT]: 依赖 domain/events 的全部领域事件（含 P1 的 Parleyed / FactLearned / ItemConsumed / Maneuvered）与 EventEnvelope，依赖 domain/models 的 Attitude，依赖 domain/progression 的 MAX_HP / Mastery / Vitality /
          mastery_of / vitality / aptitude_for，依赖 domain/combat 的 CombatOutcome / CombatProposal，
          依赖 domain/rules 的 decide()（裁决），依赖 domain/intent 的 PlayerIntent，依赖 app.errors 的 UnknownPlayerError / PlayerDeadError
 [OUTPUT]: 对外提供 PlayerState（不可变状态值：practice 熟练度之和、aptitude 悟性、hp 气血、came_from 来路、fled_from 逃离过的险地、
@@ -10,7 +10,9 @@
        被制住之人、人情冷暖、物品易手）都是 PlayerState 的字段。没有状态表——当前状态只能由 evolve 从头折叠事件流算出；
        渐进式状态只做加法：熟练度 = Σ SkillPracticed.proficiency_gained，气血 = MAX_HP + Σ HealthChanged.delta（钳位），
        火候与伤势是读取时经 progression 折算的语义标签，从不入账。
-       焦点（focus）与恩怨缘由（attitude_causes）同样只由现有事件折叠：选项跟着剧情走、叙事知道仇从何来，都不需要新的事件。
+       焦点（focus）与恩怨缘由（attitude_causes）同样只由现有事件折叠：选项跟着剧情走、叙事知道仇从何来，都不需要新的事件；
+       焦点「不新鲜」的判据认 HealthChanged.source=="rest"（服药的气血回升不算走开）。
+       P1 的四种新事件（Parleyed / FactLearned / ItemConsumed / Maneuvered）眼下照读而不改状态，阶段 B 再补折叠。
        内存图谱投影（infrastructure/persistence/memory_graph.py）复用同一个 evolve，投影与真相因此同构
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -26,9 +28,13 @@ from app.domain.events import (
     Conversed,
     DomainEvent,
     EventEnvelope,
+    FactLearned,
     HealthChanged,
+    ItemConsumed,
     ItemTransferred,
+    Maneuvered,
     Moved,
+    Parleyed,
     PlayerDied,
     PlayerSpawned,
     RelationChanged,
@@ -120,14 +126,14 @@ def _refocus(focus: tuple[str, ...], engaged: tuple[str, ...]) -> tuple[str, ...
 
 def _moves_on(event: DomainEvent) -> bool:
     """
-    不与谁打交道的主动作：自行离去、调息（没有来源的气血回升）、闭门苦练。它们让焦点不再「新鲜」。
+    不与谁打交道的主动作：自行离去、调息（source="rest" 的气血回升；旧账经上抛器读作 rest）、闭门苦练。它们让焦点不再「新鲜」。
     交手的余波（人情涟漪、伤人者造成的气血涨落、身死、夺路而逃）属于上一招，不算；
     碰壁（ActionFailed）与静观一样什么也没改变——世界不变，菜单也该逐字不变。
     """
     match event:
         case Moved(fleeing=False) | SkillPracticed(source_id=None):
             return True
-        case HealthChanged(source_id=None):
+        case HealthChanged(source="rest"):
             return True
     return False
 
@@ -169,6 +175,8 @@ def evolve(state: PlayerState | None, event: DomainEvent) -> PlayerState:
             return replace(state, alive=False, death_cause=cause)
         case SkillExecuted() | Conversed() | ActionFailed():
             return state  # 只是历史，不改变世界
+        case Parleyed() | FactLearned() | ItemConsumed() | Maneuvered():
+            return state  # P1 的新词汇：先照读不崩，折叠（心事线索、已知见闻、用掉之物、手段）在阶段 B 补上
     raise TypeError(f"未知的领域事件：{type(event).__name__}")
 
 

@@ -2,18 +2,19 @@
  * [INPUT]: 依赖 react 的 useReducer / useRef / useState / useMemo / useCallback / useEffect，依赖 api/ws.ts 的 EngineSocket / storedPlayer，
  *          依赖 engineTypes.ts 的服务端帧与 PlayerStatus，依赖 view.ts 的 GameFacade / Choice / Phase / Tone，依赖 types.ts 的 ActionType
  * [OUTPUT]: 对外提供 useEngineGame() -> GameFacade（与 useGame 同形，另带 resume）
- * [POS]: hooks 的 engine 状态机，VITE_ENGINE 时取代 useGame 成为前端唯一的状态源。帧驱动：turn_resolved 开新一幕并立题记（facts），
- *        narration_delta 逐片累加进 scene（打字机随文本增长接着吐字），turn_completed 落定选项、状态栏与生死；
+ * [POS]: hooks 的 engine 状态机，VITE_ENGINE 时取代 useGame 成为前端唯一的状态源。帧驱动：turn_resolved 开新一幕并立题记
+ *        （facts，手段非寻常时附「手段 · 所图」），narration_delta 逐片累加进 scene（打字机随文本增长接着吐字），
+ *        turn_completed 落定选项（角标先风险档后方向）、状态栏、人情 / 心事与生死；P1 字段缺省时一切照旧；
  *        断线 / 选项过期 / 连接被 Fast Refresh 关掉都进入「悄悄续局」：旧菜单作废、交互区锁进缓冲提示，quiet resume 的终帧
- *        只换回菜单、状态栏与生死（此景、题记、打字机进度与输入草稿原样保留，零大模型）
+ *        只换回菜单、状态栏、人情心事与生死（此景、题记、打字机进度与输入草稿原样保留，零大模型）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 
 import { EngineSocket, storedPlayer } from '../api/ws'
-import type { EngineOption, PlayerStatus, ServerFrame } from '../engineTypes'
+import type { EngineIntent, EngineOption, PlayerStatus, ServerFrame } from '../engineTypes'
 import type { ActionType } from '../types'
-import type { Choice, GameFacade, Phase, Tone } from '../view'
+import type { Bond, Choice, GameFacade, Phase, Pursuit, Tone } from '../view'
 
 const NAMELESS = '无名氏'
 const LOST = '与江湖失去联系，正在重连……'
@@ -31,6 +32,10 @@ interface EngineView {
   facts: readonly string[]
   options: EngineOption[] | null
   lastAction: string | null
+  /** 上一招的手段与所图（手段寻常时为空），随题记而立 */
+  manner: string | null
+  bonds: readonly Bond[]
+  pursuits: readonly Pursuit[]
   pendingAction: string | null
   turn: number
   error: string | null
@@ -52,6 +57,9 @@ const INITIAL: EngineView = {
   facts: [],
   options: null,
   lastAction: null,
+  manner: null,
+  bonds: [],
+  pursuits: [],
   pendingAction: null,
   turn: 0,
   error: null,
@@ -72,7 +80,21 @@ const statusOf = (s: PlayerStatus) =>
   ].join(' | ')
 
 // ============================================================
-//  选项 → 通用抉择：风险档（P1 起下发）优先定色，缺省按方向
+//  人情 / 心事（P1 起下发）：态度定色——敌视血、戒备金、友善与信赖素
+// ============================================================
+const TONE_BY_ATTITUDE: Record<string, Tone> = { 敌视: 'risk', 戒备: 'probe' }
+
+const tiesOf = (s: PlayerStatus): Pick<EngineView, 'bonds' | 'pursuits'> => ({
+  bonds: (s.bonds ?? []).map((b) => ({ ...b, tone: TONE_BY_ATTITUDE[b.attitude] ?? 'calm' })),
+  pursuits: s.pursuits ?? [],
+})
+
+/** 题记的「手段 · 所图」：手段寻常（或旧 engine 不下发）即不显示 */
+const mannerOf = (intent: EngineIntent | null): string | null =>
+  intent?.approach && intent.approach !== '寻常' ? [intent.approach, intent.aim].filter(Boolean).join(' · ') : null
+
+// ============================================================
+//  选项 → 通用抉择：角标与色调都先看风险档（P1 起下发），缺省按方向
 // ============================================================
 const TONE_BY_RISK: Record<string, Tone> = { 稳妥: 'calm', 有险: 'probe', 凶险: 'risk' }
 const TONE_BY_CATEGORY: Record<string, Tone> = {
@@ -87,9 +109,9 @@ const TONE_BY_CATEGORY: Record<string, Tone> = {
 const choicesOf = (options: EngineOption[] | null): Choice[] | null =>
   options &&
   options.map((o) => ({
-    key: o.category,
+    key: o.risk || o.category,
     label: o.label,
-    hint: [o.risk, o.why].filter(Boolean).join(' · ') || undefined,
+    hint: o.why || undefined,
     tone: (o.risk && TONE_BY_RISK[o.risk]) || TONE_BY_CATEGORY[o.category] || 'probe',
     value: o.id,
   }))
@@ -98,14 +120,15 @@ const choicesOf = (options: EngineOption[] | null): Choice[] | null =>
 //  状态机：idle → loading → streaming → playing ⇄ … → dead
 // ============================================================
 
-/** 新一幕：打字机按 turn 重置，上一招升为题记，旧选项作废 */
-const begin = (state: EngineView, facts: readonly string[]): EngineView => ({
+/** 新一幕：打字机按 turn 重置，上一招（连同手段所图）升为题记，旧选项作废 */
+const begin = (state: EngineView, facts: readonly string[], manner: string | null = null): EngineView => ({
   ...state,
   phase: 'streaming',
   scene: '',
   facts,
   options: null,
   lastAction: state.pendingAction,
+  manner: state.pendingAction ? manner : null,
   pendingAction: null,
   turn: state.turn + 1,
   error: null,
@@ -120,7 +143,7 @@ function onFrame(state: EngineView, frame: ServerFrame): EngineView {
     case 'turn_resolved': {
       // 驳回的招没有事件可白描：以驳回理由立题记
       const reason = frame.intent?.action_type === 'INVALID' ? frame.intent.reason : null
-      return begin(state, frame.facts.length ? frame.facts : reason ? [reason] : [])
+      return begin(state, frame.facts.length ? frame.facts : reason ? [reason] : [], mannerOf(frame.intent))
     }
     case 'narration_delta': {
       const scene = state.phase === 'streaming' ? state : begin(state, [])
@@ -136,6 +159,7 @@ function onFrame(state: EngineView, frame: ServerFrame): EngineView {
           phase: frame.game_over ? 'dead' : 'playing',
           options: frame.options,
           statusBar: statusOf(frame.status),
+          ...tiesOf(frame.status),
           resync: null,
           error: state.resync === 'expired' ? state.error : null,
         }
@@ -146,6 +170,7 @@ function onFrame(state: EngineView, frame: ServerFrame): EngineView {
         scene: frame.narration || scene.scene,
         options: frame.options,
         statusBar: statusOf(frame.status),
+        ...tiesOf(frame.status),
       }
     }
     case 'error':
@@ -317,6 +342,9 @@ export function useEngineGame(): GameFacade {
     facts: state.facts,
     choices,
     lastAction: state.lastAction,
+    manner: state.manner,
+    bonds: state.bonds,
+    pursuits: state.pursuits,
     pendingAction: state.pendingAction,
     turn: state.turn,
     error: state.error,

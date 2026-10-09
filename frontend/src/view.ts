@@ -1,8 +1,9 @@
 /**
  * [INPUT]: 依赖 types.ts 的 ActionType
- * [OUTPUT]: 对外提供 Phase、Tone、Choice、GameFacade
+ * [OUTPUT]: 对外提供 Phase、Tone、Choice、Bond、Pursuit、GameFacade
  * [POS]: frontend 的视图契约（前端内部，不镜像任何后端）：useGame（backend）与 useEngineGame（engine）都交付 GameFacade，
- *        App 与组件只认这里的形状——两套后端在 hooks 层收敛，视图层不知道自己连的是哪一个
+ *        App 与组件只认这里的形状——两套后端在 hooks 层收敛，视图层不知道自己连的是哪一个；
+ *        人情 / 心事 / 手段所图是 engine 才有的可选项，backend 不交付即不显示
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 import type { ActionType } from './types'
@@ -17,7 +18,7 @@ export type Phase = 'idle' | 'loading' | 'streaming' | 'playing' | 'dead'
 export type Tone = 'calm' | 'probe' | 'risk'
 
 export interface Choice {
-  /** 角标：backend 为 A / B / C，engine 为方向（战斗 / 交涉 / 探索……） */
+  /** 角标：backend 为 A / B / C，engine 为风险档（稳妥 / 有险 / 凶险），未下发时退回方向（战斗 / 交涉 / 探索……） */
   key: string
   /** 按钮正文 */
   label: string
@@ -26,6 +27,20 @@ export interface Choice {
   tone: Tone
   /** 交还 act('choice', value) 的载荷：backend 为选项原文，engine 为 option id */
   value: string
+}
+
+/** 人情一条：「名 · 态度（缘由）」；tone 由状态 hook 按态度定（敌视血、戒备金、友善与信赖素），组件不解读态度 */
+export interface Bond {
+  name: string
+  attitude: string
+  cause: string
+  tone: Tone
+}
+
+/** 心事一条：「label — note」 */
+export interface Pursuit {
+  label: string
+  note: string
 }
 
 export interface GameFacade {
@@ -37,6 +52,11 @@ export interface GameFacade {
   choices: Choice[] | null
   /** 已落定的上一招，显示为场景题记 */
   lastAction: string | null
+  /** 上一招解析出的手段与所图（「言辞 · 求艺」），手段寻常时为空；附在题记后（engine） */
+  manner?: string | null
+  /** 人情与心事（engine）：缺省或为空则不显示 */
+  bonds?: readonly Bond[]
+  pursuits?: readonly Pursuit[]
   /** 正在推演的这一招，显示在缓冲提示里 */
   pendingAction: string | null
   /** 每次新场景 +1，驱动打字机与面板重置 */

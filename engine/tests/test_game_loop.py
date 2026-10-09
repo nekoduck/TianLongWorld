@@ -1,6 +1,6 @@
 """
 [INPUT]: 依赖 app.application.bus 的命令与回合消息，依赖 app.container 的 build_container，依赖 tests/conftest 的 container / play / spawned_at / ScriptedLLM / wire / sse
-[OUTPUT]: CQRS 游戏环路端到端用例：完整的逻辑死线剧情（入门 → 参照典籍练到略有小成 → 制敌夺剑 → 物归原主 → 拜师）、
+[OUTPUT]: CQRS 游戏环路端到端用例：完整的逻辑死线剧情（入门 → 参照典籍练到略有小成 → 制敌夺剑 → 物归原主直升信赖 → 拜师一阳指）、
           极端找死的永久死亡、重伤后避开仇人调息疗伤、选项点选与防伪、断线重连即重放、投影自愈、
           叙事失败不影响真相、地下城主越界的提议被钳回区间、在场者的人物行写明恩怨、记忆召回带上焦点与在场者、
           真实三件套后端上的整局（设置 PG 与 Neo4j 环境变量时）
@@ -53,7 +53,7 @@ async def test_spawn_point_must_exist(container: Container) -> None:
 
 
 async def test_the_logic_deadline_storyline(container: Container) -> None:
-    """一切成长都由图谱推导：武功来自原著典籍与肯教之人且火候靠一次次累积，兵器来自被制住之人，好感来自物归原主。"""
+    """一切成长都由图谱推导：武功来自原著典籍与肯教之人且火候靠一次次累积，兵器来自被制住之人，信赖来自物归原主。"""
     pid = await spawned_at(container, "无量山")
     for text in ("拾起玉佩", "去崖下", "拾起卷轴"):
         await say(container, pid, text)
@@ -73,7 +73,7 @@ async def test_the_logic_deadline_storyline(container: Container) -> None:
     for text in ("拿无量剑", "去南下"):
         await say(container, pid, text)
     resolved, _ = await say(container, pid, "把玉佩交还段正淳")
-    assert "段正淳对阿星生出好感（物归原主）。" in resolved.facts
+    assert "段正淳对阿星深为信赖（物归原主）。" in resolved.facts  # 信赖的封闭清单：物归原主直升信赖，一阳指（一流）才肯传
     resolved, done = await say(container, pid, "向段正淳学一阳指")
     assert resolved.facts == ("阿星得段正淳点拨，修习一阳指，功力有所精进。",)
     assert set(done.status.skills) == {"一阳指（初窥门径）", "北冥神功（略有小成）"} and done.status.tier == "二流"

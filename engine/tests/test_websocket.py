@@ -1,6 +1,6 @@
 """
 [INPUT]: 依赖 fastapi.testclient 的 TestClient，依赖 app.main 的 create_app，依赖 app.container 的 build_container，依赖 tests/world 的 WORLD
-[OUTPUT]: WebSocket 线协议用例：投胎 → 流式叙事 → 终帧（状态栏只有语义标签：境界、伤势、武学火候）、自由文本与选项点选、
+[OUTPUT]: WebSocket 线协议用例：投胎 → 流式叙事 → 终帧（状态栏只有语义标签：境界、伤势、武学火候）、自由文本与选项点选（turn_resolved 的意图含手段 / 所图 / 话题）、
           错误帧不断连接、选项只下发 id / 标签 / 方向 / why（意图不下发）、健康检查、极端找死即永久死亡
 [POS]: tests 的表现层验收：经 create_app 的 lifespan 装配，与 uvicorn 启动走同一条路径
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -56,7 +56,7 @@ def test_a_full_session_over_the_wire(client: TestClient) -> None:
         assert frames[0] == {
             "type": "turn_resolved",
             "intent": {"action_type": "TAKE", "target_entity": "玉佩", "item_used": None, "skill_used": None,
-                       "narrative_style": "", "reason": None},
+                       "narrative_style": "", "reason": None, "approach": "寻常", "aim": None, "topic": None},
             "facts": ["阿星在无量山地上拾得玉佩。"],
         }
         assert frames[-1]["status"]["inventory"] == ["玉佩"]

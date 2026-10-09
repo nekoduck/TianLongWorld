@@ -1,20 +1,27 @@
 """
-[INPUT]: 依赖 pydantic v2 的 BaseModel / Field / model_validator，依赖 enum 的 StrEnum
-[OUTPUT]: 对外提供 本体枚举 EntityKind / Tier / Disposition / CharacterStatus / Attitude / RelationKind / Transmission / Provenance、
-          entity_id() / kind_of() 标识工具、图谱节点 Location / Character（true_name 本名为主键 + titles 称号 + aliases 别名）/ MartialArt / Item、
-          武学的获取要求 Acquisition 与修炼要求 Practice、关系边 CharacterRelation、原著蓝图 WorldBlueprint（引用完整性 + 根基无环的最后闸门）
+[INPUT]: 依赖 pydantic v2 的 BaseModel / Field / model_validator，依赖 enum 的 StrEnum，依赖 domain/lore 的 Persona / Fact / lore_integrity_errors
+[OUTPUT]: 对外提供 本体枚举 EntityKind / Tier / Disposition / CharacterStatus / Attitude（五档人情阶梯，rank / step）/ Era（关系结于何时）/
+          RelationKind / Transmission / Provenance、entity_id() / kind_of() 标识工具、
+          图谱节点 Location / Character（true_name 本名为主键 + titles 称号 + aliases 别名 + foreshadow 后文剧情 + arrives_with 后来才到场）/
+          MartialArt / Item（portable 可携、hazard 险性、use 用法 ItemUse、arrives_with）、Remedy 功效、
+          武学的获取要求 Acquisition 与修炼要求 Practice、关系边 CharacterRelation（带 era）、
+          原著蓝图 WorldBlueprint（含 personas / facts 掌故；引用完整性 + 根基无环 + 掌故闸门的最后一道关）
 [POS]: domain 的世界本体：原著解析管道的产物形状、Neo4j 图谱的节点与边的来源、裁决规则读取的事实；
        这里只有"世界是什么"，没有"世界此刻怎样"——后者属于事件流（events.py）与聚合根（aggregates.py）。
        语义本体对齐：人物的主键是本名而不是江湖上最响的那个称呼（段延庆不叫「恶贯满盈」）；武学把"门径从何而来"（获取）
-       与"根基够不够"（修炼）分开，入门与精进各守各的门；物品可以下落不明（孤儿），由播种期的自愈代理据常识安放并标明来历
+       与"根基够不够"（修炼）分开，入门与精进各守各的门；物品可以下落不明（孤儿），由播种期的自愈代理据常识安放并标明来历。
+       人情是有序阶梯，只比 rank：戒备不是仇人，友善还不是心腹；关系边记下结于何时（era），只有开篇的羁绊牵动 T=0 的人情；
+       foreshadow 只供离线审阅，绝不进任何提示词；带 arrives_with 的人与物 T=0 不在任何场景
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
 from collections.abc import Iterable
 from enum import StrEnum
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.domain.lore import Fact, Persona, lore_integrity_errors
 
 NAME_CHARS = 24
 DESC_CHARS = 200
@@ -72,11 +79,37 @@ class CharacterStatus(StrEnum):
 
 
 class Attitude(StrEnum):
-    """NPC 对玩家的态度。初见一律漠然；只有图谱推导出的事件能改变它。"""
+    """
+    NPC 对玩家的态度：一架五档的人情阶梯（敌视 −2 … 信赖 +2）。初见一律漠然；只有图谱推导出的事件能改变它。
+    高下只比 rank、不比值：「戒备」不是仇人（调息、修习、脱身席只认敌视），「友善」还不是心腹（二流以上的武学只传信赖之人）。
+    原有三值的字面不动——账本里的旧 RelationChanged 照读。
+    """
 
     HOSTILE = "敌视"
+    WARY = "戒备"
     NEUTRAL = "漠然"
     FRIENDLY = "友善"
+    TRUSTED = "信赖"
+
+    @property
+    def rank(self) -> int:
+        return _ATTITUDE_RANK[self]
+
+    def step(self, delta: int) -> "Attitude":
+        """沿阶梯移动 delta 档，钳在 [敌视, 信赖] 之内。"""
+        return _ATTITUDE_BY_RANK[max(-2, min(2, self.rank + delta))]
+
+
+_ATTITUDE_RANK = {attitude: rank for rank, attitude in enumerate(Attitude, start=-2)}
+_ATTITUDE_BY_RANK = {rank: attitude for attitude, rank in _ATTITUDE_RANK.items()}
+
+
+class Era(StrEnum):
+    """一条关系结于何时：开篇（T=0 已有）、将至（开篇之后旋即结下）、后文（远在后头）。只有开篇的羁绊牵动 T=0 的人情。"""
+
+    OPENING = "开篇"
+    IMMINENT = "将至"
+    LATER = "后文"
 
 
 class RelationKind(StrEnum):
@@ -147,6 +180,8 @@ class Character(_Entity):
     disposition: Disposition = Disposition.NEUTRAL
     location_id: str | None = None  # T=0 时所在（LOCATED_IN）；None 表示不在任何场景中
     skills: tuple[str, ...] = ()  # T=0 时已身负的武学（KNOWS_SKILL）
+    foreshadow: str = Field(default="", max_length=DESC_CHARS)  # 从描述里拆出的后文剧情：只供离线审阅，绝不进任何提示词
+    arrives_with: str | None = None  # 后来才到场（预兆 id，P2 由世界事件带上场）：非空者 T=0 不在任何场景
 
     @property
     def name(self) -> str:
@@ -199,6 +234,18 @@ class MartialArt(_Named):
     practice: Practice = Practice()
 
 
+Remedy = Literal["疗伤", "解毒"]  # 用法的功效：疗伤回气血，解毒（P2 起有中毒之状）
+
+
+class ItemUse(BaseModel):
+    """随身之物的用法：服药、敷药。potency 是药力的档次（1~3），折算多少气血由规则定。"""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    effect: Remedy
+    potency: int = Field(default=1, ge=1, le=3)
+
+
 class Item(_Named):
     """
     唯一性归属：一件物品至多一位物主（BELONGS_TO），至多一个物理所在（LOCATED_IN）。
@@ -211,6 +258,10 @@ class Item(_Named):
     owner_id: str | None = None
     location_id: str | None = None
     provenance: Provenance = Provenance.CANON  # 物主与所在的来历
+    portable: bool = True  # 不可携带（崖壁、玉璧、活毒物、蒲团）：拾取一律驳回
+    hazard: str | None = Field(default=None, max_length=NAME_CHARS)  # 有毒等险性：取到手即受伤
+    use: ItemUse | None = None  # 可服可敷之物的用法；None 即不能"使用"
+    arrives_with: str | None = None  # 后来才出现（预兆 id）：非空者 T=0 不在任何场景
 
     @property
     def lost(self) -> bool:
@@ -229,6 +280,7 @@ class CharacterRelation(BaseModel):
     target_id: str
     kind: RelationKind
     note: str = Field(default="", max_length=DESC_CHARS)
+    era: Era = Era.OPENING  # 审计之前一律视为开篇；审计把后文才结下的关系标出来
 
 
 # ============================================================
@@ -242,10 +294,12 @@ class WorldBlueprint(BaseModel):
     martial_arts: tuple[MartialArt, ...] = ()
     items: tuple[Item, ...] = ()
     relations: tuple[CharacterRelation, ...] = ()
+    personas: tuple[Persona, ...] = ()  # 外显人设（lore.py）
+    facts: tuple[Fact, ...] = ()  # 可打探入账的见闻（lore.py）
 
     @model_validator(mode="after")
     def _integrity(self) -> Self:
-        errors = _integrity_errors(self)
+        errors = [*_integrity_errors(self), *lore_integrity_errors(self)]
         if errors:
             raise ValueError("原著蓝图不自洽：\n" + "\n".join(errors))
         return self
