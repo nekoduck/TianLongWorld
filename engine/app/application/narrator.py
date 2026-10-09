@@ -32,7 +32,7 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
 
 from app.application.chronicle import known_arts, titled
 from app.application.ports import LLMClient
@@ -68,6 +68,21 @@ def recollect(before: LocalSnapshot, motivation: str) -> ShortTermMemory:
 
 
 @dataclass(frozen=True, slots=True)
+class MenuPick:
+    """说书人从可供性目录里挑中的一招：key 是目录的编号（m1、m2……），flavor 是它为这一招配的武侠风味文案（未过闸）。"""
+
+    key: str
+    flavor: str
+
+
+@dataclass(frozen=True, slots=True)
+class MenuPicks:
+    """叙事流的最后一项：说书人在正文之后交出的 <menu>（解析后、未过闸）。叙事流里至多一个，离线与降级的说书人从不产出。"""
+
+    picks: tuple[MenuPick, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class NarrationRequest:
     snapshot: LocalSnapshot  # 回合结束后的局部真理快照
     facts: tuple[str, ...]  # 本回合已入账事件的白描（不可更改的结果）
@@ -79,6 +94,8 @@ class NarrationRequest:
     hooks: tuple[str, ...] = ()  # 本回合菜单的端倪「标签（why）」：只许露在场面里，不是结果（handlers 先算菜单、经 hooks(options) 填好）
     recollection: ShortTermMemory | None = None  # 本回合跨进了新地方：出发前眼中所见与此行所为（短期记忆）
     motivation: str = ""  # 最近一次移动的此行所为（PlayerState.motivation）：没跨地方的回合也照应得上预期落差
+    menu: tuple[Any, ...] = ()  # 可供性目录（options.catalogue 的 ActionOption，按次序编号 m1、m2……）：说书人只许从中挑 3~4 招配上风味（取代 hooks）
+    errands: Mapping[str, str] = field(default_factory=dict)  # 在场者本名 → 他此行的议程意图（离了家、带议程的核心 NPC）
 
 
 class _Offered(Protocol):  # ActionOption 的结构子集：叙事不必认识选项包

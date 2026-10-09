@@ -1,7 +1,7 @@
 """
 [INPUT]: 依赖 pydantic v2 的 BaseModel / Field，依赖 domain/intent 的 ActionType / PlayerIntent
-[OUTPUT]: 对外提供 世界时间的刻度 TICKS_PER_DAY / TICKS_PER_SHICHEN / SPAWN_TICK、TIME_COSTS 各动作耗时表、NEARBY_MOVE / REFUSED_COST、
-          Command（意图 + 必填的 time_cost）、time_cost()（动作 × 获准与否 × 去处是否同一处所 → 刻数）、same_place()（两地是否同一处所）、
+[OUTPUT]: 对外提供 世界时间的刻度 TICKS_PER_DAY / TICKS_PER_SHICHEN / SPAWN_TICK、TIME_COSTS 各动作耗时表、NEARBY_MOVE / REFUSED_COST / MAX_TIME_COST（七日）、
+          Command（意图 + 必填的 time_cost ∈ [1, MAX_TIME_COST]）、time_cost()（动作 × 获准与否 × 那条出路的耗时 way_cost，缺了才看去处是否同一处所 → 刻数）、same_place()（两地是否同一处所）、
           day_of() / time_label()（「第一日·辰正」）/ daylight()（卯时至酉时为昼）
 [POS]: domain 的「时间是第一物理量」：玩家的每一条命令都花时间——攀谈、静观、沉思也不例外——世界据此走动（application/world_clock 把 time_cost 绑定成心跳）。
        精神时光屋的病根是"行动不花时间"：仇人面前连练十回功、离开一处再回来一切如初、消息从不出门。
@@ -20,6 +20,7 @@ TICKS_PER_DAY = 96
 TICKS_PER_SHICHEN = 8
 SPAWN_TICK = 32  # 投胎在第一日辰正（八点）：原著开篇，比剑正要开场
 
+MAX_TIME_COST = 7 * TICKS_PER_DAY  # 一条命令至多花七日：远行（大理到江南）以道路注记的耗时计
 NEARBY_MOVE = 1  # 同一处所之内走动（剑湖宫 ↔ 剑湖宫·练武厅）
 REFUSED_COST = 1  # 被驳回的命令
 
@@ -44,7 +45,7 @@ class Command(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     intent: PlayerIntent
-    time_cost: int = Field(ge=1, le=TICKS_PER_DAY)
+    time_cost: int = Field(ge=1, le=MAX_TIME_COST)
 
 
 def same_place(here: str, there: str) -> bool:
@@ -52,10 +53,17 @@ def same_place(here: str, there: str) -> bool:
     return here.split("·", 1)[0] == there.split("·", 1)[0]
 
 
-def time_cost(action: ActionType, *, approved: bool = True, here: str = "", there: str | None = None) -> int:
-    """耗时查封闭表：驳回只花一刻；移动到同一处所之内只花一刻（there 是去处的名字）。"""
+def time_cost(
+    action: ActionType, *, approved: bool = True, here: str = "", there: str | None = None, way_cost: int | None = None
+) -> int:
+    """
+    耗时查封闭表：驳回只花一刻；移动以那条出路的耗时为准（way_cost：道路注记或 geography 推出的，快照的 ExitView.time_cost），
+    没给 way_cost 时退回老规矩——同一处所之内一刻、换处所四刻（there 是去处的名字）。
+    """
     if not approved:
         return REFUSED_COST
+    if action is ActionType.MOVE and way_cost is not None:
+        return max(1, min(MAX_TIME_COST, way_cost))
     if action is ActionType.MOVE and there is not None and same_place(here, there):
         return NEARBY_MOVE
     return TIME_COSTS[action]

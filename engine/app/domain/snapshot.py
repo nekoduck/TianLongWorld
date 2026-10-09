@@ -7,7 +7,9 @@
           SkillView（获取要求 + 修炼要求）/ PersonaView / FactView / EmergedView（推演出的微观事实）；
           clocks 挂在眼前之物上的叙事时钟（此地、在场之人、可见之物、玩家自己）、emerged 点了在场者名的微观事实；
           世界心跳的四样此地之物 ActivityView（此地的活动，进行与否按 tick 现算）/ TraceView（尚未消散的痕迹与还剩几刻）/
-          SwarmView（人群与 current_state）/ RumorView（传到此地的消息），tick 与现算的 time_label / daylight；ItemView 另有现算的 material / ownership
+          SwarmView（人群与 current_state）/ RumorView（传到此地的消息），tick 与现算的 time_label / daylight；ItemView 另有现算的 material / ownership；
+          空间属性图与探索迷雾：ExitView 带 direction / travel_method / time_cost / discovery（known、shown_name「未知区域」、names 未知即只剩标签），
+          LocalSnapshot.handle()（出路的方位把手）/ exit_names()；CharacterView.wounded 此世带伤
 [POS]: domain 的读模型（CQRS 查询侧）：图谱投影在"玩家此刻所在之处"的一个切片。
        裁决规则只凭它判定物理事实（出口、在场者、物品所在），叙事大模型只凭它落笔（Hard Prompt），选项生成器只遍历它的合法边；
        快照之外的世界对这一回合不存在——这是杜绝幻觉的边界。
@@ -27,7 +29,9 @@ from pydantic import BaseModel, ConfigDict, model_validator
 
 from app.domain.ambient import ActivityKind, ActivityState
 from app.domain.clocks import NarrativeClock
-from app.domain.commands import SPAWN_TICK, daylight, time_label
+from app.domain.commands import SPAWN_TICK, TIME_COSTS, daylight, time_label
+from app.domain.geography import UNKNOWN_PLACE, Direction, DiscoveryStatus, TravelMethod
+from app.domain.intent import ActionType
 from app.domain.lore import FactUnlock
 from app.domain.models import (
     Acquisition,
@@ -82,14 +86,33 @@ class LocationView(_View):
 
 
 class ExitView(_View):
+    """
+    一条出路：CONNECTS_TO 边的方位、交通方式、耗时（geography.ways：撰写的注记或推出的），以及玩家对去处的认知。
+    discovery 缺省视作亲历——旧图谱与手搭的快照不填照旧能走；两套图谱都按 PlayerState.visited / heard 与正典的地标名胜填实。
+    未知的去处不露名：names 只剩出口标签（引擎内部的把手），显示层一律用方位与 shown_name。
+    """
+
     label: str
     to_id: str
     to_name: str
     hostile_ahead: bool = False  # 去处此刻站着对玩家敌视的在场者
+    direction: Direction = Direction.UNSPECIFIED
+    travel_method: TravelMethod = TravelMethod.WALK
+    time_cost: int = TIME_COSTS[ActionType.MOVE]
+    discovery: DiscoveryStatus = DiscoveryStatus.VISITED
+
+    @property
+    def known(self) -> bool:
+        return self.discovery.known
+
+    @property
+    def shown_name(self) -> str:
+        """给玩家与大模型看的名字：未知即「未知区域」。"""
+        return self.to_name if self.known else UNKNOWN_PLACE
 
     @property
     def names(self) -> tuple[str, ...]:
-        return (self.label, self.to_name)
+        return (self.label, self.to_name) if self.known else (self.label,)
 
 
 class BondView(_View):
@@ -230,6 +253,7 @@ class CharacterView(_Named):
     skill_ids: tuple[str, ...] = ()
     bonds: tuple[BondView, ...] = ()  # HAS_RELATION（无向；lead 标明本人是否上首）
     persona: PersonaView | None = None
+    wounded: bool = False  # 本世界中此刻带伤（NpcWounded 未过期）：交手时战力打一档折扣
 
     @model_validator(mode="before")
     @classmethod
@@ -332,6 +356,17 @@ class LocalSnapshot(_View):
         for r in self.rumors:
             ids |= {r.origin_id, *r.subject_ids}
         return ids
+
+    def handle(self, way: ExitView) -> str:
+        """一条出路给玩家的把手：方位（「东」）；同一方位不止一条时按出路的次序加序号（「东·二」）——导航的意图只用它，不露未知之地的名字。"""
+        same = [e for e in self.exits if e.direction is way.direction]
+        if len(same) == 1:
+            return way.direction.value
+        return f"{way.direction.value}·{'一二三四五六七八九十'[min(same.index(way), 9)]}"
+
+    def exit_names(self, way: ExitView) -> tuple[str, ...]:
+        """移动落地认的名字：出口标签、把手，已知的去处另认它的名字。"""
+        return (*way.names, self.handle(way))
 
     def clocks_on(self, anchor_id: str) -> tuple[NarrativeClock, ...]:
         return tuple(c for c in self.clocks if c.anchor_id == anchor_id)

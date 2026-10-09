@@ -4,7 +4,9 @@
          依赖 domain/models 的 WorldBlueprint / Item / Character / CharacterStatus / Disposition / Ownership / ownership，
          依赖 domain/combat 的 CombatOutcome，依赖 domain/outcomes 的 SocialOutcome / CovertOutcome，依赖 domain/snapshot 的 LocalSnapshot；
          PlayerState 仅作类型标注
-[OUTPUT]: 对外提供 Atlas（静态地理：道路邻接、室内之地、正典物品、常驻之人）与 Atlas.of(bp) / ring()（从一地广度优先的次序表）、
+[OUTPUT]: 对外提供 Atlas（静态地理：道路邻接、室内之地、正典物品、常驻之人，以及道路耗时 costs、名字 names、在世人物 characters、
+          核心 NPC core（有执念者）、开篇仇人对 rivals）与 Atlas.of(bp) / ring()（从一地广度优先的次序表）/ cost() / path()（以道路耗时为权的最省时之路）、
+          position()（NPC 此世此刻所在）/ residents_at()（此世此刻身在某地的人）、
           Mark 痕迹样式与 BLOOD / SCUFFLE / LITTER、ROUT_TICKS / PILFER_ODDS、
           intensity()（一批事件的烈度 0~10）、deed()（一批事件里那件公开之事的消息正文与主体）、
           aftermath()（这一招在此地留下的余波：交手的活动与痕迹、人群溃散、公开之事成为消息）、
@@ -24,6 +26,7 @@
 from __future__ import annotations
 
 import hashlib
+import heapq
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -39,7 +42,7 @@ from app.domain.ambient import (
     trace_id,
 )
 from app.domain.combat import CombatOutcome
-from app.domain.commands import SPAWN_TICK, TICKS_PER_DAY, day_of
+from app.domain.commands import SPAWN_TICK, TICKS_PER_DAY, TIME_COSTS, day_of
 from app.domain.events import (
     ActivityStarted,
     DomainEvent,
@@ -55,7 +58,19 @@ from app.domain.events import (
     SkillExecuted,
     TraceLeft,
 )
-from app.domain.models import Character, CharacterStatus, Disposition, Item, Ownership, WorldBlueprint, ownership
+from app.domain.geography import ways
+from app.domain.intent import ActionType
+from app.domain.models import (
+    Character,
+    CharacterStatus,
+    Disposition,
+    Era,
+    Item,
+    Ownership,
+    RelationKind,
+    WorldBlueprint,
+    ownership,
+)
 from app.domain.outcomes import CovertOutcome, SocialOutcome
 from app.domain.snapshot import LocalSnapshot
 
@@ -72,6 +87,11 @@ class Atlas:
     sheltered: frozenset[str] = frozenset()  # 有遮蔽的室内之地（Location.sheltered）
     items: tuple[Item, ...] = ()  # T=0 就在世上的正典物品，按 id 排序
     residents: Mapping[str, tuple[Character, ...]] = field(default_factory=dict)  # 地点 → T=0 身在其中的健在之人
+    costs: Mapping[tuple[str, str], int] = field(default_factory=dict)  # (from, to) → 道路耗时（geography.ways；只写了一头的，另一头取同一耗时）
+    names: Mapping[str, str] = field(default_factory=dict)  # 地点与人物的 id → 名字（议程简报与闸门用）
+    characters: Mapping[str, Character] = field(default_factory=dict)  # T=0 在世、已到场的人物
+    core: tuple[str, ...] = ()  # 核心 NPC：有执念（人设心事）的在世之人，按 id 排序——宏观议程只为他们立
+    rivals: frozenset[frozenset[str]] = frozenset()  # 开篇结仇（仇敌、开篇）的人物对：狭路相逢的判据
 
     @classmethod
     def of(cls, bp: WorldBlueprint) -> Atlas:
@@ -82,15 +102,30 @@ class Atlas:
                 if target in places:  # 道路双向：出口只写了一头，另一头照样走得通
                     roads[loc.id].add(target)
                     roads[target].add(loc.id)
+        costs: dict[tuple[str, str], int] = {key: way.time_cost for key, way in ways(bp).items()}
+        for (a, b), cost in list(costs.items()):
+            costs.setdefault((b, a), cost)
         residents: dict[str, list[Character]] = {}
-        for c in sorted(bp.characters, key=lambda c: c.id):
-            if c.location_id and c.status is CharacterStatus.ALIVE and c.arrives_with is None:
+        living = sorted(
+            (c for c in bp.characters if c.status is CharacterStatus.ALIVE and c.arrives_with is None), key=lambda c: c.id
+        )
+        for c in living:
+            if c.location_id:
                 residents.setdefault(c.location_id, []).append(c)
+        obsessed = {p.character_id for p in bp.personas if p.worry}
         return cls(
             neighbors={k: tuple(sorted(v)) for k, v in roads.items()},
             sheltered=frozenset(loc.id for loc in bp.locations if loc.sheltered),
             items=tuple(sorted((i for i in bp.items if i.arrives_with is None), key=lambda i: i.id)),
             residents={k: tuple(v) for k, v in residents.items()},
+            costs=costs,
+            names={**{loc.id: loc.name for loc in bp.locations}, **{c.id: c.name for c in bp.characters}},
+            characters={c.id: c for c in living},
+            core=tuple(c.id for c in living if c.id in obsessed and c.location_id),
+            rivals=frozenset(
+                frozenset((r.source_id, r.target_id)) for r in bp.relations
+                if r.kind is RelationKind.ENEMY and r.era is Era.OPENING
+            ),
         )
 
     def ring(self, origin: str, radius: int) -> tuple[str, ...]:
@@ -101,6 +136,44 @@ class Atlas:
             seen |= set(frontier)
             order += frontier
         return tuple(order)
+
+    def cost(self, origin: str, target: str) -> int:
+        return self.costs.get((origin, target), TIME_COSTS[ActionType.MOVE])
+
+    def path(self, origin: str, target: str) -> tuple[str, ...]:
+        """
+        最省时的路（以道路耗时为权的 Dijkstra——A* 的启发项取零）：含起点与终点，耗时相同取 id 序列字典序最小的一条，不通为空。
+        NPC 的微观行军每一跳都按它重算，地图怎么变都走得对。
+        """
+        if origin == target:
+            return (origin,)
+        best: dict[str, tuple[int, tuple[str, ...]]] = {origin: (0, (origin,))}
+        heap: list[tuple[int, tuple[str, ...]]] = [(0, (origin,))]
+        while heap:
+            spent, route = heapq.heappop(heap)
+            node = route[-1]
+            if node == target:
+                return route
+            if best[node] < (spent, route):
+                continue
+            for nxt in self.neighbors.get(node, ()):
+                if nxt in route:
+                    continue
+                candidate = (spent + self.cost(node, nxt), (*route, nxt))
+                if nxt not in best or candidate < best[nxt]:
+                    best[nxt] = candidate
+                    heapq.heappush(heap, candidate)
+        return ()
+
+
+def position(state: PlayerState, atlas: Atlas, npc_id: str) -> str | None:
+    """NPC 此世此刻所在：行军改过的（PlayerState.npc_at）优先，否则正典所在。"""
+    return state.npc_at.get(npc_id) or (c.location_id if (c := atlas.characters.get(npc_id)) else None)
+
+
+def residents_at(state: PlayerState, atlas: Atlas, location_id: str) -> tuple[Character, ...]:
+    """此世此刻身在某地的人（正典的常驻之人减去走开的、加上走来的），按 id 排序。"""
+    return tuple(c for cid, c in sorted(atlas.characters.items()) if position(state, atlas, cid) == location_id)
 
 
 # ============================================================
@@ -273,7 +346,7 @@ def ecology(state: PlayerState, atlas: Atlas, since: int) -> list[DomainEvent]:
                 continue
             if not item.portable or item.hazard or owned not in (Ownership.UNOWNED, Ownership.STRAYED):
                 continue
-            locals_ = atlas.residents.get(holder, ())
+            locals_ = residents_at(state, atlas, holder)
             if any(c.id == item.owner_id for c in locals_):
                 continue
             takers = [c for c in locals_ if c.disposition is not Disposition.MERCIFUL and c.id not in state.subdued]

@@ -8,7 +8,9 @@
          1. 余波：这一招在出招之地留下的活动、痕迹、人群溃散与消息（出招那一刻的 tick）；
          2. TimePassed(time_cost)：时间走了，到期的痕迹与随之消散的往事由折叠剪掉；
          3. 扩散：这几刻里每枚消息沿路又传开几处；
-         4. 生态：跨过的每个黎明结算一次风化与顺手牵羊。
+         4. 生态：跨过的每个黎明结算一次风化与顺手牵羊；
+         5. 行军：带议程的 NPC 沿最省时之路推进到此刻（domain/npc.march），撞见玩家或与开篇仇人狭路相逢即 EncounterBegan 并停步——
+            中断交给应用层的 npc_agent 在同一回合里裁决，这里一个大模型也不调。
        死者没有心跳：定案里有 PlayerDied，这条流就此封存，世界时钟不再为它走动。
        由 TurnPipeline 在命令侧玩家锁里同步调用，返回的事件与定案事件一并原子追加
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -19,8 +21,9 @@ from functools import reduce
 
 from app.domain.aggregates import PlayerState, evolve
 from app.domain.commands import Command
-from app.domain.events import DomainEvent, TimePassed
+from app.domain.events import DomainEvent, Moved, TimePassed
 from app.domain.heartbeat import Atlas, aftermath, ecology, spread
+from app.domain.npc import march
 from app.domain.snapshot import LocalSnapshot
 
 
@@ -43,5 +46,8 @@ class WorldClock:
         passed = TimePassed(ticks=command.time_cost)
         later = _fold(after, [*deeds, passed])
         ripples = spread(later.tokens, self._atlas, command.time_cost)
-        dawn = ecology(_fold(later, ripples), self._atlas, after.tick)
-        return [*deeds, passed, *ripples, *dawn]
+        spreaded = _fold(later, ripples)
+        dawn = ecology(spreaded, self._atlas, after.tick)
+        moved = any(isinstance(e, Moved) for e in decided)
+        steps = march(_fold(spreaded, dawn), self._atlas, player_arrived=moved)  # 微观行军：寻路推进、相撞即中断，不调大模型
+        return [*deeds, passed, *ripples, *dawn, *steps]

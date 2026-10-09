@@ -5,7 +5,7 @@
           图谱节点 Location / Character（true_name 本名为主键 + titles 称号 + aliases 别名 + foreshadow 后文剧情 + arrives_with 后来才到场）/
           MartialArt / Item（portable 可携、hazard 险性、use 用法 ItemUse、arrives_with）、Remedy 功效、
           武学的获取要求 Acquisition 与修炼要求 Practice、关系边 CharacterRelation（带 era）、
-          原著蓝图 WorldBlueprint（含 personas / facts / swarms 掌故；引用完整性 + 根基无环 + 关系边无自环且一对人物至多一条 + 掌故闸门的最后一道关）、
+          原著蓝图 WorldBlueprint（含 personas / facts / swarms 掌故与 passages / sights 地理注记；引用完整性 + 根基无环 + 关系边无自环且一对人物至多一条 + 掌故闸门的最后一道关）、
           日常生态的两把尺 Material 物料（weathers_in 露天几日朽坏）与 MATERIAL_OF_KIND、Ownership 归属（随身 / 他持 / 遗落 / 无主）与 ownership()；
           Location.sheltered（有遮蔽的室内）、Item.material / Item.ownership 都是派生属性，不另存
 [POS]: domain 的世界本体：原著解析管道的产物形状、Neo4j 图谱的节点与边的来源、裁决规则读取的事实；
@@ -24,6 +24,7 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.domain.geography import Passage, Sight, geography_errors
 from app.domain.lore import Fact, Persona, SwarmNode, lore_integrity_errors
 
 NAME_CHARS = 24
@@ -376,10 +377,12 @@ class WorldBlueprint(BaseModel):
     personas: tuple[Persona, ...] = ()  # 外显人设（lore.py）
     facts: tuple[Fact, ...] = ()  # 可打探入账的见闻（lore.py）
     swarms: tuple[SwarmNode, ...] = ()  # 人群（lore.py）：没有名姓、成群在场的人
+    passages: tuple[Passage, ...] = ()  # 道路注记（geography.py）：出路的方位、交通方式与耗时，没注记的由 geography.ways 推出
+    sights: tuple[Sight, ...] = ()  # 可见性注记（geography.py）：地标远眺可见、名胜天下皆知
 
     @model_validator(mode="after")
     def _integrity(self) -> Self:
-        errors = [*_integrity_errors(self), *lore_integrity_errors(self)]
+        errors = [*_integrity_errors(self), *lore_integrity_errors(self), *geography_errors(self)]
         if errors:
             raise ValueError("原著蓝图不自洽：\n" + "\n".join(errors))
         return self

@@ -1,7 +1,7 @@
 """
 [INPUT]: 依赖 domain/events 的全部领域事件（含 P1 的 Parleyed / FactLearned / ItemConsumed / Maneuvered 与语义物理引擎的时钟 / 微观事实 / 名望事件）与 EventEnvelope，
          依赖 domain/clocks 的 NarrativeClock / started / advanced / retired，依赖 domain/ambient 的 Activity / EnvironmentalTrace / FactToken 与写时复制操作，
-         依赖 domain/commands 的 SPAWN_TICK，依赖 domain/models 的 Attitude，依赖 domain/progression 的 MAX_HP / Mastery / Vitality /
+         依赖 domain/commands 的 SPAWN_TICK，依赖 domain/agenda 的 NpcAgenda / Encounter，依赖 domain/models 的 Attitude，依赖 domain/progression 的 MAX_HP / Mastery / Vitality /
          mastery_of / vitality / aptitude_for，依赖 domain/combat 的 CombatOutcome / CombatProposal，依赖 domain/stakes 的 Proposal，依赖 domain/resolution 的 ResolutionOutput，
          依赖 domain/threads 的 Thread / fold，依赖 domain/intent 的 Approach / PlayerIntent，
          依赖 domain/rules 的 decide()（裁决），依赖 app.errors 的 UnknownPlayerError / PlayerDeadError
@@ -11,6 +11,7 @@
           attempts 对每个对象出过几次有赌注的招（FortuneResolver 的种子）、taken_from 物品最初从谁手里到你身上，
           clocks 悬着的叙事时钟、emerged 推演出的微观事实（新者在前、至多 EMERGED_MAX 条）、renown 名望点数，
           tick 世界时间、motivation 此行所为、activities / traces / tokens 此世的活动、痕迹与消息，
+          visited / heard 到过与问路得知的地方（去处的认知）、agendas / npc_at / npc_since / npc_wounds / agenda_tick / encounters 分层 NPC 生态的此世状态，
           mastery / vitality / inventory 现算）、FOCUS_SIZE、RECENT_SIZE、EMERGED_MAX、EmergedFact、
           evolve(state, event) 纯函数折叠、Player 聚合根（apply / from_history / replay / spawn / ensure_alive / mastery / decide）
 [POS]: domain 的一致性边界：一位玩家的平行世界就是一条事件流，世界在这条流上相对原著的全部偏离（位置、行囊、武学火候、气血、
@@ -27,6 +28,8 @@
        名望只做加法并钳在 ±RENOWN_MAX。
        世界心跳同样只做折叠：TimePassed 累加 tick 并剪掉到期的痕迹与随之消散的已结束活动；活动、痕迹、消息按 id 挂上（超上限请走最旧的），
        消息传到之处只增不减；朽坏之物折进 consumed（与用掉之物一样从此不在任何地方）；被人顺手拿走只改持有者——不进焦点、不记来路、不了结心事。
+       空间认知与 NPC 生态同样只做折叠：投胎之地与每个去处进 visited、问路得知进 heard；议程按 NPC 挂上（启程之刻进 npc_since）、了结即摘下；
+       NPC 每走一跳改 npc_at 与 npc_since；中断挂进 encounters、裁决之后摘下并让当事 NPC 驻足到 resume_tick；受伤记到 npc_wounds。
        内存图谱投影（infrastructure/persistence/memory_graph.py）复用同一个 evolve，投影与真相因此同构
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -36,6 +39,7 @@ from dataclasses import dataclass, field, replace
 from functools import reduce
 
 from app.domain import rules
+from app.domain.agenda import Encounter, NpcAgenda
 from app.domain.ambient import (
     Activity,
     EnvironmentalTrace,
@@ -52,12 +56,17 @@ from app.domain.commands import SPAWN_TICK
 from app.domain.events import (
     ActionFailed,
     ActivityStarted,
+    AgendaConcluded,
+    AgendaIssued,
+    AgendaPlanned,
     ClockAdvanced,
     ClockCleared,
     ClockCollapsed,
     ClockStarted,
     Conversed,
     DomainEvent,
+    EncounterBegan,
+    EncounterResolved,
     EventEnvelope,
     FactEmerged,
     FactLearned,
@@ -69,7 +78,10 @@ from app.domain.events import (
     ItemTransferred,
     Maneuvered,
     Moved,
+    NpcMoved,
+    NpcWounded,
     Parleyed,
+    PlacesLearned,
     PlayerDied,
     PlayerSpawned,
     RelationChanged,
@@ -147,6 +159,14 @@ class PlayerState:
     activities: tuple[Activity, ...] = ()  # 此世记着的活动（按 id 排序，至多 ACTIVITIES_MAX）：已结束的随痕迹一同消散
     traces: tuple[EnvironmentalTrace, ...] = ()  # 此世尚未消散的环境痕迹（按 id 排序，至多 TRACES_MAX）
     tokens: tuple[FactToken, ...] = ()  # 此世传开的消息（按 id 排序，至多 TOKENS_MAX）与它们已传到之处
+    visited: frozenset[str] = frozenset()  # 到过的地方（投胎之地与每一次移动的去处）：去处的认知「亲历」
+    heard: frozenset[str] = frozenset()  # 问路得知的地方（PlacesLearned）：去处的认知「问路」
+    agendas: Mapping[str, NpcAgenda] = field(default_factory=dict)  # 核心 NPC → 进行中的议程
+    npc_at: Mapping[str, str] = field(default_factory=dict)  # NPC → 此世此刻所在（只记离开过正典所在的）
+    npc_since: Mapping[str, int] = field(default_factory=dict)  # NPC → 抵达当前所在（或启程 / 驻足到）之刻：下一跳从这一刻起算
+    npc_wounds: Mapping[str, int] = field(default_factory=dict)  # NPC → 伤到哪一刻为止
+    agenda_tick: int | None = None  # 上一轮宏观议程规划之刻（None：还没规划过）
+    encounters: tuple[Encounter, ...] = ()  # 待裁决的中断（EncounterBegan 之后、EncounterResolved 之前）
 
     @property
     def skills(self) -> frozenset[str]:
@@ -246,7 +266,8 @@ def _moves_on(event: DomainEvent) -> bool:
 def evolve(state: PlayerState | None, event: DomainEvent) -> PlayerState:
     if isinstance(event, PlayerSpawned):
         return PlayerState(
-            player_id=event.player_id, name=event.name, location_id=event.location_id, aptitude=event.aptitude
+            player_id=event.player_id, name=event.name, location_id=event.location_id, aptitude=event.aptitude,
+            visited=frozenset({event.location_id}),
         )
     if state is None:
         raise ValueError(f"事件流必须以 PlayerSpawned 开头，却遇到 {type(event).__name__}")
@@ -267,7 +288,8 @@ def evolve(state: PlayerState | None, event: DomainEvent) -> PlayerState:
     match event:
         case Moved(from_location_id=origin, to_location_id=destination, fleeing=fleeing, motivation=motivation):
             fled = state.fled_from | {origin} if fleeing else state.fled_from
-            return replace(state, location_id=destination, came_from=origin, fled_from=fled, motivation=motivation)
+            return replace(state, location_id=destination, came_from=origin, fled_from=fled, motivation=motivation,
+                           visited=state.visited | {destination})
         case ItemTransferred(item_id=item, from_holder=giver, to_holder=holder):
             provenance = state.taken_from
             if holder == state.player_id and item not in provenance:  # 只记最初的来路：转手第三人再拿回来，洗不掉偷来的底子
@@ -318,6 +340,27 @@ def evolve(state: PlayerState | None, event: DomainEvent) -> PlayerState:
             return replace(state, consumed=state.consumed | {item})
         case ItemPilfered(item_id=item, to_holder=holder):
             return replace(state, item_holders={**state.item_holders, item: holder})
+        case PlacesLearned(location_ids=places):
+            return replace(state, heard=state.heard | set(places))
+        case AgendaPlanned(tick=tick):
+            return replace(state, agenda_tick=tick)
+        case AgendaIssued(agenda=agenda):
+            return replace(
+                state,
+                agendas={**state.agendas, agenda.npc_id: agenda},
+                npc_since={**state.npc_since, agenda.npc_id: agenda.issued_tick},
+            )
+        case AgendaConcluded(npc_id=npc):
+            return replace(state, agendas={k: v for k, v in state.agendas.items() if k != npc})
+        case NpcMoved(npc_id=npc, to_location_id=there, tick=tick):
+            return replace(state, npc_at={**state.npc_at, npc: there}, npc_since={**state.npc_since, npc: tick})
+        case EncounterBegan(encounter=encounter):
+            return replace(state, encounters=(*(e for e in state.encounters if e.id != encounter.id), encounter))
+        case EncounterResolved(encounter_id=done, npc_ids=npcs, resume_tick=resume):
+            since = {**state.npc_since, **{n: max(state.npc_since.get(n, 0), resume) for n in npcs}}
+            return replace(state, encounters=tuple(e for e in state.encounters if e.id != done), npc_since=since)
+        case NpcWounded(npc_id=npc, until_tick=until):
+            return replace(state, npc_wounds={**state.npc_wounds, npc: until})
         case SkillExecuted() | Conversed() | ActionFailed() | Parleyed() | Maneuvered():
             return state  # 只是历史（线索、焦点、手段、尝试次数已在上面折叠），不改变世界
     raise TypeError(f"未知的领域事件：{type(event).__name__}")

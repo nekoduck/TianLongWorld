@@ -3,9 +3,11 @@
 [OUTPUT]: 对外提供 Route（战 / 交 / 暗 / 定）、Row（兼容表的行：TAKE 分地上之物与他人之物）、Cell（一格：路线 + 隐含所图 + 说法 + 不肯时的退路）、
           MOVES 封闭兼容表、row_of() / cell_of()（意图落在哪一格）、AIMS（各动作配得上的所图）、
           UNCOERCIBLE（威逼图不来的所图）、normalize()（表外手段退回寻常、所图与动作不配置空、落不了地的话题置空、
-          他人之物以格子的所图为准、威逼不图结交 / 化解 / 求艺）、infer_aim()（所图的缺省推断）
+          他人之物以格子的所图为准、威逼不图结交 / 化解 / 求艺）、infer_aim()（所图的缺省推断）、
+          TacticalAxis 战术维度（ESCALATE 激化 / TRICKERY 诡道 / PACIFY 化解 / OBSERVE 旁观，.label 中文）与 axis_of()（一招落在哪根轴上，封闭表）
 [POS]: domain 的「招」词汇：同一个动作可以怎么做、走哪一路裁决。兼容表逐格照搬 PROPOSAL_v2 §3.3，封闭——表外的组合不拒收，
        在 normalize 里退回「寻常」列，与指称截断同理：一个修饰词不该让整回合失败。
+       战术维度是选项的骨架：叙事大模型只在引擎给定的一招一式里挑、给它们配上武侠风味，每一招的轴由这里的封闭表定，不由措辞定。
        本模块只认意图与人情，不读快照：TAKE 的物在谁手、话题落不落得了地，由 rules 判定后作为参数交进来（rules 依赖本模块，反之不然）
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -154,3 +156,46 @@ def infer_aim(intent: PlayerIntent, *, attitude: Attitude = Attitude.NEUTRAL, he
     if intent.topic or intent.approach is Approach.FORCE:
         return Aim.PROBE
     return Aim.DEFUSE if attitude.rank < Attitude.NEUTRAL.rank else Aim.BEFRIEND
+
+
+# ============================================================
+#  战术维度 —— 选项按这四根轴铺开：激化 / 诡道 / 化解 / 旁观（意图风味封装的骨架，叙事大模型只在轴内落笔）
+# ============================================================
+class TacticalAxis(StrEnum):
+    ESCALATE = "ESCALATE"
+    TRICKERY = "TRICKERY"
+    PACIFY = "PACIFY"
+    OBSERVE = "OBSERVE"
+
+    @property
+    def label(self) -> str:
+        return _AXIS_LABEL[self]
+
+
+_AXIS_LABEL = {
+    TacticalAxis.ESCALATE: "激化", TacticalAxis.TRICKERY: "诡道", TacticalAxis.PACIFY: "化解", TacticalAxis.OBSERVE: "旁观",
+}
+_X = TacticalAxis
+_BY_APPROACH: dict[Approach, TacticalAxis] = {  # 手段先定轴：武力是激化，计谋 / 潜行 / 借势是诡道，言辞 / 人情是化解
+    _P.FORCE: _X.ESCALATE, _P.GUILE: _X.TRICKERY, _P.STEALTH: _X.TRICKERY, _P.LEVERAGE: _X.TRICKERY,
+    _P.WORDS: _X.PACIFY, _P.FAVOR: _X.PACIFY,
+}
+_BY_ACTION: dict[ActionType, TacticalAxis] = {  # 寻常手段按动作定轴：出手激化，攀谈与赠物化解，其余（静观、沉思、调息、服药、修习、拾物、移动）旁观
+    ActionType.ATTACK: _X.ESCALATE, ActionType.TALK: _X.PACIFY, ActionType.GIVE: _X.PACIFY,
+}
+
+
+def axis_of(intent: PlayerIntent) -> TacticalAxis:
+    """
+    一招落在哪根战术轴上（封闭表，确定性）：出手恒为激化；打探（所图打探或带话题的寻常攀谈）恒为旁观——看清楚再说；
+    其余先看手段、再看动作，表外的一律旁观。
+    """
+    if intent.action_type is ActionType.ATTACK:
+        return _X.ESCALATE
+    if intent.action_type is ActionType.TALK and intent.approach in (_P.PLAIN, _P.WORDS) and (
+        intent.aim is Aim.PROBE or (intent.approach is _P.PLAIN and intent.topic)
+    ):
+        return _X.OBSERVE
+    if intent.approach in _BY_APPROACH:
+        return _BY_APPROACH[intent.approach]
+    return _BY_ACTION.get(intent.action_type, _X.OBSERVE)

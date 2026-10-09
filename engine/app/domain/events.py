@@ -9,7 +9,10 @@
           语义物理引擎的六种事件 ClockStarted / ClockAdvanced（负为回退）/ ClockCollapsed（满格坍缩）/ ClockCleared（销毁）/
           FactEmerged（推演出的微观事实）/ RenownChanged（名望涨落）、
           世界心跳的七种事件 TimePassed（时间走了几刻）/ ActivityStarted / TraceLeft / FactTokenSpawned / RumorSpread（消息又传到几处）/
-          ItemDecayed（露天无主之物朽坏）/ ItemPilfered（遗落之物被人顺手拿走），Moved.motivation 此行所为、AnyEvent 判别联合、EVENT_ADAPTER（JSONB 编码）、
+          ItemDecayed（露天无主之物朽坏）/ ItemPilfered（遗落之物被人顺手拿走），Moved.motivation 此行所为、
+          空间认知与分层 NPC 生态的八种事件 PlacesLearned（问路得知）/ AgendaPlanned / AgendaIssued / AgendaConcluded（宏观议程）/
+          NpcMoved（微观行军，witnessed 玩家看见的一面）/ EncounterBegan / EncounterResolved（相撞中断与裁决）/ NpcWounded（战力洗牌）、
+          AnyEvent 判别联合、EVENT_ADAPTER（JSONB 编码）、
           decode_event()（JSONB 解码：先经上抛器把旧账升级为现行词汇）、EventEnvelope（流内版本 + 事件 id + 记录时间）
 [POS]: domain 的事实词汇：世界此刻的一切都由这些事件经纯函数折叠而来；事件一经写入永不修改，
        新增事件类型只需在此加一个类并挂进 AnyEvent（开闭），时间戳只在信封上，事件本体保持确定性以便裁决可单测。
@@ -30,10 +33,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
+from app.domain.agenda import AgendaEnd, Encounter, EncounterKind, NpcAgenda, SkirmishOutcome
 from app.domain.ambient import Activity, EnvironmentalTrace, FactToken
 from app.domain.clocks import NarrativeClock
 from app.domain.combat import CombatOutcome
-from app.domain.commands import TICKS_PER_DAY
+from app.domain.commands import MAX_TIME_COST
 from app.domain.intent import ActionType, Aim, Approach
 from app.domain.models import Attitude, Material, Remedy
 from app.domain.outcomes import CovertOutcome, SocialOutcome
@@ -252,7 +256,7 @@ class TimePassed(DomainEvent):
     """
 
     type: Literal["TimePassed"] = "TimePassed"
-    ticks: int = Field(ge=1, le=TICKS_PER_DAY)
+    ticks: int = Field(ge=1, le=MAX_TIME_COST)
 
 
 class ActivityStarted(DomainEvent):
@@ -301,6 +305,83 @@ class ItemPilfered(DomainEvent):
     to_holder: str
 
 
+# ============================================================
+#  空间认知与分层 NPC 生态 —— 问路得知、宏观议程、微观行军、相撞中断与裁决、战力洗牌
+# ============================================================
+class PlacesLearned(DomainEvent):
+    """问路得知了几处地方：此后它们作为去处时不再是「未知区域」。"""
+
+    type: Literal["PlacesLearned"] = "PlacesLearned"
+    location_ids: tuple[str, ...] = Field(min_length=1)
+    source_id: str | None = None  # 指路的人（chr:）
+
+
+class AgendaPlanned(DomainEvent):
+    """一轮宏观议程的规划（初临江湖、新的一日、江湖震动）：不论大模型给没给出议程都入账，下一轮按它算冷却。"""
+
+    type: Literal["AgendaPlanned"] = "AgendaPlanned"
+    tick: int = Field(ge=0)
+    cause: str = ""
+
+
+class AgendaIssued(DomainEvent):
+    """领域闸门放行的一条议程：同一位 NPC 的新议程覆盖旧议程，启程之刻即 agenda.issued_tick。"""
+
+    type: Literal["AgendaIssued"] = "AgendaIssued"
+    agenda: NpcAgenda
+
+
+class AgendaConcluded(DomainEvent):
+    type: Literal["AgendaConcluded"] = "AgendaConcluded"
+    npc_id: str
+    how: AgendaEnd
+    tick: int = Field(ge=0)
+
+
+class NpcMoved(DomainEvent):
+    """NPC 沿路走了一跳，tick 是抵达之刻。witnessed 是玩家看见的那一面：他来到你所在之处、或从你身边离开；别处的行军不出声。"""
+
+    type: Literal["NpcMoved"] = "NpcMoved"
+    npc_id: str
+    from_location_id: str
+    to_location_id: str
+    tick: int = Field(ge=0)
+    witnessed: Literal["", "来到", "离开"] = ""
+
+
+class EncounterBegan(DomainEvent):
+    """行军被相撞打断：一次待裁决的中断。"""
+
+    type: Literal["EncounterBegan"] = "EncounterBegan"
+    encounter: Encounter
+
+
+class EncounterResolved(DomainEvent):
+    """
+    中断坍缩成结局：撞见的结局是闸门放行的时钟 / 事实 / 名望（同批另行入账），狭路相逢的结局是 SkirmishOutcome；
+    npc_ids 里的 NPC 驻足到 resume_tick 才再上路。witnessed：玩家就在当场。
+    """
+
+    type: Literal["EncounterResolved"] = "EncounterResolved"
+    encounter_id: str
+    kind: EncounterKind
+    location_id: str
+    npc_ids: tuple[str, ...] = ()
+    outcome: SkirmishOutcome | None = None
+    by: Literal["规则", "地下城主"] = "规则"
+    resume_tick: int = Field(ge=0)
+    witnessed: bool = False
+
+
+class NpcWounded(DomainEvent):
+    """NPC 受了伤：到 until_tick 之前交手时战力打一档折扣，也不再赶路（战力洗牌）。"""
+
+    type: Literal["NpcWounded"] = "NpcWounded"
+    npc_id: str
+    until_tick: int = Field(ge=0)
+    cause: str = ""
+
+
 AnyEvent = Annotated[
     PlayerSpawned
     | Moved
@@ -328,7 +409,15 @@ AnyEvent = Annotated[
     | FactTokenSpawned
     | RumorSpread
     | ItemDecayed
-    | ItemPilfered,
+    | ItemPilfered
+    | PlacesLearned
+    | AgendaPlanned
+    | AgendaIssued
+    | AgendaConcluded
+    | NpcMoved
+    | EncounterBegan
+    | EncounterResolved
+    | NpcWounded,
     Field(discriminator="type"),
 ]
 
