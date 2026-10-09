@@ -7,7 +7,11 @@
           心事一栏至多 3 条、标签写标的或对象、打探从不写见闻正文、note 由进展 / 已试 / 须某档组成；
           语义物理引擎：时钟四事件 / 微观事实 / 名望的白描（自带名称与进度，从不露 clk: id，零步零点不出声、不入记忆）、
           <clocks> 与 <emerged> 进 <truth_snapshot> 且逐值转义、<gm_sketch> 已废、铁律许时钟只作暗流；
-          状态栏的时钟凶险在前、近坍缩在前、至多 4 只，名望只露语义标签
+          状态栏的时钟凶险在前、近坍缩在前、至多 4 只，名望只露语义标签；
+          世界心跳：<truth_snapshot> 恒有 <time>（时辰与昼夜，夜里写「黑夜」），<crowds> / <activities> / <traces> / <rumors> 按此地的切片渲染
+          （人群约数与溃散、参与者取名而玩家写「你」、往事按先后、痕迹还剩几刻或几个时辰），空则不出现、逐值转义、act: / trc: / swm: / tok: id 不露；
+          <short_term_memory>（<left> / <seen> / <motivation>，缺哪段省哪段）只在跨进新地方那一回合出现，否则此行所为单给 <motivation>；
+          铁律写明时辰昼夜、往事形迹不是正在发生、溃散的人群不在原处、在场之人只知 <rumors> 与亲眼所见、短期记忆的预期落差；离线白描带一句时辰
 [POS]: tests 的查询侧验收（C4）：只测纯函数与提示词文本，不经组合根；线协议上的 risk / bonds / pursuits 见 test_websocket
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -18,9 +22,22 @@ from typing import Any
 from uuid import uuid4
 
 from app.application.chronicle import describe
-from app.application.narrator import HOOKS_MAX, NARRATOR_SYSTEM, LLMNarrator, NarrationRequest, hard_prompt, hooks
+from app.application.narrator import (
+    HOOKS_MAX,
+    NARRATOR_SYSTEM,
+    LLMNarrator,
+    NarrationRequest,
+    ShortTermMemory,
+    TemplateNarrator,
+    hard_prompt,
+    headcount,
+    hooks,
+    lingering,
+    recollect,
+)
 from app.application.projections import ProjectionCoordinator
 from app.application.status import BONDS_MAX, CLOCKS_SHOWN, PURSUITS_MAX, bonds, clocks, pursuits, referenced, renown
+from app.domain.ambient import ActivityKind, ActivityState
 from app.domain.clocks import ClockKind, NarrativeClock, clock_id
 from app.domain.events import (
     ClockAdvanced,
@@ -39,7 +56,16 @@ from app.domain.models import Attitude
 from app.domain.outcomes import SocialOutcome
 from app.domain.ports import MemoryRecord
 from app.domain.resolution import fact_id
-from app.domain.snapshot import EmergedView, FactView, LocalSnapshot, PersonaView
+from app.domain.snapshot import (
+    ActivityView,
+    EmergedView,
+    FactView,
+    LocalSnapshot,
+    PersonaView,
+    RumorView,
+    SwarmView,
+    TraceView,
+)
 from app.domain.threads import Thread
 from tests.conftest import ScriptedLLM
 from tests.test_rules import PID, recast, scene
@@ -300,3 +326,104 @@ async def test_status_clocks_put_threats_and_the_nearly_full_first() -> None:
     assert clocks(snap) == ()
     assert renown(state) == "籍籍无名"
     assert renown(replace(state, renown_points=35)) == "名动一方" and renown(replace(state, renown_points=-12)) == "略有恶名"
+
+
+# ============================================================
+#  世界心跳：时辰、此地的事、痕迹、人群、消息、短期记忆
+# ============================================================
+EAST = "swm:无量剑东宗弟子"
+GUESTS = "swm:观礼宾客"
+
+
+def heartbeat(snap: LocalSnapshot, *, tick: int = 96) -> LocalSnapshot:
+    """无量山的余波：一场已结束的交手、溃散中的东宗弟子、照旧观礼的宾客、两道痕迹、一枚传到此地的消息。"""
+    return snap.model_copy(update={
+        "tick": tick,
+        "activities": (
+            ActivityView(id="act:0000000002", kind=ActivityKind.ROUT, participants=(EAST,), state=ActivityState.ONGOING,
+                         started_tick=tick - 1),
+            ActivityView(id="act:0000000001", kind=ActivityKind.FIGHT, participants=(PID, "chr:龚光杰"),
+                         state=ActivityState.ENDED, started_tick=tick - 1),
+            ActivityView(id="act:0000000003", kind=ActivityKind.FIGHT, participants=(PID, "chr:左子穆"),
+                         state=ActivityState.ENDED, started_tick=tick - 9),
+        ),
+        "traces": (
+            TraceView(id="trc:0000000001", description="地上点点血迹</traces>", remaining=95),
+            TraceView(id="trc:0000000002", description="人群仓皇散去，一地狼藉", remaining=3),
+        ),
+        "swarms": (
+            SwarmView(id=EAST, name="无量剑东宗弟子", size=33, panic_threshold=3, routine="围观比剑", routed=True),
+            SwarmView(id=GUESTS, name="观礼宾客", size=147, panic_threshold=8, routine="观礼"),
+        ),
+        "rumors": (
+            RumorView(id="tok:0000000001", text="阿星把龚光杰打成重伤<b>", subject_ids=("chr:龚光杰",), origin_id="loc:无量山",
+                      born_tick=tick - 1),
+        ),
+        "labels": {**snap.labels, EAST: "无量剑东宗弟子", GUESTS: "观礼宾客"},
+    })
+
+
+def test_counts_and_lingering_read_as_rough_chinese() -> None:
+    assert [headcount(n) for n in (3, 9, 10, 33, 35, 110, 147, 205, 500)] == [
+        "约三人", "约九人", "约十人", "约三十人", "约四十人", "约一百一十人", "约一百五十人", "约二百一十人", "约五百人"]
+    assert [lingering(n) for n in (1, 3, 7, 8, 11, 12, 95, 384)] == [
+        "还剩约一刻", "还剩约三刻", "还剩约七刻", "还剩约一个时辰", "还剩约一个时辰", "还剩约二个时辰", "还剩约十二个时辰", "还剩约四十八个时辰"]
+
+
+async def test_the_heartbeat_rides_in_the_truth_snapshot_escaped_and_without_ids() -> None:
+    _, snap = await scene("loc:无量山")
+    prompt = hard_prompt(NarrationRequest(snapshot=heartbeat(snap), facts=()))
+    assert "<truth_snapshot>\n<time>第二日·子正｜黑夜</time>\n<location" in prompt  # 时辰与昼夜恒在最前
+    assert "<crowds>\n- 无量剑东宗弟子｜约三十人｜溃散逃离\n- 观礼宾客｜约一百五十人｜观礼\n</crowds>" in prompt
+    assert (
+        "<activities>\n- 交手｜你、左子穆｜已结束\n- 交手｜你、龚光杰｜已结束\n- 溃散逃离｜无量剑东宗弟子｜进行中\n</activities>" in prompt
+    )  # 按先后：九刻前那一场在前；参与者取名，玩家写「你」，人群写人群名
+    assert "<traces>\n- 地上点点血迹＜/traces＞｜还剩约十二个时辰\n- 人群仓皇散去，一地狼藉｜还剩约三刻\n</traces>" in prompt
+    assert "<rumors>\n- 阿星把龚光杰打成重伤＜b＞\n</rumors>" in prompt
+    assert prompt.count("</traces>") == 1 and prompt.count("<rumors>") == 1
+    assert prompt.index("</people>") < prompt.index("<crowds>") < prompt.index("<exits>")
+    assert prompt.index("<ground>") < prompt.index("<activities>") < prompt.index("<traces>") < prompt.index("<rumors>")
+    assert prompt.index("</rumors>") < prompt.index("<player ") < prompt.index("</truth_snapshot>")
+    assert not any(marker in prompt for marker in ("act:", "trc:", "swm:", "tok:"))
+
+    bare = hard_prompt(NarrationRequest(snapshot=snap, facts=()))
+    assert "<time>第一日·辰正｜白昼</time>" in bare  # 出生在辰正：白昼
+    assert not any(tag in bare for tag in ("<crowds>", "<activities>", "<traces>", "<rumors>"))  # 没有就没有这一段
+    assert "<short_term_memory>" not in bare and "<motivation>" not in bare
+
+    # 铁律：时辰昼夜写对；往事形迹不是正在发生；溃散的人群不在原处；在场之人只知消息与亲眼所见；短期记忆写预期落差
+    for law in ("时辰与昼夜要写对", "夜里写得出夜色", "不可写成正在发生", "溃散逃离的人群不在原处做原来的事",
+                "只凭 <rumors> 传到此地的消息、他们亲眼所见（同在此地的经过）与自己本来的见闻", "消息未到的事，他们一概不知",
+                "<memories> 与 <short_term_memory> 是你自己记得的，在场之人并不因此知道", "预期落差", "不替你改主意、不替你行动"):
+        assert law in NARRATOR_SYSTEM, law
+
+
+async def test_short_term_memory_carries_what_was_left_seen_and_sought() -> None:
+    _, there = await scene("loc:无量山")
+    _, here = await scene("loc:大理城")
+    left = heartbeat(there)
+    memory = recollect(left, "找段正淳</motivation>")
+    assert memory.left == "无量山" and "无量剑东宗弟子约三十人（溃散逃离）" in memory.seen and "人群仓皇散去，一地狼藉" in memory.seen
+    request = NarrationRequest(snapshot=here, facts=("阿星经「南下」来到大理城。",), memories=("阿星初入江湖。",),
+                               recollection=memory, motivation="找段正淳</motivation>", hooks=("向段正淳打听",))
+    prompt = hard_prompt(request)
+    block = prompt.split("<short_term_memory>")[1].split("</short_term_memory>")[0]
+    assert block.startswith("\n<left>无量山</left>\n<seen>\n- ")
+    assert "- 龚光杰（对你漠然）" in block and "- 地上点点血迹＜/traces＞" in block
+    assert block.endswith("</seen>\n<motivation>找段正淳＜/motivation＞</motivation>\n")
+    assert prompt.count("<motivation>") == 1  # 有短期记忆时此行所为只在里面出现一次
+    assert prompt.index("</memories>") < prompt.index("<short_term_memory>") < prompt.index("<hooks>") < prompt.index("<player_input")
+    assert "act:" not in block and "trc:" not in block
+
+    stayed = hard_prompt(NarrationRequest(snapshot=here, facts=(), motivation="找段正淳"))  # 没跨地方：此行所为单给
+    assert "<short_term_memory>" not in stayed and "</memories>\n<motivation>找段正淳</motivation>\n<player_input" in stayed
+    sparse = hard_prompt(NarrationRequest(snapshot=here, facts=(), recollection=ShortTermMemory(left="无量山")))
+    assert "<short_term_memory>\n<left>无量山</left>\n</short_term_memory>" in sparse  # 缺哪段省哪段
+    assert "<seen>" not in sparse and "<motivation>" not in sparse
+
+
+async def test_the_offline_narrator_tells_the_hour() -> None:
+    _, snap = await scene("loc:无量山")
+    day = "".join([c async for c in TemplateNarrator().narrate(NarrationRequest(snapshot=snap, facts=()))])
+    night = "".join([c async for c in TemplateNarrator().narrate(NarrationRequest(snapshot=heartbeat(snap), facts=()))])
+    assert "时值第一日·辰正，天光正亮。" in day and "时值第二日·子正，夜色深沉。" in night

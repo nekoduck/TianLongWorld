@@ -1,8 +1,9 @@
 """
 [INPUT]: 依赖 app.application.bus 的命令与回合消息，依赖 app.container 的 build_container，依赖 tests/conftest 的 container / play / spawned_at / ScriptedLLM / wire / sse，
          依赖 tests/test_option_metrics 的 canon（入库的正典蓝图，含掌故），依赖 application/resolution_agent 的 Resolver / Resolution / 气运种子，依赖 domain 的 ResolutionOutput / envelope 与时钟事件
-[OUTPUT]: CQRS 游戏环路端到端用例：完整的逻辑死线剧情（入门 → 参照典籍练到略有小成 → 制敌夺剑 → 物归原主直升信赖 → 拜师一阳指）、
-          极端找死的永久死亡、重伤后避开仇人调息疗伤、选项点选与防伪、断线重连即重放、投影自愈、
+[OUTPUT]: CQRS 游戏环路端到端用例：完整的逻辑死线剧情（入门 → 参照典籍练到略有小成 → 制敌夺剑 → 物归原主直升信赖 → 拜师一阳指；驳回入账且花一刻）、
+          极端找死的永久死亡、重伤后避开仇人调息疗伤、选项点选与防伪、断线重连即重放、投影自愈、静观只写一条 TimePassed（白描不出声、时辰走一刻）、
+          ruled() 剥去世界心跳（时间、余波与生态）取规则定案的事件——「最后一条」仍是这一招本身的结果、
           叙事失败不影响真相、出界的推演（制住了得手不在区间里的对手）整份作废按确定性裁决结算、在场者的人物行写明恩怨、记忆召回带上焦点与在场者、
           gm() / start() / tick() 写 ResolutionOutput 形状的推演、Reading 地下城主替身；
           语义物理引擎端到端：交涉推演挂上疑心 + 留细节 + 折名望 → 入账、白描、<clocks> / <emerged> 进叙事、快照召回、状态栏亮出暗流与名望 →
@@ -11,7 +12,8 @@
           P1 验收（正典蓝图上 ScriptedLLM 直接给意图 JSON）：交涉路线（言辞求艺 → 地下城主推演、好一格欠下戒心 → 心事线索 → 菜单「换个手段」→ 点选归气运）、
           暗取路线（点选零次地下城主、文本骗貂败露到手即中毒且补挂失主的疑心、人情一栏写明缘由、眼前挂着时钟的结果已定回合请一次）、
           随身之物（通天草驳回 NO_USE、金创药疗伤且只有一句白描）、每回合至多三次调用、菜单作端倪进 <hooks>、
-          真实三件套后端上的整局（设置 PG 与 Neo4j 环境变量时；时钟与微观事实经 Neo4j 覆盖层召回，抹去重放后挂在你身上的时钟照样回来）
+          真实三件套后端上的整局（设置 PG 与 Neo4j 环境变量时；时钟与微观事实经 Neo4j 覆盖层召回，交手的往事、痕迹与消息同样经覆盖层进快照，
+          抹去重放后挂在你身上的时钟照样回来、时辰与重建前一致）
 [POS]: tests 的总装验收：经组合根装配的完整引擎，测试与生产走同一条路径
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -36,19 +38,27 @@ from app.config import Settings
 from app.container import Container, build_container
 from app.domain.events import (
     ActionFailed,
+    ActivityStarted,
     ClockAdvanced,
     ClockCollapsed,
     ClockStarted,
+    DomainEvent,
     FactEmerged,
+    FactTokenSpawned,
     HealthChanged,
     ItemConsumed,
+    ItemDecayed,
+    ItemPilfered,
     Maneuvered,
     Moved,
     Parleyed,
     PlayerDied,
     RelationChanged,
     RenownChanged,
+    RumorSpread,
     SkillPracticed,
+    TimePassed,
+    TraceLeft,
 )
 from app.domain.intent import Approach
 from app.domain.models import WorldBlueprint
@@ -59,6 +69,13 @@ from app.errors import LLMError, OptionExpiredError, PlayerDeadError, UnknownPla
 from tests.conftest import NEO4J_PASSWORD, NEO4J_URI, NEO4J_USER, PG_DSN, ScriptedLLM, kinds, play, spawned_at, sse
 from tests.test_option_metrics import canon
 from tests.world import WORLD
+
+HEARTBEAT = (TimePassed, ActivityStarted, TraceLeft, FactTokenSpawned, RumorSpread, ItemDecayed, ItemPilfered)
+
+
+async def ruled(container: Container, pid: str) -> list[DomainEvent]:
+    """事件流里规则定案的那些（剥去世界心跳：时间、余波与生态）——「最后一条」仍是这一招本身的结果。"""
+    return [e.event for e in await container.store.load(pid) if not isinstance(e.event, HEARTBEAT)]
 
 
 async def say(container: Container, pid: str, text: str) -> tuple[TurnResolved, TurnCompleted]:
@@ -98,6 +115,7 @@ async def test_spawn_streams_an_opening_scene(container: Container) -> None:
     done = messages[-1]
     assert isinstance(done, TurnCompleted) and done.status.location == "无量山" and 3 <= len(done.options) <= 4
     assert done.narration.startswith("阿星初入江湖，现身于无量山。")
+    assert done.status.time == "第一日·辰正"  # 投胎在第一日辰正，投胎本身不走时间
 
 
 async def test_spawn_point_must_exist(container: Container) -> None:
@@ -138,7 +156,9 @@ async def test_the_logic_deadline_storyline(container: Container) -> None:
     practice = [e.event for e in history if isinstance(e.event, SkillPracticed)]
     assert practice[0].proficiency_gained == 5 and practice[-1].source_id == "chr:段正淳"
     assert 4 <= len(practice) <= 6  # 入门 + 二到四次参照典籍 + 拜师入门
-    assert isinstance(history[-1].event, ActionFailed)  # 失败也入账
+    refused, passed = (e.event for e in history[-2:])
+    assert isinstance(refused, ActionFailed)  # 失败也入账
+    assert isinstance(passed, TimePassed) and passed.ticks == 1  # 也花了时间：驳回只花一刻
 
 
 async def test_permadeath(container: Container) -> None:
@@ -207,10 +227,14 @@ async def test_projection_heals_from_the_event_stream(container: Container) -> N
     assert await container.projector.checkpoint(pid) == len(await container.store.load(pid))
 
 
-async def test_observe_writes_nothing(container: Container) -> None:
+async def test_observe_only_passes_time(container: Container) -> None:
+    """静观不改变世界，却也花时间：只写一条 TimePassed（一刻），白描不出声，状态栏的时辰往前走了一刻。"""
     pid = await spawned_at(container, "无量山")
-    resolved, _ = await say(container, pid, "闭目养神")
-    assert resolved.facts == () and len(await container.store.load(pid)) == 1
+    resolved, done = await say(container, pid, "闭目养神")
+    events = [e.event for e in await container.store.load(pid)]
+    assert resolved.facts == () and len(events) == 2
+    assert isinstance(events[-1], TimePassed) and events[-1].ticks == 1
+    assert done.status.time == "第一日·辰正一刻"
 
 
 async def test_an_out_of_envelope_reading_is_discarded_whole(settings: Settings) -> None:
@@ -457,13 +481,13 @@ async def test_the_covert_route_and_what_you_carry(settings: Settings) -> None:
         assert steal.intent.target_entity == "闪电貂" and steal.risk is not None and steal.risk.value == "有险"
         _, spent, judged = await _turn(container, llm, ChooseOption(player_id=pid, option_id=steal.id))
         assert (spent, judged) == (1, 0)
-        tried = (await container.store.load(pid))[-1].event
+        tried = (await ruled(container, pid))[-1]
         assert isinstance(tried, Maneuvered) and tried.outcome is CovertOutcome.FOILED
 
         messages, spent, judged = await _turn(container, llm, SubmitText(player_id=pid, text="骗钟灵把闪电貂借我玩玩"))
         assert (spent, judged) == (3, 1)
         assert "- 无痕（" not in _gm_calls(llm)[0][1].split("<physics>")[1]  # 好一格不存在：无痕不在区间里
-        events = [e.event for e in await container.store.load(pid)]
+        events = await ruled(container, pid)
         assert any(isinstance(e, Maneuvered) and e.outcome is CovertOutcome.EXPOSED for e in events)
         bite = events[-1]
         assert isinstance(bite, HealthChanged) and bite.source == "blow" and bite.source_id == "itm:闪电貂" and bite.delta < 0
@@ -478,7 +502,7 @@ async def test_the_covert_route_and_what_you_carry(settings: Settings) -> None:
         _, spent, judged = await _turn(container, llm, SubmitText(player_id=pid, text="拾起通天草"))
         assert (spent, judged) == (2, 0)  # 结果已定、眼前又无暗流：意图与叙事，地下城主一次也不请
         messages, _, _ = await _turn(container, llm, SubmitText(player_id=pid, text="服下通天草"))
-        refused = (await container.store.load(pid))[-1].event
+        refused = (await ruled(container, pid))[-1]
         assert isinstance(refused, ActionFailed) and refused.reason_code == "NO_USE"
 
         await _turn(container, llm, SubmitText(player_id=pid, text="拾起金创药"))
@@ -486,7 +510,7 @@ async def test_the_covert_route_and_what_you_carry(settings: Settings) -> None:
         resolved, done = messages[0], messages[-1]
         assert isinstance(resolved, TurnResolved) and resolved.facts == ("阿星以金创药疗伤。",)  # 回气血那条不出声
         assert "<settled_facts>\n1. 阿星以金创药疗伤。\n</settled_facts>" in llm.calls[-1][1]
-        tail = [e.event for e in (await container.store.load(pid))[-2:]]
+        tail = (await ruled(container, pid))[-2:]
         assert isinstance(tail[0], ItemConsumed) and isinstance(tail[1], HealthChanged) and tail[1].source == "item"
         assert isinstance(done, TurnCompleted) and done.status.health == "安然无恙" and "金创药" not in done.status.inventory
         remembered = await container.pipeline._memory.recall(pid, "金创药 疗伤", 20, 10**6)
@@ -667,13 +691,17 @@ async def test_full_game_on_real_backends(settings: Settings) -> None:
             ("左子穆的杀意", "chr:左子穆", 1), ("掌心发麻", pid, 1),
         ]
         assert [(e.text, e.subject_ids) for e in snap.emerged] == [("左子穆的剑鞘磨得发亮", ("chr:左子穆",))]
+        # 世界心跳经 Neo4j 覆盖层：交手在无量山留下往事与痕迹，消息从无量山传开
+        assert [(a.kind.value, set(a.participants)) for a in snap.activities] == [("交手", {pid, "chr:左子穆"})]
+        assert len(snap.traces) == 1 and [r.origin_id for r in snap.rumors] == ["loc:无量山"]
         for text in ("拾起玉佩", "去崖下", "拾起卷轴", "参悟北冥神功", "参照卷轴苦练北冥神功"):
-            await say(container, pid, text)  # 身上挂着时钟：每个文本回合都请替身一次，推演用完即空提议
+            _, last = await say(container, pid, text)  # 身上挂着时钟：每个文本回合都请替身一次，推演用完即空提议
         history = await container.store.load(pid)
         await container.projector.forget(pid)
         messages = await play(container, ResumePlayer(player_id=pid))  # 抹掉 Neo4j 覆盖层，凭 PostgreSQL 事件流重建
         done = messages[-1]
         assert isinstance(done, TurnCompleted) and done.status.location == "无量玉洞"
+        assert done.status.time == last.status.time != "第一日·辰正"  # 时辰随事件流重建：重放的是同一段光阴
         assert done.status.health == "轻伤" and set(done.status.inventory) == {"玉佩", "北冥神功卷轴"}
         assert sum(isinstance(e.event, SkillPracticed) for e in history) == 2
         assert len(done.status.skills) == 1 and done.status.skills[0].startswith("北冥神功（")

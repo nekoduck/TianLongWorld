@@ -6,9 +6,10 @@
 [OUTPUT]: 对外提供 brief(env, scene, state, intent, said)（输入层：XML 简报）、schema(env, scene)（输出层：结构化输出契约），
           并转出 MEANING / ROUTE / safe / join
 [POS]: application 的地下城主简报包（门面）——语义物理引擎的输入层与输出层：
-       输入层是绝对事实：<intent> 玩家意图（按此情此景规整过）与 <player_input> 原话、<scene> … <known> 物理快照、<player> 玩家状态、
+       输入层是绝对事实：<intent> 玩家意图（按此情此景规整过）与 <player_input> 原话、<time> … <known> 物理快照（含此地的人群、往事、痕迹与传到此地的消息）、<player> 玩家状态（含此行所为）、
        <stakes> 这一招赌的是什么（三路之一；按 rules.stakes 重算，与 Envelope 同出一源）、<physics> 物理边界。
-       只用快照里的 T=0 事实：Character.foreshadow 从不进快照，也就从不进简报；玩家尚不知道的见闻正文同样不进。
+       只用快照里的 T=0 事实：Character.foreshadow 从不进快照，也就从不进简报；玩家尚不知道的见闻正文同样不进；
+       全局事件流也不进：在场之人知道玩家做过什么，只凭传到此地的消息与亲眼所见（局部认知）。
        简报是地下城主唯一的世界：简报之外的人物物功，推演里一字不提
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """

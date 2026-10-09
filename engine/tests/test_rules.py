@@ -1,5 +1,5 @@
 """
-[INPUT]: 依赖 app.domain.rules 的 decide / adjudicate / stakes / resolve，依赖 app.domain.combat 的 assess / settle / CombatProposal，
+[INPUT]: 依赖 app.domain.rules 的 decide / adjudicate / stakes / resolve / command / normalized，依赖 app.domain.combat 的 assess / settle / CombatProposal，
          依赖 app.domain.stakes 的 Proposal / risk_of / route_of，依赖 app.domain.clocks 的 NarrativeClock / ClockKind / clock_id，依赖 app.domain.aggregates 的 Player，依赖 InMemoryWorldGraph 生成快照，依赖 tests/world 的 WORLD
 [OUTPUT]: scene / act / recast / restock / reitem / owed 助手（别的领域用例复用；owed 是等价交换补到对象身上的代价时钟）；
           裁决规则的单测：每种动作的放行与驳回、模糊裁决的可裁区间与定案钳位、人情涟漪（只认开篇羁绊，「敌人之敌」升一档）、火候折算境界、
@@ -11,7 +11,9 @@
           P1 阶段 B：取物的物性闸门（不可携带 NOT_PORTABLE 带 unlock、险物到手即受伤且留一口气）、他人之物按手段分三路（寻常驳回并提示、武力夺物同出手区间且得手即易手、
           言辞讨要、潜行偷取）、重伤逃脱避开去处有仇人的出路、SkillExecuted 记手段、Conversed 记落了地的话题、stakes 门面返回三路赌注之一、
           通用 Proposal 与 CombatProposal 定案一致（别的路线的结局连扣减一并作废）、风险档只看最坏一端；
-          语义物理引擎：好过确定性裁决的提议（轻伤代重伤、重伤代毙命）在对象身上记一格旧恨，确定性裁决不欠代价
+          语义物理引擎：好过确定性裁决的提议（轻伤代重伤、重伤代毙命）在对象身上记一格旧恨，确定性裁决不欠代价；
+          世界心跳：沉思获准、无事件、无赌注（表外手段退回寻常）；rules.command 的耗时（驳回 1、同一处所内走动 1、换处所 4、LEARN / REST 8、其余 1，
+          意图规整后装进 Command）；MOVE 的 Moved 带此行所为 motivation，夺路而逃的不带
 [POS]: tests 的逻辑死线：能力成长、物品获取、人际变化只能由图谱拓扑推导；地下城主只能在领域圈出的区间里挑结局——这里逐条钉死
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -45,7 +47,7 @@ from app.domain.intent import ActionType, Aim, Approach, PlayerIntent
 from app.domain.models import Attitude, Disposition, ItemUse, Tier
 from app.domain.outcomes import CovertOutcome, SocialOutcome
 from app.domain.progression import MAX_HP, REST_GAIN
-from app.domain.rules import Approval, Rejection, adjudicate, decide, resolve, stakes
+from app.domain.rules import Approval, Rejection, adjudicate, command, decide, normalized, resolve, stakes
 from app.domain.snapshot import ExitView, ItemView, LocalSnapshot
 from app.domain.stakes import Proposal, Risk, risk_of, route_of
 from app.infrastructure.persistence.memory_graph import InMemoryWorldGraph
@@ -742,3 +744,55 @@ async def test_the_facade_returns_one_of_three_stakes_and_a_generic_proposal_set
     assert risk_of(stakes(act(ActionType.ATTACK, target_entity="南海鳄神"), state, snap)) is Risk.GRAVE
     assert risk_of(stakes(act(ActionType.MOVE, target_entity="南下"), state, snap)) is Risk.SAFE
     assert risk_of(stakes(act(ActionType.TAKE, target_entity="无量剑", approach=Approach.STEALTH), state, snap)) is Risk.RISKY
+
+
+# ============================================================
+#  世界心跳：沉思、命令耗时、此行所为
+# ============================================================
+async def test_thinking_is_approved_and_writes_no_event() -> None:
+    """沉思与静观同：获准、没有事件、没有赌注——它花掉的那一刻由世界心跳记账。"""
+    from app.domain import rules
+
+    state, snap = await scene("loc:无量山")
+    thought = act(ActionType.THINK, approach=Approach.GUILE, aim=Aim.PROBE)
+    assert isinstance(rules.RULES[ActionType.THINK], rules.ThinkRule)
+    assert isinstance(adjudicate(thought, state, snap), Approval)
+    assert decide(thought, state, snap) == [] and stakes(thought, state, snap) is None
+    assert normalized(thought, state, snap) == act(ActionType.THINK)  # 表外的手段与所图退回寻常、置空
+
+
+async def test_every_command_is_costed_by_the_rules() -> None:
+    """rules.command：驳回只花一刻；同一处所内走动一刻、换处所四刻；修习调息八刻；其余一刻。意图按此情此景规整后装进 Command。"""
+    state, snap = await scene("loc:无量山")
+    palace = ExitView(label="入宫", to_id="loc:无量山·剑湖宫", to_name="无量山·剑湖宫")
+    nested = snap.model_copy(update={"exits": (*snap.exits, palace)})
+
+    def cost(intent: PlayerIntent, at: tuple[PlayerState, LocalSnapshot] = (state, nested)) -> int:
+        return command(intent, *at).time_cost
+
+    assert cost(act(ActionType.MOVE, target_entity="大理城")) == 4
+    assert cost(act(ActionType.MOVE, target_entity="入宫")) == 1  # 无量山 → 无量山·剑湖宫：同一处所之内
+    assert cost(act(ActionType.MOVE, target_entity="无锡城")) == 1  # 无路可走：驳回
+    assert cost(act(ActionType.LEARN, skill_used="六脉神剑")) == 1
+    assert cost(act(ActionType.REST)) == 1  # 无伤可疗：驳回
+    assert cost(act(ActionType.INVALID, reason="飞升成仙")) == 1
+    for intent in (act(ActionType.OBSERVE), act(ActionType.THINK), act(ActionType.TALK, target_entity="左子穆"),
+                   act(ActionType.ATTACK, target_entity="龚光杰"), act(ActionType.TAKE, target_entity="玉佩")):
+        assert cost(intent) == 1, intent
+    cave = await scene("loc:无量玉洞", SCROLL)
+    assert cost(act(ActionType.LEARN, skill_used="北冥神功"), cave) == 8
+    hurt = await scene("loc:大理城", HealthChanged(delta=-30, cause="磕碰"))
+    assert cost(act(ActionType.REST), hurt) == 8
+    sly = command(act(ActionType.THINK, approach=Approach.STEALTH), state, nested)
+    assert sly.intent == act(ActionType.THINK) and sly.time_cost == 1
+    lost = command(act(ActionType.MOVE, target_entity="无锡城", approach=Approach.FORCE), state, nested)
+    assert lost.intent.approach is Approach.PLAIN and lost.time_cost == 1  # 驳回的命令同样是规整过的
+
+
+async def test_a_move_carries_its_motivation_and_a_flight_does_not() -> None:
+    state, snap = await scene("loc:无量山")
+    assert decide(act(ActionType.MOVE, target_entity="大理城", motivation="去找段誉问个明白"), state, snap) == [
+        Moved(from_location_id="loc:无量山", to_location_id="loc:大理城", exit_label="南下", motivation="去找段誉问个明白")
+    ]
+    fled = decide(act(ActionType.ATTACK, target_entity="龚光杰", motivation="替人出头"), state, snap)
+    assert isinstance(fled[-1], Moved) and fled[-1].fleeing and fled[-1].motivation == ""  # 夺路而逃不是此行所为

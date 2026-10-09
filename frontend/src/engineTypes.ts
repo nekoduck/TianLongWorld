@@ -6,7 +6,8 @@
  * [POS]: frontend 的 engine 线协议类型，与 types.ts（backend 协议）并列；只被 api/ws.ts 与 hooks/useEngineGame.ts 引用。
  *        ResumeFrame.quiet 为真即悄悄续局：只回 session 与叙事为空的终帧，零大模型。
  *        P1 加法一律可缺省（旧 engine 不下发）：intent 的手段 / 所图 / 话题、option.risk、status 的人情 bonds 与心事 pursuits；
- *        语义物理引擎的加法同样可缺省：status 的眼前暗流 clocks（id 与挂处不下发）与名望 renown（语义标签）
+ *        语义物理引擎的加法同样可缺省：status 的眼前暗流 clocks（id 与挂处不下发）与名望 renown（语义标签）；
+ *        世界心跳的加法同样可缺省：动作 THINK（沉思）、intent 的此行所为 motivation、status 的时辰 time（「第一日·辰正」）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md；字段变化必须与 engine 的 protocol.py / bus.py 同步
  */
 
@@ -47,6 +48,7 @@ export type ClientFrame = SpawnFrame | ResumeFrame | ActFrame | ChooseFrame
 export type EngineActionType =
   | 'MOVE'
   | 'OBSERVE'
+  | 'THINK'
   | 'TALK'
   | 'ATTACK'
   | 'TAKE'
@@ -77,6 +79,8 @@ export interface EngineIntent {
   aim?: Aim | null
   /** 话题指称：人 / 物 / 功 / 地 / 见闻，落不了地即为空（P1 起下发） */
   topic?: string | null
+  /** 此行所为（≤24 字，MOVE 时去找谁、去做什么），空串即未说（世界心跳起下发） */
+  motivation?: string
 }
 
 /** 风险档：只看可裁区间最坏的一端，不露结局 */
@@ -145,6 +149,8 @@ export interface PlayerStatus {
   clocks?: ClockInfo[]
   /** 名望：声名狼藉 / 略有恶名 / 籍籍无名 / 小有名气 / 名动一方 / 威震江湖；空串即旧服务端未填 */
   renown?: string
+  /** 时辰：「第一日·辰正」（每条命令都花时间，死者停在最后时刻）；空串即旧服务端未填（世界心跳起下发） */
+  time?: string
 }
 
 // ============================================================

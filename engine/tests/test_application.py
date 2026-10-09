@@ -2,7 +2,8 @@
 [INPUT]: 依赖 app.application 的 intent_parser / options / narrator / chronicle，依赖 tests/test_rules 的 scene() 快照工厂与事件夹具，依赖 tests/conftest 的 ScriptedLLM
 [OUTPUT]: 应用层单测：意图解析的三道防线与离线解析（含调息疗伤先于练功）、守卫两道检查都先剔除场景正名（原著的「金针渡劫」）、
           场景词表的称号与火候、选项菜单（合法、世界不变则逐字不变、跟进席跟着焦点、脱身席、调息按伤势加权、MMR 不扎堆、why；
-          标签是按意图哈希挑出的措辞变体，every_label 把席位、补位与同一对象的上限都拉满）、修习选项随凭借改换措辞、Hard Prompt 的边界与转义（称号、火候、伤势、恩怨；速写已废，推演的细节以入账事实进 <settled_facts>）、降级叙事、事实白描
+          标签是按意图哈希挑出的措辞变体，every_label 把席位、补位与同一对象的上限都拉满）、修习选项随凭借改换措辞、Hard Prompt 的边界与转义（称号、火候、伤势、恩怨、时辰；速写已废，推演的细节以入账事实进 <settled_facts>）、
+          离线白描照录入账的事实并报一句时辰、沉思与此行所为的离线解析、降级叙事、事实白描
 [POS]: tests 的"大模型无权改写世界"证明：解析器只产出意图、选项从不经大模型、叙事只拿到快照与已定的结果
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -160,6 +161,8 @@ async def test_llm_errors_propagate_so_nothing_is_written() -> None:
         ("趁龚光杰运功疗伤之际偷袭他", PlayerIntent(action_type=ActionType.ATTACK, target_entity="龚光杰")),
         ("一剑刺向正在调息的龚光杰", PlayerIntent(action_type=ActionType.ATTACK, target_entity="龚光杰")),  # 调息的是对手
         ("我徒手一拳打向龚光杰", PlayerIntent(action_type=ActionType.ATTACK, target_entity="龚光杰")),  # v6 试玩抓到：曾被当作交谈
+        ("回想龚光杰方才那一剑", PlayerIntent(action_type=ActionType.THINK)),  # 沉思：点了名也不是找他说话
+        ("去大理城找段正淳", PlayerIntent(action_type=ActionType.MOVE, target_entity="南下", motivation="找段正淳")),
     ],
 )
 async def test_heuristic_parser(text: str, expected: PlayerIntent) -> None:
@@ -386,8 +389,10 @@ async def test_hard_prompt_names_titles_mastery_and_wounds() -> None:
     assert "<gm_sketch>" not in prompt and prompt.count("<settled_facts>") == 1  # 速写已废：推演的细节以 FactEmerged 入账
     assert "龚光杰剑穗上缠着半截红绳。" in prompt.split("<settled_facts>")[1]
     assert known_arts(snap) == ("北冥神功（初窥门径）",)
+    assert "<truth_snapshot>\n<time>第一日·辰正｜白昼</time>" in prompt  # 没有时间流逝：仍是出生的辰正
     offline = "".join([c async for c in TemplateNarrator().narrate(request)])
     assert offline.startswith("阿星受了伤（与龚光杰交手）。龚光杰剑穗上缠着半截红绳。")  # 离线白描照录入账的事实
+    assert "时值第一日·辰正，天光正亮。" in offline
 
 
 async def test_a_flight_keeps_the_fight_scene_in_view() -> None:

@@ -15,11 +15,11 @@
        blueprint.json（中间表示）、seed.cypher（可交给 cypher-shell 审阅或导入）与 report.txt（丢弃 / 封存 / 孤儿 / 时间线 / 自愈 / 审计 / 掌故明细）——
        有失败块时只写报告、不覆盖已有蓝图（缓存保住已抽的块，排障后重跑即续抽）；
        assemble 只读缓存零费用重新组装（组装器改了规则、或要复现入库的蓝图时用）；
-       extract 与 assemble 组装之后依次自动套用 healing.json 的安放、audit.json 的 T=0 审计、lore.json 的人设与见闻（零费用、确定性），
+       extract 与 assemble 组装之后依次自动套用 healing.json 的安放、audit.json 的 T=0 审计、lore.json 的人设、见闻与人群（零费用、确定性），
        新的推断与撰写只由 heal / audit / lore 经 --export / --ingest 交给子代理——audit 与 lore 根本没有大模型这条路；
        heal 为蓝图里下落不明的孤儿物品推断安放：配了真实大模型就问它，离线时只套缓存，export / ingest 让子代理或人工作答（自愈重建蓝图后照缓存补回审计与掌故）；
        audit 出 T=0 审计的分批题面、收作答过闸后写回蓝图（与播种同一个新鲜度判据，只豁免这一批刚重答的人物）；
-       lore 以一地为中心（默认剑湖宫·练武厅走两跳）出人设与见闻的题面、收作答过闸后写回；两者不带参数即按缓存重新套用，只换 report.txt 里自己那几节（每条折成一行）；
+       lore 以一地为中心（默认剑湖宫·练武厅走两跳）出人设、见闻与人群的题面、收作答过闸后写回（各命令的回显都点出人群数）；两者不带参数即按缓存重新套用，只换 report.txt 里自己那几节（每条折成一行）；
        蓝图带着审计痕迹而审计缓存用不上（缺失、损坏、口径或指纹不符）时，audit 与 heal 拒绝并指路 assemble——免得把审过的描述当原描述；
        有审计缓存时套用顺带读证据库，撞上后文的 T=0 描述在 [审计] 里标 ⚠；
        写回蓝图而不是直接改图——蓝图是正典，Neo4j 只是它的投影（--apply 时经同一个 seeder MERGE 进去）；
@@ -193,7 +193,7 @@ async def _seed(
     _write_blueprint(settings, bp)
     print(
         f"蓝图已写出：地点 {len(bp.locations)}、人物 {len(bp.characters)}、武学 {len(bp.martial_arts)}、"
-        f"物品 {len(bp.items)}、关系 {len(bp.relations)}、人设 {len(bp.personas)}、见闻 {len(bp.facts)}；"
+        f"物品 {len(bp.items)}、关系 {len(bp.relations)}、人设 {len(bp.personas)}、见闻 {len(bp.facts)}、人群 {len(bp.swarms)}；"
         f"丢弃 {len(report.dropped)}、封存 {len(report.sealed)}、"
         f"孤儿 {len(report.orphans)}（自愈 {len(healing.placements)}）、时间线隔离 {len(report.timeline)}、"
         f"失败块 {len(report.failed_chunks)}（明细见 report.txt）"
@@ -343,7 +343,7 @@ def audit(
         bp, audited, lored = _canonize(settings, blueprint)
     _write_blueprint(settings, bp)
     _rewrite_sections(settings, {"审计": audited, "掌故": lored})
-    print(f"审计已套用并写回蓝图与 seed.cypher；人设 {len(bp.personas)}、见闻 {len(bp.facts)}（掌故依赖审计：改了 era 或物性即整体作废）")
+    print(f"审计已套用并写回蓝图与 seed.cypher；人设 {len(bp.personas)}、见闻 {len(bp.facts)}、人群 {len(bp.swarms)}（掌故依赖审计：改了 era 或物性即整体作废）")
     for line in [*audited, *lored]:
         print(f"  {line}")
     return bp
@@ -373,7 +373,7 @@ def lore(
             return blueprint
         if ingest_file is not None:
             fresh, notes = ingest_lore(blueprint, ingest_file.read_text(encoding="utf-8"), cache, by or "", _library(settings, version))
-            print(f"已入掌故缓存：人设 {len(fresh.personas)}、见闻 {len(fresh.facts)}（作答者 {by}）")
+            print(f"已入掌故缓存：人设 {len(fresh.personas)}、见闻 {len(fresh.facts)}、人群 {len(fresh.swarms)}（作答者 {by}）")
             for note in notes:
                 print(f"  {note}")
     except ExtractionError as exc:
@@ -381,7 +381,7 @@ def lore(
     bp, lored = canonize_lore(blueprint, cache)
     _write_blueprint(settings, bp)
     _rewrite_sections(settings, {"掌故": lored})
-    print(f"掌故已套用并写回蓝图与 seed.cypher：人设 {len(bp.personas)}、见闻 {len(bp.facts)}")
+    print(f"掌故已套用并写回蓝图与 seed.cypher：人设 {len(bp.personas)}、见闻 {len(bp.facts)}、人群 {len(bp.swarms)}")
     for line in lored:
         print(f"  {line}")
     return bp
@@ -451,7 +451,7 @@ def main(argv: list[str] | None = None) -> None:
     au.add_argument("--batch", type=int, default=40, help="每份题面至多几条（关系、人物、物品各自分批）")
     au.add_argument("--all", action="store_true", help="连缓存里已有结论的条目也出题")
     au.add_argument("--evidence-version", default=EVIDENCE_VERSION, help=f"后文事件与切片取自哪一版抽取缓存（默认 {EVIDENCE_VERSION}）")
-    lo = sub.add_parser("lore", help="人设与见闻：以一地为中心出题、作答过闸后入 lore.json（经 --export / --ingest 交给子代理；不带参数即按缓存重新套用）")
+    lo = sub.add_parser("lore", help="人设、见闻与人群：以一地为中心出题、作答过闸后入 lore.json（经 --export / --ingest 交给子代理；不带参数即按缓存重新套用）")
     lor = lo.add_mutually_exclusive_group()
     lor.add_argument("--export", type=Path, default=None, metavar="DIR", help="导出以 --from 为中心的题面")
     lor.add_argument("--ingest", type=Path, default=None, metavar="FILE", help="作答（JSON 数组，容忍围栏）过闸后入 lore.json，并写回蓝图")

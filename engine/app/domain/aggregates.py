@@ -36,10 +36,19 @@ from dataclasses import dataclass, field, replace
 from functools import reduce
 
 from app.domain import rules
-from app.domain.ambient import Activity, EnvironmentalTrace, FactToken, elapse, reached, with_activity, with_token, with_trace
+from app.domain.ambient import (
+    Activity,
+    EnvironmentalTrace,
+    FactToken,
+    elapse,
+    reached,
+    with_activity,
+    with_token,
+    with_trace,
+)
 from app.domain.clocks import NarrativeClock, advanced, retired, started
-from app.domain.commands import SPAWN_TICK
 from app.domain.combat import CombatOutcome, CombatProposal
+from app.domain.commands import SPAWN_TICK
 from app.domain.events import (
     ActionFailed,
     ActivityStarted,

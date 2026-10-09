@@ -4,7 +4,7 @@
  * [OUTPUT]: 对外提供 useEngineGame() -> GameFacade（与 useGame 同形，另带 resume）
  * [POS]: hooks 的 engine 状态机，VITE_ENGINE 时取代 useGame 成为前端唯一的状态源。帧驱动：turn_resolved 开新一幕并立题记
  *        （facts，手段非寻常时附「手段 · 所图」），narration_delta 逐片累加进 scene（打字机随文本增长接着吐字），
- *        turn_completed 落定选项（角标先风险档后方向）、状态栏（名望有才显示）、人情 / 心事 / 暗流与生死；P1 与时钟字段缺省时一切照旧；
+ *        turn_completed 落定选项（角标先风险档后方向）、状态栏（时辰与名望有才显示）、人情 / 心事 / 暗流与生死；P1 与时钟字段缺省时一切照旧；
  *        断线 / 选项过期 / 连接被 Fast Refresh 关掉都进入「悄悄续局」：旧菜单作废、交互区锁进缓冲提示，quiet resume 的终帧
  *        只换回菜单、状态栏、人情心事暗流与生死（此景、题记、打字机进度与输入草稿原样保留，零大模型）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -75,6 +75,7 @@ const statusOf = (s: PlayerStatus) =>
   [
     `【名号：${s.name}】`,
     `【位置：${s.location}】`,
+    ...(s.time ? [`【时辰：${s.time}】`] : []),
     `【境界：${s.tier}】`,
     `【伤势：${s.health}${!s.alive && s.death_cause ? `（${s.death_cause}）` : ''}】`,
     ...(s.renown ? [`【名望：${s.renown}】`] : []),

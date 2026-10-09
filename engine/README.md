@@ -13,12 +13,13 @@ Neo4j 局部快照（含时钟 / 细节）──┴──► [Validate] 规则�
                                                   │      [Resolve] 一席裁决：文本在胜负未定或挂着时钟时请地下城主推演 ResolutionOutput、点选由气运确定性取值（离线取确定性裁决）
                                                   ▼                         │
                          [Event] 领域闸门：推出结局、钳位、补足代价、时钟坍缩 ◄──┘
+                                  + 世界时钟：余波（交手的活动与痕迹、人群溃散）→ 光阴（每条命令都花时间）→ 消息扩散 → 黎明生态，同批入账
                                   追加 PostgreSQL ──► 投影 Neo4j ──► 投影 Qdrant
                                                   │
               新快照 ──► [Options] 五类候选源 → 显著性 + 席位 + MMR → 3~4 招（带 why 与风险档） ──► [Render] Hard Prompt + <clocks> 暗流 + <emerged> 此世细节 + 恩怨 + 端倪 <hooks> → 金庸风流式叙事
 ```
 
-## 五个设计支点
+## 六个设计支点
 
 | 缺陷（v5 时代） | 支点 | 落在哪里 |
 | --- | --- | --- |
@@ -27,6 +28,7 @@ Neo4j 局部快照（含时钟 / 细节）──┴──► [Validate] 规则�
 | 一阳指因谱诀无处安放而失传 | **图谱完整性自愈**：被武学引用却下落不明的物品留作孤儿；自愈代理据原著常识在候选里安放，`provenance=推断`，过闸门写回蓝图并经 MERGE 进 Neo4j | `graph_linter.py`、`seed heal` |
 | 出手非胜即死的二极管 | **渐进式状态 + 模糊裁决**：火候 = Σ 熟练度 × 悟性、气血 = Σ 涨落；境界差 × 性情 × 伤势圈出可裁区间 | `progression.py`、`combat.py` |
 | 地下城主只会在枚举里做单选题 | **语义物理引擎（神经-符号-神经）**：大模型按 属性碰撞 → 量级（爆炸 / 暗流）→ 代价 → 时钟与收敛 推演出 `ResolutionOutput`（属性变化 / 时钟指令 / 微观事实 / 路由）；领域闸门由属性推出结局、钳位、按等价交换补足代价、时钟满格即坍缩为硬结算；时钟与细节挂进 Neo4j 覆盖层、下一张快照召回 | `resolution_agent.py`、`briefs/`、`domain/resolution.py`、`domain/clocks.py` |
+| 精神时光屋、跨房间失忆、全知幻觉 | **世界心跳（过去式状态持久化）**：每条命令都花时间（`Command.time_cost`，一刻十五分钟），世界时钟在定案后同批写入余波（交手的活动与痕迹、烈度高过惊惧阈值的人群溃散）、`TimePassed`、消息沿 CONNECTS_TO 一刻一两处地传开、跨过黎明的风化与顺手牵羊；活动 / 痕迹 / 消息是 Neo4j 覆盖层里的节点，走开再回来往事与痕迹仍在、随时间消散；跨进新地方那一回合，出发前所见与此行所为成为说书人的短期记忆（预期落差）；在场之人只知道传到此地的消息、亲眼所见与自己的见闻，全局事件流从不进提示词 | `domain/commands.py`、`domain/ambient.py`、`domain/heartbeat.py`、`application/world_clock.py`、`narrator.py` |
 
 ## 快速开始（零依赖）
 
@@ -100,12 +102,12 @@ docker compose up -d                       # postgres:16 + neo4j:5.26 + qdrant
 | --- | --- | --- |
 | → | `{"type":"spawn","name":"阿星","location":"无量山"}` | 投胎，location 可省（确定性分配） |
 | → | `{"type":"resume","player_id":"ply:…","quiet":false}` | 续前缘：重放事件流即恢复。`quiet:true` 用于断线重连与选项过期——只回 `session` 与叙事为空的 `turn_completed`（选项与状态照给），不复述此景、零大模型调用 |
-| → | `{"type":"act","text":"施展凌波微步向北而去"}` | 自由文本，经意图解析 |
+| → | `{"type":"act","text":"施展凌波微步向北而去"}` | 自由文本，经意图解析（「去大理城找段正淳」的「找段正淳」是此行所为；回想、盘算是沉思 THINK，只花时间） |
 | → | `{"type":"choose","option_id":"explore-1a2b3c4d"}` | 点选选项，不经大模型，服务端按当前快照重算核验 |
 | ← | `session` | `player_id` / `name` |
-| ← | `turn_resolved` | 结构化意图（含手段 `approach`、所图 `aim`、话题 `topic`）+ 本回合已入账事件的白描 `facts`（服药回气血那条不出声；语义物理引擎的时钟挂上 / 推进 / 回退 / 坍缩 / 化解、微观事实、名望涨落各有一句，从不露 id） |
+| ← | `turn_resolved` | 结构化意图（含手段 `approach`、所图 `aim`、话题 `topic`、MOVE 的此行所为 `motivation`）+ 本回合已入账事件的白描 `facts`（服药回气血那条不出声；语义物理引擎的时钟挂上 / 推进 / 回退 / 坍缩 / 化解、微观事实、名望涨落各有一句；世界心跳只有人群溃散出声，光阴、痕迹、消息与生态不出声；从不露 id） |
 | ← | `narration_delta` | 叙事分片（流式） |
-| ← | `turn_completed` | 叙事全文、`options[{id,label,category,why,risk?}]`（`why` 是 ≤12 字的上榜缘由，如「仇人在侧，先脱身」「换个手段」「伤重宜调息」；`risk` 是风险档「稳妥 / 有险 / 凶险」，只露可裁区间最坏的一端、不露结局，有才下发；意图不下发）、`status`（境界 `tier`、伤势 `health`、`skills` 写作「北冥神功（略有小成）」；人情 `bonds[{name,attitude,cause}]` 在场者优先、至多 6 条，心事 `pursuits[{label,note}]` 如「求艺 · 晓风拂柳」「尚无眉目；已试：言辞」、至多 3 条，打探只写对象不写见闻；眼前的暗流 `clocks[{name,kind,progress,maximum}]`（种类 疑心 / 敌意 / 危机 / 进展，凶险的与将满的在前、至多 4 只，id 与挂处不下发）；名望 `renown` 只给语义标签（声名狼藉 … 威震江湖）；只有语义标签不露数值（时钟的格数是叙事节拍，照下发），新字段旧客户端可缺省）、`game_over` |
+| ← | `turn_completed` | 叙事全文、`options[{id,label,category,why,risk?}]`（`why` 是 ≤12 字的上榜缘由，如「仇人在侧，先脱身」「换个手段」「伤重宜调息」；`risk` 是风险档「稳妥 / 有险 / 凶险」，只露可裁区间最坏的一端、不露结局，有才下发；意图不下发）、`status`（境界 `tier`、伤势 `health`、`skills` 写作「北冥神功（略有小成）」；人情 `bonds[{name,attitude,cause}]` 在场者优先、至多 6 条，心事 `pursuits[{label,note}]` 如「求艺 · 晓风拂柳」「尚无眉目；已试：言辞」、至多 3 条，打探只写对象不写见闻；眼前的暗流 `clocks[{name,kind,progress,maximum}]`（种类 疑心 / 敌意 / 危机 / 进展，凶险的与将满的在前、至多 4 只，id 与挂处不下发）；名望 `renown` 只给语义标签（声名狼藉 … 威震江湖）；时辰 `time` 如「第一日·辰正」（死者停在最后一刻）；只有语义标签不露数值（时钟的格数是叙事节拍，照下发），新字段旧客户端可缺省）、`game_over` |
 | ← | `error` | `code` + `message`，连接不断 |
 
 ## 测试矩阵

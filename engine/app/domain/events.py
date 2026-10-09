@@ -33,8 +33,8 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from app.domain.ambient import Activity, EnvironmentalTrace, FactToken
 from app.domain.clocks import NarrativeClock
 from app.domain.combat import CombatOutcome
-from app.domain.intent import ActionType, Aim, Approach
 from app.domain.commands import TICKS_PER_DAY
+from app.domain.intent import ActionType, Aim, Approach
 from app.domain.models import Attitude, Material, Remedy
 from app.domain.outcomes import CovertOutcome, SocialOutcome
 

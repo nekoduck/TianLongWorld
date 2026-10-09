@@ -77,7 +77,7 @@ class ScriptedLLM(LLMClient):
 @pytest.fixture
 def settings(tmp_path: Any) -> Settings:
     return Settings(
-        _env_file=None,  # type: ignore[call-arg]
+        _env_file=None,
         llm_provider="mock",
         event_store="memory",
         graph_backend="memory",

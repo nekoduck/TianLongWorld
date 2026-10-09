@@ -5,7 +5,11 @@
          依赖 tests/conftest 的 ScriptedLLM
 [OUTPUT]: 意图解析 v2 单测：schema 只有形状（枚举与模型的开发者 docstring 不进 model_json_schema）、INTENT_SYSTEM 写明 USE 与七种手段 / 九种所图 /
           话题且「用于」与兼容表一致、撂话离场是 MOVE；离线解析认得手段与所图的关键词（潜行 / 计谋 / 言辞 / 威逼 / 借势 / 人情 / 打探 + 话题 / 化解 / 服药），
-          话题落不了地不打探、偷袭不是潜行、借势的靠山不是说话的对象；大模型路径照传 approach / aim / topic，守卫的字段再检查带上话题
+          话题落不了地不打探、偷袭不是潜行、借势的靠山不是说话的对象；大模型路径照传 approach / aim / topic，守卫的字段再检查带上话题；
+          世界心跳：schema 带上 THINK 与 motivation（仍只有形状），INTENT_SYSTEM 写明 THINK 与此行所为且示例里有沉思与带所为的移动；
+          离线解析的沉思只在别的动作都没命中时成立，MOVE 的此行所为按出口名定位去处、取其后到句末的一段（修饰语与趋向补语不算）；
+          点了出路且「去」先于别的动作即是动身（后面的取物、打探、疗伤成此行所为，先做的事先算），「去 / 往 / 赶」的非移动义（过去的事、往事、望去、赶紧）不是挪步；
+          大模型路径照传 MOVE 的此行所为、清空别的动作的此行所为，守卫的字段再检查带上此行所为
 [POS]: tests 的意图解析 v2 护栏：解析器只产出「想怎么做、图什么」，表外的组合由 _fit 与 rules.normalize 同一口径退回寻常
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -70,6 +74,9 @@ def test_schema_carries_shape_only() -> None:
     defs = schema["$defs"]
     assert defs["Approach"]["enum"] == [a.value for a in Approach] and defs["Aim"]["enum"] == [a.value for a in Aim]
     assert "USE" in defs["ActionType"]["enum"] and {"approach", "aim", "topic"} <= set(schema["properties"])
+    assert "THINK" in defs["ActionType"]["enum"] and schema["properties"]["motivation"] == {"default": "", "title": "Motivation",
+                                                                                            "type": "string"}
+    assert schema == INTENT_SCHEMA  # 来自 domain/intent，新字段自动带上
 
 
 def test_intent_system_documents_every_approach_and_aim() -> None:
@@ -79,6 +86,8 @@ def test_intent_system_documents_every_approach_and_aim() -> None:
     for aim in Aim:
         assert f"- {aim.value}：" in INTENT_SYSTEM, aim
     assert "撂下一句话就走" in INTENT_SYSTEM and "不写进 topic" in INTENT_SYSTEM
+    assert "- THINK：沉思、回想、盘算、权衡" in INTENT_SYSTEM and "motivation（此行所为）：只在 MOVE 时填写" in INTENT_SYSTEM
+    assert "别的动作一律写空串" in INTENT_SYSTEM
 
 
 def test_intent_system_follows_the_compatibility_table() -> None:
@@ -96,6 +105,9 @@ def test_intent_system_examples_are_valid_intents() -> None:
         assert p.approach in MOVES[row_of(p.action_type, held=True)], p
         assert p.aim is None or p.aim in AIMS[p.action_type], p
     assert any(p.aim is Aim.PROBE and p.topic for p in parsed)
+    assert any(p.action_type is ActionType.THINK for p in parsed)
+    assert any(p.action_type is ActionType.MOVE and p.motivation for p in parsed)
+    assert all(not p.motivation for p in parsed if p.action_type is not ActionType.MOVE)  # 示例自己守「别的动作留空」
 
 
 # ============================================================
@@ -132,6 +144,39 @@ def test_intent_system_examples_are_valid_intents() -> None:
     ],
 )
 async def test_heuristic_reads_approach_and_aim(text: str, expected: PlayerIntent) -> None:
+    assert await HeuristicIntentParser().parse(text, hall()) == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("回想木婉清方才那一招", SAFE(action_type=ActionType.THINK)),  # 点了名也不是找她说话：别的动作都没命中
+        ("坐在一旁，寻思着下一步", SAFE(action_type=ActionType.THINK)),
+        ("盘算", SAFE(action_type=ActionType.THINK)),
+        ("寻思片刻，出厅而去", SAFE(action_type=ActionType.MOVE, target_entity="出厅")),  # 有别的动作命中：沉思让位
+        ("沉思良久，向钟灵讨要闪电貂", SAFE(action_type=ActionType.TAKE, target_entity="闪电貂", approach=Approach.WORDS)),
+        ("去剑湖宫找段正淳", SAFE(action_type=ActionType.MOVE, target_entity="出厅", motivation="找段正淳")),
+        ("出厅，再去寻那神农帮的人问个明白。天黑前回来", SAFE(action_type=ActionType.MOVE, target_entity="出厅",
+                                                    motivation="寻那神农帮的人问个明白")),  # 截到句末，剥掉连词与趋向补语
+        ("拂袖出厅而去", SAFE(action_type=ActionType.MOVE, target_entity="出厅")),  # 「而去」不是所为
+        ("出厅走", SAFE(action_type=ActionType.MOVE, target_entity="出厅")),  # 不足两字不算
+        ("望着剑湖宫的匾额出了神，转身出厅", SAFE(action_type=ActionType.MOVE, target_entity="出厅")),  # 去处名后跟「的」只是修饰
+        ("望着剑湖宫的匾额，转身出厅找钟灵", SAFE(action_type=ActionType.MOVE, target_entity="出厅", motivation="找钟灵")),
+        ("撂下一句「我去剑湖宫找人」，出厅", SAFE(action_type=ActionType.MOVE, target_entity="出厅")),  # 引号里的话不是所为
+        # 「去」在一切别的动作之前：后面那件事是此行所为，不是此地之事
+        ("去剑湖宫取回玉璧", SAFE(action_type=ActionType.MOVE, target_entity="出厅", motivation="取回玉璧")),
+        ("去剑湖宫向左子穆打听神农帮", SAFE(action_type=ActionType.MOVE, target_entity="出厅", motivation="向左子穆打听神农帮")),
+        ("去剑湖宫调息疗伤", SAFE(action_type=ActionType.MOVE, target_entity="出厅", motivation="调息疗伤")),
+        ("向钟灵讨要闪电貂，再去剑湖宫", SAFE(action_type=ActionType.TAKE, target_entity="闪电貂", approach=Approach.WORDS)),  # 先做的事先算
+        ("服下金创药，再去剑湖宫", SAFE(action_type=ActionType.USE, item_used="金创药")),
+        # 「去 / 往 / 赶」的非移动义不是挪步：沉思的关键词才有机会
+        ("想想过去的事", SAFE(action_type=ActionType.THINK)),
+        ("回想往事", SAFE(action_type=ActionType.THINK)),
+        ("放眼望去，寻思着下一步", SAFE(action_type=ActionType.THINK)),
+        ("赶紧出厅", SAFE(action_type=ActionType.MOVE, target_entity="出厅")),
+    ],
+)
+async def test_heuristic_reads_thought_and_the_errand(text: str, expected: PlayerIntent) -> None:
     assert await HeuristicIntentParser().parse(text, hall()) == expected
 
 
@@ -178,3 +223,19 @@ async def test_guard_rechecks_the_topic() -> None:
     llm = ScriptedLLM(reply(action_type="TALK", target_entity="左子穆", approach="言辞", aim="打探", topic="修仙之法"))
     intent = await LLMIntentParser(llm).parse("向左掌门讨教长生之道", hall())
     assert intent.action_type is ActionType.INVALID and "修仙" in (intent.reason or "") and len(llm.calls) == 1
+
+
+async def test_llm_parser_keeps_the_errand_only_on_a_move_and_guards_it() -> None:
+    """此行所为只属于 MOVE：照传；别的动作写了也清空；它同是解析出的说法，守卫照样再查一遍。"""
+    from tests.conftest import ScriptedLLM
+
+    move = ScriptedLLM(reply(action_type="MOVE", target_entity="出厅", motivation="找段正淳问个明白"))
+    assert await LLMIntentParser(move).parse("出厅去找段正淳问个明白", hall()) == SAFE(
+        action_type=ActionType.MOVE, target_entity="出厅", motivation="找段正淳问个明白")
+    talk = ScriptedLLM(reply(action_type="TALK", target_entity="左子穆", motivation="找段正淳"))
+    assert (await LLMIntentParser(talk).parse("和左子穆说起段正淳", hall())).motivation == ""
+    think = ScriptedLLM(reply(action_type="THINK"))
+    assert await LLMIntentParser(think).parse("倚着廊柱出神", hall()) == SAFE(action_type=ActionType.THINK)
+    forged = ScriptedLLM(reply(action_type="MOVE", target_entity="出厅", motivation="寻仙修仙"))
+    refused = await LLMIntentParser(forged).parse("出厅去寻访高人", hall())
+    assert refused.action_type is ActionType.INVALID and "修仙" in (refused.reason or "") and len(forged.calls) == 1

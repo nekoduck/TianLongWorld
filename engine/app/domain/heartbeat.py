@@ -13,7 +13,7 @@
        由 application/world_clock 在每条命令定案之后调用，算出的事件与定案事件一并入账：
          余波——交手在此地留下一个一刻即止的「交手」活动与一道痕迹（见了血是血迹，否则是打斗的狼藉）；
                一举的烈度高过在场人群的惊惧阈值，人群即溃散逃离（一个 ROUT_TICKS 刻的活动）并留下一地狼藉；
-               公开之事（交手、暗取败露、当场翻脸、物归原主）成为一枚消息，有人群目睹则每刻传两处，烈度越高传得越远；
+               公开之事（交手、暗取败露、当场翻脸、物归原主）成为一枚消息，有人群目睹（出招前在场且未溃散；这一招吓跑的也算目睹）则每刻传两处，烈度越高传得越远；
                暗中得手、无人察觉之事不成消息——没人知道的事，谁也不该知道；
          扩散——消息沿 CONNECTS_TO 广度优先，每刻至多 speed 处、至多 radius 跳：传到哪里，那里的人才知道（局部认知）；
          生态——每跨过一个黎明结算一次：露天、无主、经不起风雨的东西按物料的日数朽坏；无主或遗落在地、可携而无险的东西，
@@ -202,7 +202,7 @@ def _activity(kind: ActivityKind, location_id: str, who: tuple[str, ...], tick: 
 def aftermath(events: Sequence[DomainEvent], before: LocalSnapshot, tick: int) -> list[DomainEvent]:
     """
     这一招在出招之地（before 的所在）留下的余波，tick 是出招那一刻：交手 → 活动 + 痕迹；烈度高过人群的惊惧阈值 → 人群溃散 + 狼藉；
-    公开之事 → 一枚只有此地知道的消息（有人群在场每刻传两处，否则一处；烈度越高传得越远）。
+    公开之事 → 一枚只有此地知道的消息（有人群在场目睹——出招前未溃散——每刻传两处，否则一处；烈度越高传得越远）。
     """
     here = before.location.id
     out: list[DomainEvent] = []
@@ -224,7 +224,7 @@ def aftermath(events: Sequence[DomainEvent], before: LocalSnapshot, tick: int) -
         text = text[:TOKEN_CHARS]
         out.append(FactTokenSpawned(token=FactToken(
             id=token_id(text, here, tick), text=text, subject_ids=subjects, origin_id=here, born_tick=tick,
-            speed=2 if before.swarms else 1, radius=_radius(level), reached=(here,),
+            speed=2 if any(not s.routed for s in before.swarms) else 1, radius=_radius(level), reached=(here,),
         )))
     return out
 

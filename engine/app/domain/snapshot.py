@@ -326,8 +326,8 @@ class LocalSnapshot(_View):
         ids |= {c.anchor_id for c in self.clocks}
         for e in self.emerged:
             ids |= set(e.subject_ids)
-        for a in self.activities:
-            ids |= set(a.participants)
+        for activity in self.activities:
+            ids |= set(activity.participants)
         ids |= {s.id for s in self.swarms}
         for r in self.rumors:
             ids |= {r.origin_id, *r.subject_ids}

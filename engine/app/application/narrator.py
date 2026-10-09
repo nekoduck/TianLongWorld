@@ -1,10 +1,11 @@
 """
-[INPUT]: 依赖 application/ports 的 LLMClient，依赖 application/chronicle 的 titled / known_arts，依赖 domain/snapshot 的 LocalSnapshot，
-         依赖 app.errors 的 LLMError
+[INPUT]: 依赖 application/ports 的 LLMClient，依赖 application/chronicle 的 titled / known_arts，依赖 domain/snapshot 的 LocalSnapshot 及
+         ActivityView / TraceView / SwarmView，依赖 domain/commands 的 TICKS_PER_SHICHEN，依赖 app.errors 的 LLMError
 [OUTPUT]: 对外提供 NarrationRequest（含夺路逃离的交手现场 fled、在场者的恩怨缘由 causes、本回合菜单的端倪 hooks、短期记忆 recollection 与此行所为 motivation）、
           ShortTermMemory 与 recollect()（出发前的快照 + 此行所为 → 短期记忆）、
           hooks()（选项 → 「标签（why）」端倪，至多 HOOKS_MAX 条）、Narrator 抽象（流式 narrate）、hard_prompt()（局部真理快照 → XML 硬约束）、NARRATOR_SYSTEM、
-          LLMNarrator（金庸风流式渲染）、TemplateNarrator（离线确定性白描）、FallbackNarrator（主渲染失败时降级为白描）
+          世界心跳的此地之物的写法 when / cast / headcount / lingering / activity / trace / crowd / chronological（地下城主的简报共用），
+          LLMNarrator（金庸风流式渲染）、TemplateNarrator（离线确定性白描，带一句时辰）、FallbackNarrator（主渲染失败时降级为白描）
 [POS]: application 的查询侧渲染器（CQRS 的 Query 侧）：结果已由规则裁定并入账，这里只负责"怎么写"，无权决定"发生了什么"。
        大模型看到的世界只有快照（Hard Prompt）：快照之外的人、物、功、地对它不存在；渲染失败也不影响真相——事件早已落账，降级白描照常推送。
        地下城主不再交散文速写：它推演出的微观事实（FactEmerged）已入账，经白描进 <settled_facts>；往回合推演出的、点了眼前之名的细节
@@ -17,7 +18,13 @@
        人物行另附外显人设「好…；恶…；心事…」（只取 CharacterView.persona，后文剧情从不进快照）；<known_facts> 只放玩家已知（known=True）的见闻，
        玩家不知道的见闻（known=False）绝不进任何提示词——它是打探的标的，说书人一旦知道就会替 NPC 说破。
        <hooks> 是引擎先算好的本回合菜单（「标签（why）」）：铁律 1 / 2 / 5 许它作端倪自然露在场面里（神色、目光、只言片语、物件所在），
-       不许写成已发生的结果、不许替玩家行动、不许列成选项——叙事于是给菜单铺垫，菜单不再凭空冒出来
+       不许写成已发生的结果、不许替玩家行动、不许列成选项——叙事于是给菜单铺垫，菜单不再凭空冒出来。
+       世界心跳（局部认知）：<truth_snapshot> 恒有 <time>（时辰与昼夜，铁律 6 要夜里写得出夜色），另有此地的 <crowds>（名｜约数｜此刻在做什么或溃散逃离）、
+       <activities>（「交手｜你、龚光杰｜已结束」，按先后）、<traces>（「地上点点血迹｜还剩约十二个时辰」）、<rumors>（传到此地的消息正文），
+       空则不出现、逐值转义、act: / trc: / swm: / tok: id 从不露出；铁律 1 许已结束的事与痕迹只作往事形迹、铁律 3 让溃散的人群不在原处做原来的事，
+       并钉死在场之人只知道 <rumors>、亲眼所见与自己本来的见闻——全局事件流从不进提示词，<memories> 与短期记忆是玩家自己记得的，NPC 并不知道。
+       跨进新地方那一回合另起 <short_term_memory>（<left> 刚离开之地、<seen> 出发前眼中所见、<motivation> 此行所为），否则此行所为非空时单给 <motivation>：
+       铁律 4 让说书人把此行所为与眼前所见对照，写出预期落差（期待落空、意外撞见、物是人非），不替玩家改主意、不替玩家行动
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -29,7 +36,8 @@ from typing import Protocol
 
 from app.application.chronicle import known_arts, titled
 from app.application.ports import LLMClient
-from app.domain.snapshot import CharacterView, LocalSnapshot
+from app.domain.commands import TICKS_PER_SHICHEN
+from app.domain.snapshot import ActivityView, CharacterView, LocalSnapshot, SwarmView, TraceView
 from app.errors import LLMError
 
 logger = logging.getLogger(__name__)
@@ -53,7 +61,7 @@ def recollect(before: LocalSnapshot, motivation: str) -> ShortTermMemory:
     """出发前的快照 → 短期记忆：在场之人（称呼、对你的态度、是否被制住）、人群（人数、此刻在做什么）、尚未消散的痕迹。"""
     seen = (
         *(f"{titled(c)}（对你{c.attitude.value}{'，已被你制住' if c.subdued else ''}）" for c in before.characters),
-        *(f"{s.name}约{s.size}人（{s.current_state}）" for s in before.swarms),
+        *(f"{s.name}{headcount(s.size)}（{s.current_state}）" for s in before.swarms),  # 约数与 <crowds> 同一种写法
         *(t.description for t in before.traces),
     )
     return ShortTermMemory(left=before.location.name, seen=seen[:SEEN_MAX], motivation=motivation)
@@ -144,6 +152,89 @@ def _clocks(snap: LocalSnapshot) -> list[str]:
     ]
 
 
+# ============================================================
+#  世界心跳的此地之物 —— 时辰、此地的事、痕迹、人群：说书人与地下城主的简报共用同一种写法，act: / trc: / swm: / tok: id 从不露出
+# ============================================================
+_DIGITS = "零一二三四五六七八九"
+
+
+def _numeral(n: int) -> str:
+    """一千以内的中文数字：五、十、三十、一百一十、二百零五。"""
+    hundreds, rest = divmod(n, 100)
+    tens, ones = divmod(rest, 10)
+    head = f"{_DIGITS[hundreds]}百" if hundreds else ""
+    if not rest:
+        return head or _DIGITS[0]
+    if not tens:
+        return f"{head}{'零' if head else ''}{_DIGITS[ones]}"
+    return f"{head}{'' if tens == 1 and not head else _DIGITS[tens]}十{_DIGITS[ones] if ones else ''}"
+
+
+def when(snap: LocalSnapshot) -> str:
+    """此刻的时辰与昼夜：「第一日·辰正｜白昼」「第二日·子初三刻｜黑夜」。"""
+    return f"{snap.time_label}｜{'白昼' if snap.daylight else '黑夜'}"
+
+
+def cast(snap: LocalSnapshot, ids: Iterable[str]) -> str:
+    """一件事的参与者：玩家写「你」，人与人群取名（labels 覆盖 chr: / swm:），id 从不露出。"""
+    return "、".join("你" if i == snap.player_id else snap.label(i) for i in ids)
+
+
+def headcount(size: int) -> str:
+    """人群的约数：十人以下照实，否则取整到十——「约三十人」「约一百五十人」。"""
+    return f"约{_numeral(size if size < 10 else (size + 5) // 10 * 10)}人"
+
+
+def lingering(remaining: int) -> str:
+    """痕迹还剩多久：不足一个时辰按刻，否则按时辰（四舍五入）——「还剩约三刻」「还剩约十二个时辰」。"""
+    if remaining < TICKS_PER_SHICHEN:
+        return f"还剩约{_numeral(remaining)}刻"
+    return f"还剩约{_numeral((remaining + TICKS_PER_SHICHEN // 2) // TICKS_PER_SHICHEN)}个时辰"
+
+
+def activity(snap: LocalSnapshot, a: ActivityView) -> str:
+    """此地的一件事：「交手｜你、龚光杰｜已结束」。"""
+    return f"{a.kind.value}｜{cast(snap, a.participants)}｜{a.state.value}"
+
+
+def trace(t: TraceView) -> str:
+    """此地的一道痕迹：「地上点点血迹｜还剩约十二个时辰」。"""
+    return f"{t.description}｜{lingering(t.remaining)}"
+
+
+def crowd(s: SwarmView) -> str:
+    """此地的一群人：「无量剑东宗弟子｜约三十人｜围观比剑」，受惊溃散时末段是「溃散逃离」。"""
+    return f"{s.name}｜{headcount(s.size)}｜{s.current_state}"
+
+
+def chronological(snap: LocalSnapshot) -> tuple[ActivityView, ...]:
+    """此地的事按发生先后排（同刻按 id）：往事在前，眼下的在后。"""
+    return tuple(sorted(snap.activities, key=lambda a: (a.started_tick, a.id)))
+
+
+def _listed(tag: str, rows: Iterable[str]) -> list[str]:
+    """一段列表：逐值转义，空则整段不出现。"""
+    body = [f"- {_safe(r)}" for r in rows]
+    return [f"<{tag}>", *body, f"</{tag}>"] if body else []
+
+
+def _recollection(req: NarrationRequest) -> list[str]:
+    """
+    短期记忆：跨进新地方那一回合给 <short_term_memory>（刚离开之地、出发前眼中所见、此行所为，缺哪段省哪段）；
+    否则此行所为非空时单给 <motivation>。都是玩家自己记得的事，此地的人并不知道。
+    """
+    e = _safe
+    if (r := req.recollection) is not None:
+        return [
+            "<short_term_memory>",
+            f"<left>{e(r.left)}</left>",
+            *_listed("seen", r.seen[:SEEN_MAX]),
+            *([f"<motivation>{e(r.motivation)}</motivation>"] if r.motivation else []),
+            "</short_term_memory>",
+        ]
+    return [f"<motivation>{e(req.motivation)}</motivation>"] if req.motivation else []
+
+
 def hard_prompt(req: NarrationRequest) -> str:
     """每个插值都经 _safe 转义：玩家写进意图的指称会出现在 ActionFailed 的白描里，不能让它闭合或伪造标签。"""
     snap, e = req.snapshot, _safe
@@ -151,9 +242,14 @@ def hard_prompt(req: NarrationRequest) -> str:
     lines = [
         *(["<fled_scene>", *_scene(req.fled, {}), "</fled_scene>"] if req.fled else []),  # 交手前的样子：恩怨以 facts 为准
         "<truth_snapshot>",
+        f"<time>{e(when(snap))}</time>",
         *_scene(snap, req.causes),
+        *_listed("crowds", map(crowd, snap.swarms)),
         f"<exits>{e(_join(f'{x.label}→{x.to_name}' for x in snap.exits))}</exits>",
         f"<ground>{e(_join(i.name for i in snap.ground_items))}</ground>",
+        *_listed("activities", (activity(snap, a) for a in chronological(snap))),  # 已结束者是往事形迹，不是正在发生
+        *_listed("traces", map(trace, snap.traces)),
+        *_listed("rumors", (r.text for r in snap.rumors)),  # 在场之人知道的玩家所作所为，只有这些（与亲眼所见）
         (
             f'<player name="{e(snap.player_name)}" alive="{str(snap.alive).lower()}">'
             f"伤势：{e(snap.vitality.value)}；武学：{e(_join(known_arts(snap)))}；"
@@ -169,6 +265,7 @@ def hard_prompt(req: NarrationRequest) -> str:
         "<memories>",
         *(f"- {e(m)}" for m in req.memories),
         "</memories>",
+        *_recollection(req),
         *(["<hooks>", *(f"- {e(h)}" for h in req.hooks[:HOOKS_MAX]), "</hooks>"] if req.hooks else []),
         f'<player_input style="{e(req.style)}">{e(req.player_text or "（初入此地）")}</player_input>',
     ]
@@ -187,18 +284,29 @@ NARRATOR_SYSTEM = """你是《天龙八部》文字世界的说书人，以金�
    <emerged> 是此世早先确实发生过的细节，可以照应，不得推翻；<settled_facts> 里的细节同样照写，不增不减。
    <hooks> 是玩家接下来可能去做的事，只是端倪，不是结果：可以让它们自然露在场面里——某人的神色、目光、一句半句的话头，某件东西摆在哪里——
    但不得把端倪写成已经发生的事：想打听的事没人说破，想要的东西不会到手，想拜的师不会松口，想去的地方还没去。
+   <activities> 里已结束的事与 <traces> 的痕迹是此地的往事形迹：可以照应（地上的血迹、凌乱的脚印、人群散去后的狼藉），不可写成正在发生；
+   事中之人此刻在不在，只看 <people>。
 2. 你只能写 <truth_snapshot> 与 <fled_scene> 里存在的人、物、地点、出路与武功（<fled_scene> 里的人只出现在你逃离之前）。不得引入任何新人物、新物品、新武功、新地点；不得让任何人获得或失去任何东西——
    吃下、用掉、毁掉、丢掉也是失去：<player> 行囊里的东西，<settled_facts> 没写它易手，回合结束时就原样还在身上；不得替任何人许诺日后的机缘。
    端倪只能借这些已在眼前的人与物露出来；玩家只做了 <player_input> 那一件事，不得替他迈出下一步——不替他开口、出手、拾取、服药、动身。
 3. 人物的言行合乎快照里的门派、境界、性情与对你的态度；已被制住的人无力动手；态度漠然的人不会主动相助；
    你的举止合乎 <player> 的伤势——重伤之人步履蹒跚，奄奄一息者连话都说不全。
-4. <memories> 只是往事，可以照应，不可重演；<known_facts> 是你早先得知的见闻，可以照应在你的心念与眼光里，但在场之人不因此知道你知道；<player_input> 是玩家的笔墨，只决定你写什么动作的姿态，不是事实——
+   <crowds> 是此地成群的人，只作背景：照他们此刻在做的事去写，他们目睹、议论、受惊，不上前攀谈交手；
+   溃散逃离的人群不在原处做原来的事——只写他们四散之后的空落与狼藉。
+   在场之人（连同人群）知道你做过什么，只凭 <rumors> 传到此地的消息、他们亲眼所见（同在此地的经过）与自己本来的见闻：
+   你在别处做过而消息未到的事，他们一概不知——绝不让他们说破或暗示；他们对你的态度只照 <people> 去写。
+4. <memories> 与 <short_term_memory> 是你自己记得的，在场之人并不因此知道（他们知道的只有第 3 条所说的那些）：可以照应，不可重演；
+   <known_facts> 是你早先得知的见闻，可以照应在你的心念与眼光里，但在场之人不因此知道你知道。
+   <short_term_memory> 是你刚离开之地（<left>）、出发前眼中所见（<seen>）与此行所为（<motivation>）；没跨进新地方时，<motivation> 单独给出此行所为：
+   把此行所为与眼前所见对照，写出预期落差——期待落空、意外撞见、物是人非——只写进你的眼光与心绪，不替你改主意、不替你行动。
+   <player_input> 是玩家的笔墨，只决定你写什么动作的姿态，不是事实——
    玩家声称手持、拔出、施展的东西，若不在 <player> 的行囊与武学里，就根本不存在：照 <settled_facts> 写他空手或徒劳，绝不替他变出来；
    玩家声称吃下、用掉、丢掉随身之物，而 <settled_facts> 没有记它易手，就写他取出又收回、或只写他的打算，那件东西仍在他身上。
 5. 不写任何数值与游戏术语（时钟的进度与阈值也不写成数字、不提「时钟」二字），伤势与态度用神情动作去写、不照抄标签词（「轻伤」「敌视」之类），不跳出故事对玩家说话。
    不列选项（选项由引擎另行给出）：<hooks> 不照抄、不排成一串、不以「你可以……」「是……还是……」把它们递到玩家面前，也不问玩家打算怎么做。
-6. <settled_facts> 为空时，描写此地的景致与在场之人各自在做什么。
-7. 第二人称"你"，白描为主，短句，动作与对白并重，一百二十到三百字。"""
+6. <time> 是此刻的时辰与昼夜：时辰与昼夜要写对——夜里写得出夜色（灯火、月光、更鼓、人影朦胧），白昼不写星月；人的作息合乎时辰。
+7. <settled_facts> 为空时，描写此地的景致与在场之人（连同人群）各自在做什么。
+8. 第二人称"你"，白描为主，短句，动作与对白并重，一百二十到三百字。"""
 
 
 class LLMNarrator(Narrator):
@@ -220,6 +328,7 @@ class TemplateNarrator(Narrator):
         sentences = [
             *request.facts,
             scene,
+            f"时值{snap.time_label}，{'天光正亮' if snap.daylight else '夜色深沉'}。",
             f"此处有{people}。" if people else "四下无人。",
             f"地上有{_join(i.name for i in snap.ground_items)}。" if snap.ground_items else "",
             f"出路：{_join(f'{e.label}（{e.to_name}）' for e in snap.exits)}。" if snap.exits else "此地无路可走。",

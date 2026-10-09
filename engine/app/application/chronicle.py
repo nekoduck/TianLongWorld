@@ -22,8 +22,8 @@
 
 from collections.abc import Mapping
 
-from app.domain.combat import CombatOutcome
 from app.domain.ambient import Activity, ActivityKind
+from app.domain.combat import CombatOutcome
 from app.domain.events import (
     ActionFailed,
     ActivityStarted,

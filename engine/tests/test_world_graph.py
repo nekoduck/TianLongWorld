@@ -135,7 +135,7 @@ async def graph(request: pytest.FixtureRequest) -> AsyncIterator[Graph]:
 
 def envelopes(pid: str, events: Sequence[DomainEvent], start: int = 1) -> list[EventEnvelope]:
     return [
-        EventEnvelope(stream_id=pid, version=i, event_id=uuid4(), recorded_at=datetime.now(UTC), event=e)  # type: ignore[arg-type]
+        EventEnvelope(stream_id=pid, version=i, event_id=uuid4(), recorded_at=datetime.now(UTC), event=e)
         for i, e in enumerate(events, start=start)
     ]
 

@@ -1,7 +1,7 @@
 """
 [INPUT]: 依赖 app.domain.approach 的 MOVES / Route / Row / cell_of / row_of / normalize / infer_aim / AIMS，依赖 app.domain.intent，
          依赖 app.domain.models 的 Attitude，依赖 app.domain.rules 的 normalized / ground，依赖 tests/test_rules 的 scene / act
-[OUTPUT]: 兼容表的单测：整张 (动作, 手段) → 路线表逐格照 PROPOSAL_v2 §3.3 核对（含表外格）、TAKE 分地上之物与他人之物两行、
+[OUTPUT]: 兼容表的单测：整张 (动作, 手段) → 路线表逐格照 PROPOSAL_v2 §3.3 核对（含表外格；THINK 沉思一行是之后添的：寻常 → 定）、TAKE 分地上之物与他人之物两行、
           normalize（表外手段退回寻常、所图不配置空、他人之物以格子写明的所图为准、话题落不了地置空、幂等）、
           所图缺省推断（说了的照说 → 格内隐含 → 威逼或带话题打探 → 敌视戒备化解 → 结交）、
           rules.normalized 按此情此景落地话题与判定物在谁手
@@ -19,9 +19,9 @@ from tests.test_rules import act, scene
 
 P = Approach
 COLUMNS = (P.PLAIN, P.FORCE, P.WORDS, P.FAVOR, P.GUILE, P.STEALTH, P.LEVERAGE)
-_ = None  # 表外：— （由 normalize 退回寻常列）
+_: None = None  # 表外：— （由 normalize 退回寻常列）
 
-# PROPOSAL_v2 §3.3 的兼容表，逐格照搬：(路线, 隐含所图, 说法)
+# PROPOSAL_v2 §3.3 的兼容表，逐格照搬：(路线, 隐含所图, 说法)；THINK 一行是之后添的（世界心跳：沉思只花时间）
 TABLE: dict[Row, tuple[tuple[Route, Aim | None, str] | None, ...]] = {
     Row.ATTACK: ((Route.COMBAT, Aim.SUBDUE, ""), (Route.COMBAT, Aim.SUBDUE, ""), _, _,
                  (Route.COMBAT, Aim.SUBDUE, "不越级"), _, _),
@@ -35,6 +35,7 @@ TABLE: dict[Row, tuple[tuple[Route, Aim | None, str] | None, ...]] = {
     Row.LEARN: ((Route.FIXED, None, "两道门"), _, (Route.FIXED, Aim.LEARN, ""), (Route.FIXED, Aim.LEARN, ""), _, _, _),
     Row.MOVE: ((Route.FIXED, None, "撂话离场"), _, _, _, _, _, _),
     Row.OBSERVE: ((Route.FIXED, None, ""), _, _, _, _, _, _),
+    Row.THINK: ((Route.FIXED, None, ""), _, _, _, _, _, _),  # PROPOSAL_v2 之后添的一行：寻常 → 定
     Row.USE: ((Route.FIXED, None, ""), _, _, _, _, _, _),
     Row.REST: ((Route.FIXED, None, ""), _, _, _, _, _, _),
 }
@@ -79,6 +80,7 @@ def test_take_splits_into_two_rows() -> None:
         (PlayerIntent(action_type=ActionType.TALK, target_entity="段誉", aim=Aim.ESCAPE), False, P.PLAIN, None),
         (PlayerIntent(action_type=ActionType.TALK, target_entity="段誉", aim=Aim.PROBE), False, P.PLAIN, Aim.PROBE),
         (PlayerIntent(action_type=ActionType.REST, aim=Aim.LEARN), False, P.PLAIN, None),
+        (PlayerIntent(action_type=ActionType.THINK, approach=P.GUILE, aim=Aim.PROBE), False, P.PLAIN, None),
     ],
 )
 def test_normalize_folds_out_of_table_moves_back(intent: PlayerIntent, held: bool, approach: Approach, aim: Aim | None) -> None:

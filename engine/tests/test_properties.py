@@ -1,13 +1,14 @@
 """
-[INPUT]: 依赖 app.domain.rules 的 decide / stakes / normalized，依赖 app.domain.stakes 的 Proposal / settle_any / route_of，
+[INPUT]: 依赖 app.domain.rules 的 decide / stakes / normalized / command，依赖 app.domain.commands 的 REFUSED_COST，依赖 app.domain.stakes 的 Proposal / settle_any / route_of，
          依赖 app.domain.combat / social / covert 的三路赌注，依赖 app.domain.aggregates 的 Player，依赖 InMemoryWorldGraph，依赖 tests/world 的 WORLD
 [OUTPUT]: 裁决的性质测试：200 条随机意图序列（随机动作 × 手段 × 所图 × 指称 × 话题 × 随机提议，含别的路线的结局与离谱的扣减，
           以及随机的推演 ResolutionOutput：随机量级、属性键（含落不了地的名字）、时钟指令（含眼前没有的挂处与时钟）、事实（含夹带状态字眼的）、路由）
           在 WORLD 上逐招重放，每一招都守住——定案的结局恒在可裁区间里且等于闸门（resolution.settle）或 settle_any 的定案；确定之事（寻常的交谈 / 取物 / 修习，以及移动、静观、赠物、服药、调息、天道）没有赌注；
           人情阶梯每次至多一档，例外只有直落敌视（翻脸、出手、被窃察觉）与物归原主直升信赖（且那件东西不是从物主本人手里拿来的）；
-          暗取差了两境以上只有失手、东西绝不到手；威逼从不图结交 / 化解 / 求艺，这三种所图如愿时人情不降；交涉与暗中永不产出 PlayerDied、永不伤人，
+          暗取差了两境以上只有失手、东西绝不到手；威逼从不图结交 / 化解 / 求艺，这三种所图如愿时对方的人情不降（旁人的人情可作等价交换的代价降一档）；交涉与暗中永不产出 PlayerDied、永不伤人，
           也永不把人推上信赖（交涉的气血只可能来自危机时钟坍缩，暗取的代价至多 20 点）；没有赌注的举动不产出 Parleyed / Maneuvered / SkillExecuted；
-          名望每回合的闸门涨落在 [−20, +5] 且只有得手类结局才涨、折叠后钳在 ±100；时钟从不满格悬着，总数与每个挂处都不超上限
+          名望每回合的闸门涨落在 [−20, +5] 且只有得手类结局才涨、折叠后钳在 ±100；时钟从不满格悬着，总数与每个挂处都不超上限；
+          世界心跳：随机意图含 THINK（沉思与静观同为确定之事），每一招的 rules.command 都花时间（≥1 刻，驳回恰一刻）且装的是规整过的意图
 [POS]: tests 的不变量网：单测钉的是例子，这里钉的是「无论大模型提议什么、玩家怎么出招」都成立的东西
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -20,8 +21,10 @@ from app.domain.aggregates import Player, PlayerState
 from app.domain.approach import UNCOERCIBLE
 from app.domain.clocks import CLOCKS_MAX, PER_ANCHOR, ClockKind
 from app.domain.combat import CombatOutcome, CombatProposal, Stakes
+from app.domain.commands import REFUSED_COST
 from app.domain.covert import CovertStakes
 from app.domain.events import (
+    ActionFailed,
     ClockAdvanced,
     ClockCollapsed,
     ClockStarted,
@@ -52,7 +55,7 @@ from app.domain.resolution import (
     delta_keys,
     settle,
 )
-from app.domain.rules import TRUST_RESTORED, decide, envelope, normalized, stakes
+from app.domain.rules import TRUST_RESTORED, command, decide, envelope, normalized, stakes
 from app.domain.snapshot import LocalSnapshot
 from app.domain.social import SocialStakes
 from app.domain.stakes import Proposal, settle_any
@@ -62,14 +65,16 @@ from tests.world import WORLD
 SEQUENCES = 200
 STEPS = 10
 OUTCOMES = [*CombatOutcome, *SocialOutcome, *CovertOutcome]
-_FIXED_ACTIONS = {ActionType.MOVE, ActionType.OBSERVE, ActionType.GIVE, ActionType.USE, ActionType.REST, ActionType.INVALID}
+_FIXED_ACTIONS = {ActionType.MOVE, ActionType.OBSERVE, ActionType.THINK, ActionType.GIVE, ActionType.USE, ActionType.REST,
+                  ActionType.INVALID}
 _PLAIN_FIXED = {ActionType.TALK, ActionType.TAKE, ActionType.LEARN}
 
 
 _JUNK = ["少林寺", "倚天剑", "黑虎掏心", "段"]
 _WEIGHTS = {  # 有赌注的动作多出几招，每种动作都出
     ActionType.TALK: 4, ActionType.TAKE: 4, ActionType.ATTACK: 2, ActionType.LEARN: 2, ActionType.MOVE: 2,
-    ActionType.GIVE: 1, ActionType.OBSERVE: 1, ActionType.USE: 1, ActionType.REST: 1, ActionType.INVALID: 1,
+    ActionType.GIVE: 1, ActionType.OBSERVE: 1, ActionType.THINK: 1, ActionType.USE: 1, ActionType.REST: 1,
+    ActionType.INVALID: 1,
 }
 
 
@@ -187,6 +192,11 @@ async def test_two_hundred_random_sequences_keep_every_rail() -> None:
             label = f"seq {seq} step {step}: {intent!r} / {proposal!r} → {events!r}"
             plain = normalized(intent, state, snap)
 
+            # 没有不花时间的命令：驳回恰花一刻，获准的照封闭表；Command 装的是规整过的意图
+            cmd = command(intent, state, snap)
+            refused = len(events) == 1 and isinstance(events[0], ActionFailed)
+            assert cmd.time_cost >= 1 and cmd.intent == plain and (not refused or cmd.time_cost == REFUSED_COST), label
+
             # 确定之事没有赌注
             if plain.action_type in _FIXED_ACTIONS or (plain.action_type in _PLAIN_FIXED and plain.approach is Approach.PLAIN):
                 assert at_stake is None, label
@@ -225,12 +235,12 @@ async def test_two_hundred_random_sequences_keep_every_rail() -> None:
             if isinstance(at_stake, CovertStakes) and at_stake.margin <= -2:
                 assert at_stake.admissible == (CovertOutcome.CAUGHT,), label
                 assert not any(isinstance(e, ItemTransferred) for e in events), label
-            # 威逼图不来交情、和解与真传；交涉如愿而人情反降的，只能是威逼得逞
+            # 威逼图不来交情、和解与真传；交涉如愿而对方人情反降的，只能是威逼得逞（旁人的人情可以作等价交换的代价降一档）
             if isinstance(at_stake, SocialStakes):
                 assert not (at_stake.approach is Approach.FORCE and at_stake.aim in UNCOERCIBLE), label
                 if outcome is SocialOutcome.GRANTED and at_stake.aim in UNCOERCIBLE:
                     assert all(e.attitude.rank >= state.attitude_of(e.character_id).rank
-                               for e in events if isinstance(e, RelationChanged)), label
+                               for e in events if isinstance(e, RelationChanged) and e.character_id == at_stake.npc_id), label
             # 交涉与暗中永不致死、也永不把人推上信赖（WORLD 里没有险物）；交涉永不伤人——气血只可能来自危机时钟的坍缩，
             # 暗取的代价至多 20 点（留一口气）
             if isinstance(at_stake, SocialStakes | CovertStakes):
