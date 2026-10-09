@@ -113,8 +113,7 @@
 [审计] 「石几棋局」不可携带（claude-subagent）
 [审计] 「秘制蛇药」可解毒（药力 2）（claude-subagent）
 [审计] 「莽牯朱蛤」不可携带；剧毒（claude-subagent）
-[审计] 「通天草」可解毒（药力 2）（claude-subagent）
 [审计] 「金创药」可疗伤（药力 2）（claude-subagent）
-[审计] 「闪电貂」不可携带；有毒（claude-subagent）
+[审计] 「闪电貂」有毒（claude）
 [审计] 「青石棋局」不可携带（claude-subagent）
 [审计] ⚠「岳老三」的 T=0 描述撞上后文：牵涉开篇之后才结下的关系 岳老三—钟万仇（仇敌，将至）

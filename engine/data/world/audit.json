@@ -2226,14 +2226,11 @@
       "id": "itm:通天草",
       "portable": true,
       "hazard": null,
-      "use": {
-        "effect": "解毒",
-        "potency": 2
-      },
+      "use": null,
       "arrives_with": null,
       "evidence": null,
-      "basis": "浓煎服下可解貂毒，亦能稍缓他苦",
-      "by": "claude-subagent"
+      "basis": "钟灵事后自承煎服解貂毒是骗人的，此草只能稍缓生死符发作之苦，于伤势无补",
+      "by": "claude"
     },
     {
       "id": "itm:金创药",
@@ -2370,13 +2367,13 @@
     },
     {
       "id": "itm:闪电貂",
-      "portable": false,
+      "portable": true,
       "hazard": "有毒",
       "use": null,
       "arrives_with": null,
       "evidence": null,
-      "basis": "活物灵兽且咬人带毒，伸手去抓即遭噬咬",
-      "by": "claude-subagent"
+      "basis": "钟灵从皮囊中摸出捧在手里，可随身携带；活物咬人带毒，伸手去抓即遭噬咬",
+      "by": "claude"
     },
     {
       "id": "itm:阴阳和合散",

@@ -2871,7 +2871,7 @@
       "owner_id": "chr:钟灵",
       "location_id": null,
       "provenance": "原著",
-      "portable": false,
+      "portable": true,
       "hazard": "有毒",
       "use": null,
       "arrives_with": null
@@ -2901,10 +2901,7 @@
       "provenance": "原著",
       "portable": true,
       "hazard": null,
-      "use": {
-        "effect": "解毒",
-        "potency": 2
-      },
+      "use": null,
       "arrives_with": null
     },
     {
