@@ -1,9 +1,10 @@
 """
 [INPUT]: 依赖 pydantic 的 Field、pydantic-settings 的 BaseSettings，读取进程环境变量与 engine/.env
-[OUTPUT]: 对外提供 Settings 配置模型（含 llm_profile 按职责取模型与思考档位）、LLMRole 四种职责、Thinking 档位、ENGINE_ROOT 工程根路径、get_settings() 进程级单例
+[OUTPUT]: 对外提供 Settings 配置模型（含 llm_profile 按职责取模型与思考档位、fortune_on_click 点选回合的气运开关）、LLMRole 四种职责、Thinking 档位、ENGINE_ROOT 工程根路径、get_settings() 进程级单例
 [POS]: 引擎的唯一配置入口，被 container.py（装配四类后端与大模型）、infrastructure/llm/factory.py（厂商选型）与 seed.py（语料与产物路径）消费；
        每一类存储都有 memory 实现：零依赖即可跑通整条管线，生产环境逐项切到 postgres / neo4j / qdrant；
        大模型的每种职责都可单独选型——地下城主在命令侧同步裁决，它的模型直接决定出手回合的延迟；
+       fortune_on_click 决定点选回合胜负未定之事由气运（FortuneResolver）还是确定性裁决定夺，两者都不花钱；
        llm_call_limit 是各职责共用的调用次数保险丝（每进程），付费额度不会被一个失控的循环跑空
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -58,6 +59,9 @@ class Settings(BaseSettings):
     llm_resolution_model: str = ""
     llm_resolution_thinking: Thinking = ""
     llm_resolution_budget: float = Field(default=8.0, ge=1.0, le=60.0)  # 地下城主的时间预算（秒）：玩家在锁里等，超时即交给规则
+    # 点选回合的气运：开则胜负未定之事由 FortuneResolver 按种子（玩家 | 对象 | 尝试次数）在区间里取结局，关则一律取确定性裁决；
+    # 两者都不调大模型——地下城主只为自由文本回合发言
+    fortune_on_click: bool = True
     # 调用次数保险丝：一个进程内各职责合计至多发出这么多次请求，熔断后各调用方走各自的退路；0 = 不设上限。
     # 一回合至多三次（意图 + 地下城主 + 叙事），500 次约合两百回合——够玩一整晚，又不够一个失控的循环跑空预付额度
     llm_call_limit: int = Field(default=500, ge=0)

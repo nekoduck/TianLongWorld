@@ -1,25 +1,29 @@
 """
 [INPUT]: 依赖 application/bus 的命令、回合消息与 CommandHandler，依赖 application/intent_parser 的 IntentParser，
-         依赖 application/resolution_agent 的 Resolver / Resolution，依赖 application/options 的 OptionGenerator，
-         依赖 application/narrator 的 Narrator / NarrationRequest，依赖 application/projections 的 ProjectionCoordinator，
-         依赖 application/chronicle 的 describe / known_arts，依赖 domain/aggregates 的 Player，依赖 domain/events 的 SkillExecuted / Moved，
-         依赖 domain/ports 的 EventStore / WorldReader / NarrativeMemory / MemoryRecord，依赖 domain/rules 的 stakes / player_tier，依赖 domain/combat 的 Stakes，
+         依赖 application/adjudication 的 AdjudicationSlot / adopted_sketch，依赖 application/options 的 OptionGenerator，
+         依赖 application/narrator 的 Narrator / NarrationRequest / hooks，依赖 application/projections 的 ProjectionCoordinator，
+         依赖 application/chronicle 的 describe / known_arts，依赖 application/status 的 bonds / pursuits / referenced，
+         依赖 domain/aggregates 的 Player，依赖 domain/events 的 Moved，
+         依赖 domain/ports 的 EventStore / WorldReader / NarrativeMemory / MemoryRecord，依赖 domain/rules 的 stakes / player_tier，
          依赖 app.errors 的 OptionExpiredError / ProjectionError / UnknownPlayerError / WorldNotSeededError
 [OUTPUT]: 对外提供 TurnPipeline（一回合的完整生命周期）与四个命令处理器 SpawnPlayerHandler / ResumePlayerHandler / SubmitTextHandler /
           ChooseOptionHandler，以及 register_handlers()（把它们挂上总线）
 [POS]: application 的 CQRS 游戏环路：
        命令侧（持玩家锁，串行）：重放事件流 → 自愈投影 → 局部快照 → [Parse] 解析意图（选项点选不经大模型）→
-                                 [Validate] rules.stakes 圈出可裁区间 → [Resolve] 出手胜负未定（contested）才请地下城主在区间里提议
-                                 （交涉 / 暗中的简报在阶段 C，眼下取确定性裁决）→
-                                 [Event] Player.decide 携提议定案（combat.settle 钳进区间）→ 追加事件（乐观并发）→ 同步投影图谱；
-       查询侧（无锁，并行）：新快照 → 记忆召回 → 推送结果白描 → [Options] 选项生成 ∥ [Render] 叙事流式渲染 ∥ 记忆写入 → 推送终帧。
+                                 [Validate] rules.stakes 圈出可裁区间（出手 / 交涉 / 暗中）→
+                                 [Resolve] 一席裁决（AdjudicationSlot）：胜负未定时，自由文本请地下城主在区间里提议、点选由气运确定性取值，
+                                 结果已定谁也不请 →
+                                 [Event] Player.decide 携提议定案（stakes.settle_any 钳进区间）→ 追加事件（乐观并发）→ 同步投影图谱；
+       查询侧（无锁）：新快照 → 记忆召回 → 推送结果白描（空串白描滤掉：服药那条 HealthChanged 不出声）→
+                       [Options] 先算菜单，「标签（why）」作端倪经 NarrationRequest.hooks 交给说书人 → [Render] 叙事流式渲染 ∥ 记忆写入 → 推送终帧。
        大模型在命令侧解析意图、在可裁区间里提议，在查询侧只渲染；领域的定案隔在中间——它说什么都越不过区间，更改不了已入账的结果。
-       地下城主的招式速写只在其结局被采纳时（SkillExecuted.outcome 等于提议的结局）经 NarrationRequest 传给渲染器：
+       地下城主的速写只在其结局被采纳时（入账的 SkillExecuted / Parleyed / Maneuvered 的 outcome 等于提议的结局）经 NarrationRequest 传给渲染器：
        它是散文，不入事件、不入记忆；结局未被采纳，速写与定案不符，当场作废。
        重伤夺路而逃（Moved.fleeing）的回合，渲染用的新快照已是逃抵之地，交手前的快照经 NarrationRequest.fled 一并交给渲染器；
        记忆召回分两路、原话优先：原话 + 玩家名一路，焦点实体（PlayerState.focus）+ 在场者本名一路，各多取一倍再按字面去重（调息两次就是两条一模一样的白描）；
        续前缘（resume）与出手共用玩家锁，续上的必是落账之后的局面；quiet 续接不复述此景、不调大模型，只下发选项与状态（断线重连、选项过期）；
-       在场者的恩怨缘由（PlayerState.attitude_causes）经 NarrationRequest.causes 交给渲染器；死者的伤势栏写「气绝」
+       在场者的恩怨缘由（PlayerState.attitude_causes）经 NarrationRequest.causes 交给渲染器；死者的伤势栏写「气绝」；
+       状态栏的人情（bonds）与心事（pursuits）两栏：status.referenced 列出要取名的 id，快照没有的名字一回合只向 reader.labels 取一次
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -44,15 +48,15 @@ from app.application.bus import (
     TurnMessage,
     TurnResolved,
 )
+from app.application import status
+from app.application.adjudication import AdjudicationSlot, adopted_sketch
 from app.application.chronicle import describe, known_arts
 from app.application.intent_parser import IntentParser
-from app.application.narrator import NarrationRequest, Narrator
+from app.application.narrator import NarrationRequest, Narrator, hooks
 from app.application.options import ActionOption, OptionGenerator
 from app.application.projections import ProjectionCoordinator
-from app.application.resolution_agent import Resolution, Resolver
 from app.domain.aggregates import Player
-from app.domain.combat import Stakes
-from app.domain.events import DomainEvent, EventEnvelope, Moved, SkillExecuted
+from app.domain.events import EventEnvelope, Moved
 from app.domain.intent import PlayerIntent
 from app.domain.models import EntityKind, entity_id
 from app.domain.ports import EventStore, MemoryRecord, NarrativeMemory, WorldReader
@@ -76,7 +80,7 @@ class TurnPipeline:
         coordinator: ProjectionCoordinator,
         memory: NarrativeMemory,
         parser: IntentParser,
-        resolver: Resolver,
+        slot: AdjudicationSlot,
         options: OptionGenerator,
         narrator: Narrator,
         recall_k: int = 4,
@@ -86,7 +90,7 @@ class TurnPipeline:
         self._coordinator = coordinator
         self._memory = memory
         self.parser = parser
-        self._resolver = resolver
+        self._slot = slot
         self.options = options
         self._narrator = narrator
         self._recall_k = recall_k
@@ -140,12 +144,13 @@ class TurnPipeline:
         if command.quiet:  # 断线重连：此景玩家已经读过，不必再花一次大模型复述
             snap = await self.snapshot(player)
             offered = await asyncio.to_thread(self.options.generate, player.state, snap)
-            yield _completed(player, snap, "", offered)
+            yield _completed(player, snap, "", offered, await self._names(player, snap, {}))
             return
         async for message in self._render(player, [], None, None, labels={}):
             yield message
 
-    async def act(self, player_id: str, source: IntentSource) -> AsyncIterator[TurnMessage]:
+    async def act(self, player_id: str, source: IntentSource, *, clicked: bool = False) -> AsyncIterator[TurnMessage]:
+        """clicked：意图来自点选（不经大模型）——胜负未定之事交给气运而不是地下城主。"""
         lock = self._locks.setdefault(player_id, asyncio.Lock())
         async with lock:  # 同一玩家的命令侧串行；跨进程的并发由事件账本的乐观并发兜底
             player = await self.load(player_id)
@@ -153,16 +158,14 @@ class TurnPipeline:
             before = await self.snapshot(player)
             intent, said = await source(player, before)  # [Parse]
             at_stake = stakes(intent, player.state, before)  # [Validate] 获准而胜负未定之事才有赌注（出手 / 交涉 / 暗中）
-            resolution = (  # [Resolve] 出手胜负未定才请地下城主；它只提议，失灵即空提议。交涉与暗中待阶段 C 的简报，先取确定性裁决
-                await self._resolver.resolve(at_stake, before, player.state, said)
-                if isinstance(at_stake, Stakes) and at_stake.contested else None
-            )
+            # [Resolve] 一席裁决：文本请地下城主、点选交给气运，结果已定谁也不请；它们只提议，失灵即空提议
+            resolution = await self._slot.resolve(at_stake, before, player.state, said, clicked=clicked)
             events = player.decide(intent, before, resolution.proposal if resolution else None)  # 领域定案
             envelopes = await self._store.append(player_id, events, player.version) if events else []  # [Event]
             for envelope in envelopes:
                 player.apply(envelope.event)
             await self._coordinator.publish(player_id, envelopes)
-        sketch = _adopted_sketch(resolution, events)
+        sketch = adopted_sketch(resolution, events)
         fled = before if any(isinstance(e, Moved) and e.fleeing for e in events) else None  # 交手现场留给叙事
         async for message in self._render(player, envelopes, intent, said, labels=before.labels, hint=sketch, fled=fled):
             yield message
@@ -188,11 +191,12 @@ class TurnPipeline:
         state = player.state
         # 在场者的恩怨缘由：叙事不必自己编仇从何来。交手现场（fled）是交手前的样子，那里新结的仇以 settled_facts 为准
         causes = {c.name: cause for c in snap.characters if (cause := state.attitude_causes.get(c.id))}
-        facts = tuple(describe(e.event, names, state.name) for e in envelopes)
+        facts = tuple(line for e in envelopes if (line := describe(e.event, names, state.name)))  # 空串白描不出声
         if intent is not None:
             yield TurnResolved(intent=intent, facts=facts)
 
-        options = asyncio.create_task(asyncio.to_thread(self.options.generate, state, snap))  # [Options] 与叙事并行
+        # [Options] 先于叙事：菜单是 (状态, 快照) 的纯函数，算好了作端倪交给说书人——它只许露在场面里，不许写成结果
+        offered = await asyncio.to_thread(self.options.generate, state, snap)
         remember = asyncio.create_task(self._coordinator.chronicle(player.id, state.name, envelopes, names))
         try:
             parts: list[str] = []
@@ -205,16 +209,21 @@ class TurnPipeline:
                 hint=hint,
                 fled=fled,
                 causes=causes,
+                hooks=hooks(offered),
             )
             async for chunk in self._narrator.narrate(request):  # [Render] 流式
                 parts.append(chunk)
                 yield NarrationDelta(text=chunk)
-            offered = await options
             await remember
         finally:
-            for task in (options, remember):
-                task.cancel()
-        yield _completed(player, snap, "".join(parts), offered)
+            remember.cancel()
+        yield _completed(player, snap, "".join(parts), offered, await self._names(player, snap, names))
+
+    async def _names(self, player: Player, snap: LocalSnapshot, known: dict[str, str]) -> dict[str, str]:
+        """状态栏两栏要用的名字：已在手的（交手前后的快照）之外，一回合只向图谱取一次——不在眼前的仇人与心事的标的。"""
+        names = {**known, **snap.labels}
+        missing = status.referenced(player.state) - names.keys()
+        return {**names, **await self._reader.labels(sorted(missing))} if missing else names
 
     async def _recall(
         self, player: Player, said: str | None, snap: LocalSnapshot, labels: dict[str, str], before: int
@@ -235,8 +244,10 @@ class TurnPipeline:
         return tuple(dict.fromkeys(m.text for m in (*spoken, *hinted)))[:k]
 
 
-def _completed(player: Player, snap: LocalSnapshot, narration: str, options: tuple[ActionOption, ...]) -> TurnCompleted:
-    """终帧：叙事全文、选项与状态栏。状态栏只有语义标签，死者的伤势栏写「气绝」。"""
+def _completed(
+    player: Player, snap: LocalSnapshot, narration: str, options: tuple[ActionOption, ...], names: dict[str, str]
+) -> TurnCompleted:
+    """终帧：叙事全文、选项与状态栏。状态栏只有语义标签，死者的伤势栏写「气绝」；人情与心事两栏由 status 的纯函数翻成人话。"""
     state = player.state
     return TurnCompleted(
         narration=narration,
@@ -250,6 +261,8 @@ def _completed(player: Player, snap: LocalSnapshot, narration: str, options: tup
             death_cause=state.death_cause,
             inventory=tuple(i.name for i in snap.inventory),
             skills=known_arts(snap),
+            bonds=status.bonds(state, snap, names),
+            pursuits=status.pursuits(state, names),
         ),
         game_over=not state.alive,
     )
@@ -264,15 +277,6 @@ def _recall_hints(player: Player, snap: LocalSnapshot, labels: dict[str, str]) -
 
 async def _nothing() -> list[MemoryRecord]:
     return []
-
-
-def _adopted_sketch(resolution: Resolution | None, events: Sequence[DomainEvent]) -> str:
-    """地下城主的速写只配它被采纳的结局：入账的 SkillExecuted 与它提议的结局不符（被钳回确定性裁决），速写就与定案矛盾，作废。"""
-    if resolution is None or resolution.proposal is None or not resolution.narrative_hint:
-        return ""
-    executed = next((e for e in events if isinstance(e, SkillExecuted)), None)
-    adopted = executed is not None and executed.outcome is resolution.proposal.outcome
-    return resolution.narrative_hint if adopted else ""
 
 
 # ============================================================
@@ -308,7 +312,7 @@ class SubmitTextHandler(CommandHandler[SubmitText]):
 
 
 class ChooseOptionHandler(CommandHandler[ChooseOption]):
-    """点选选项：不经大模型。按当前快照重算合法选项，所选 id 必须在其中——过期或伪造的 id 一律拒收。"""
+    """点选选项：不经大模型。按当前快照重算合法选项，所选 id 必须在其中——过期或伪造的 id 一律拒收；胜负未定之事交给气运。"""
 
     def __init__(self, pipeline: TurnPipeline) -> None:
         self._pipeline = pipeline
@@ -321,7 +325,7 @@ class ChooseOptionHandler(CommandHandler[ChooseOption]):
                 raise OptionExpiredError("此选项已不合时宜，请依眼前情势重新抉择。")
             return chosen.intent, chosen.label
 
-        return self._pipeline.act(command.player_id, source)
+        return self._pipeline.act(command.player_id, source, clicked=True)
 
 
 def register_handlers(bus: CommandBus, pipeline: TurnPipeline) -> CommandBus:

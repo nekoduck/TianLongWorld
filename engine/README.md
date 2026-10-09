@@ -8,14 +8,14 @@
 玩家输入 ──► [Parse] 意图解析（大模型 / 离线） ──► PlayerIntent
                                                   │
 事件流 ──reduce──► Player 聚合 ──┐                 ▼
-Neo4j 局部快照 ──────────────────┴──► [Validate] 规则裁决（纯函数）──► 出手？可裁区间 Stakes
+Neo4j 局部快照 ──────────────────┴──► [Validate] 规则裁决（纯函数）──► 出手 / 交涉 / 暗中？可裁区间 Stakes
                                                   │                         │
-                                                  │      [Resolve] 地下城主在区间里提议（大模型 / 离线取确定性裁决）
+                                                  │      [Resolve] 一席裁决：文本请地下城主、点选由气运确定性取值（离线取确定性裁决）
                                                   ▼                         │
                          [Event] 领域 settle 钳位定案 ◄──────────────────────┘
                                   追加 PostgreSQL ──► 投影 Neo4j ──► 投影 Qdrant
                                                   │
-              新快照 ──► [Options] 合法边 → 显著性 + 席位 + MMR → 3~4 个选项（带 why）  ∥  [Render] Hard Prompt + 地下城主速写 + 恩怨 → 金庸风流式叙事
+              新快照 ──► [Options] 五类候选源 → 显著性 + 席位 + MMR → 3~4 招（带 why 与风险档） ──► [Render] Hard Prompt + 地下城主速写 + 恩怨 + 端倪 <hooks> → 金庸风流式叙事
 ```
 
 ## 四个设计支点
@@ -102,9 +102,9 @@ docker compose up -d                       # postgres:16 + neo4j:5.26 + qdrant
 | → | `{"type":"act","text":"施展凌波微步向北而去"}` | 自由文本，经意图解析 |
 | → | `{"type":"choose","option_id":"explore-1a2b3c4d"}` | 点选选项，不经大模型，服务端按当前快照重算核验 |
 | ← | `session` | `player_id` / `name` |
-| ← | `turn_resolved` | 结构化意图 + 本回合已入账事件的白描 `facts` |
+| ← | `turn_resolved` | 结构化意图（含手段 `approach`、所图 `aim`、话题 `topic`）+ 本回合已入账事件的白描 `facts`（服药回气血那条不出声） |
 | ← | `narration_delta` | 叙事分片（流式） |
-| ← | `turn_completed` | 叙事全文、`options[{id,label,category,why}]`（`why` 是 ≤12 字的上榜缘由，如「仇人在侧，先脱身」「方才打过交道」「伤重宜调息」；意图不下发）、`status`（境界 `tier`、伤势 `health`、`skills` 写作「北冥神功（略有小成）」，只有语义标签不露数值）、`game_over` |
+| ← | `turn_completed` | 叙事全文、`options[{id,label,category,why,risk?}]`（`why` 是 ≤12 字的上榜缘由，如「仇人在侧，先脱身」「换个手段」「伤重宜调息」；`risk` 是风险档「稳妥 / 有险 / 凶险」，只露可裁区间最坏的一端、不露结局，有才下发；意图不下发）、`status`（境界 `tier`、伤势 `health`、`skills` 写作「北冥神功（略有小成）」；人情 `bonds[{name,attitude,cause}]` 在场者优先、至多 6 条，心事 `pursuits[{label,note}]` 如「求艺 · 晓风拂柳」「尚无眉目；已试：言辞」、至多 3 条，打探只写对象不写见闻；只有语义标签不露数值，新字段旧客户端可缺省）、`game_over` |
 | ← | `error` | `code` + `message`，连接不断 |
 
 ## 测试矩阵

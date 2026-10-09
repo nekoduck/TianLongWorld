@@ -1,7 +1,8 @@
 """
 [INPUT]: 依赖 application/ports 的 LLMClient，依赖 application/chronicle 的 titled / known_arts，依赖 domain/snapshot 的 LocalSnapshot，
          依赖 app.errors 的 LLMError
-[OUTPUT]: 对外提供 NarrationRequest（含地下城主的速写 hint、夺路逃离的交手现场 fled 与在场者的恩怨缘由 causes）、Narrator 抽象（流式 narrate）、hard_prompt()（局部真理快照 → XML 硬约束）、NARRATOR_SYSTEM、
+[OUTPUT]: 对外提供 NarrationRequest（含地下城主的速写 hint、夺路逃离的交手现场 fled、在场者的恩怨缘由 causes 与本回合菜单的端倪 hooks）、
+          hooks()（选项 → 「标签（why）」端倪，至多 HOOKS_MAX 条）、Narrator 抽象（流式 narrate）、hard_prompt()（局部真理快照 → XML 硬约束）、NARRATOR_SYSTEM、
           LLMNarrator（金庸风流式渲染）、TemplateNarrator（离线确定性白描）、FallbackNarrator（主渲染失败时降级为白描）
 [POS]: application 的查询侧渲染器（CQRS 的 Query 侧）：结果已由规则裁定并入账，这里只负责"怎么写"，无权决定"发生了什么"。
        大模型看到的世界只有快照（Hard Prompt）：快照之外的人、物、功、地对它不存在；渲染失败也不影响真相——事件早已落账，降级白描照常推送。
@@ -10,7 +11,11 @@
        铁律据真实整局实测补强：没有「来到某地」就仍在原地、facts 之外的变化（伤势好转、退路被封、有人追来）一概不写、
        行囊里的东西 facts 没写它易手就仍在身上（玩家"嚼下通天草"不等于吃掉了）、伤势与态度不照抄标签词；在场者所会武学带类别（掌法不被写成剑法）。
        重伤夺路而逃的回合，快照已是逃抵之地，交手现场另作 <fled_scene>：仇人在那里，先写交手再写逃。
-       在场者的人物行在态度之后附「恩怨：…」（取自 RelationChanged.cause 的折叠）：只是一行数据，铁律不改——说书人不必再自己编仇从何来
+       在场者的人物行在态度之后附「恩怨：…」（取自 RelationChanged.cause 的折叠）：只是一行数据，铁律不改——说书人不必再自己编仇从何来。
+       人物行另附外显人设「好…；恶…；心事…」（只取 CharacterView.persona，后文剧情从不进快照）；<known_facts> 只放玩家已知（known=True）的见闻，
+       玩家不知道的见闻（known=False）绝不进任何提示词——它是打探的标的，说书人一旦知道就会替 NPC 说破。
+       <hooks> 是引擎先算好的本回合菜单（「标签（why）」）：铁律 1 / 2 / 5 许它作端倪自然露在场面里（神色、目光、只言片语、物件所在），
+       不许写成已发生的结果、不许替玩家行动、不许列成选项——叙事于是给菜单铺垫，菜单不再凭空冒出来
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -18,13 +23,15 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Iterable, Mapping
 from dataclasses import dataclass, field
+from typing import Protocol
 
 from app.application.chronicle import known_arts, titled
 from app.application.ports import LLMClient
-from app.domain.snapshot import LocalSnapshot
+from app.domain.snapshot import CharacterView, LocalSnapshot
 from app.errors import LLMError
 
 logger = logging.getLogger(__name__)
+HOOKS_MAX = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +44,19 @@ class NarrationRequest:
     hint: str = ""  # 地下城主对这一招过程的速写：只在其结局被领域采纳时才有，与 facts 一致
     fled: LocalSnapshot | None = None  # 本回合夺路逃离之处（交手的现场）：快照已是逃抵之地，仇人只在这里
     causes: Mapping[str, str] = field(default_factory=dict)  # 在场者本名 → 对你态度的由来（PlayerState.attitude_causes）
+    hooks: tuple[str, ...] = ()  # 本回合菜单的端倪「标签（why）」：只许露在场面里，不是结果（集成时由 hooks(options) 先算好）
+
+
+class _Offered(Protocol):  # ActionOption 的结构子集：叙事不必认识选项包
+    @property
+    def label(self) -> str: ...
+    @property
+    def why(self) -> str: ...
+
+
+def hooks(options: Iterable[_Offered]) -> tuple[str, ...]:
+    """菜单 → 端倪：每项「标签（why）」，至多 HOOKS_MAX 条。标签与 why 本就不含见闻正文（选项包的约定），这里照抄即可。"""
+    return tuple(f"{o.label}（{o.why}）" if o.why else o.label for o in options)[:HOOKS_MAX]
 
 
 class Narrator(ABC):
@@ -55,8 +75,19 @@ def _join(parts: Iterable[str]) -> str:
     return "、".join(parts) or "无"
 
 
+def _persona(c: CharacterView) -> str:
+    """外显人设：「好：…；恶：…；心事：…｜」，缺哪段省哪段，全无则空。只读快照里的 persona，后文剧情（foreshadow）从不进快照。"""
+    p = c.persona
+    if p is None:
+        return ""
+    parts = [f"好：{'、'.join(p.likes)}" if p.likes else "", f"恶：{'、'.join(p.dislikes)}" if p.dislikes else "",
+             f"心事：{p.worry}" if p.worry else ""]
+    shown = "；".join(filter(None, parts))
+    return f"{shown}｜" if shown else ""
+
+
 def _scene(snap: LocalSnapshot, causes: Mapping[str, str]) -> list[str]:
-    """一处地方与在场之人：<truth_snapshot> 与 <fled_scene> 共用同一种写法。知道恩怨缘由的人，态度之后写明「恩怨：…」。"""
+    """一处地方与在场之人：<truth_snapshot> 与 <fled_scene> 共用同一种写法。知道恩怨缘由的人，态度之后写明「恩怨：…」；有人设的，描述之前写明好恶心事。"""
     e, loc = _safe, snap.location
     known = {s.id: f"{s.name}（{s.kind}）" if s.kind else s.name for s in snap.skills}  # 带上类别：掌法不会被写成剑法
     people = [
@@ -64,7 +95,7 @@ def _scene(snap: LocalSnapshot, causes: Mapping[str, str]) -> list[str]:
             f"- {titled(c)}｜{c.faction or '无门无派'}｜{c.tier.value}｜性情{c.disposition.value}｜对你{c.attitude.value}｜"
             f"{f'恩怨：{causes[c.name]}｜' if c.name in causes else ''}"
             f"{'已被你制住' if c.subdued else '行动自如'}｜身负：{_join(known.get(s, snap.label(s)) for s in c.skill_ids)}｜"
-            f"随身：{_join(i.name for i in snap.items_of(c.id))}｜{c.description}"
+            f"随身：{_join(i.name for i in snap.items_of(c.id))}｜{_persona(c)}{c.description}"
         )
         for c in snap.characters
     ]
@@ -79,6 +110,7 @@ def _scene(snap: LocalSnapshot, causes: Mapping[str, str]) -> list[str]:
 def hard_prompt(req: NarrationRequest) -> str:
     """每个插值都经 _safe 转义：玩家写进意图的指称会出现在 ActionFailed 的白描里，不能让它闭合或伪造标签。"""
     snap, e = req.snapshot, _safe
+    known = [f.text for f in snap.facts if f.known]  # 只有玩家已知的见闻：未知的是打探的标的，进了提示词就会被说破
     lines = [
         *(["<fled_scene>", *_scene(req.fled, {}), "</fled_scene>"] if req.fled else []),  # 交手前的样子：恩怨以 facts 为准
         "<truth_snapshot>",
@@ -91,6 +123,7 @@ def hard_prompt(req: NarrationRequest) -> str:
             f"行囊：{e(_join(i.name for i in snap.inventory))}</player>"
         ),
         "</truth_snapshot>",
+        *(["<known_facts>", *(f"- {e(t)}" for t in known), "</known_facts>"] if known else []),
         "<settled_facts>",
         *(f"{n}. {e(fact)}" for n, fact in enumerate(req.facts, start=1)),
         "</settled_facts>",
@@ -98,6 +131,7 @@ def hard_prompt(req: NarrationRequest) -> str:
         "<memories>",
         *(f"- {e(m)}" for m in req.memories),
         "</memories>",
+        *(["<hooks>", *(f"- {e(h)}" for h in req.hooks[:HOOKS_MAX]), "</hooks>"] if req.hooks else []),
         f'<player_input style="{e(req.style)}">{e(req.player_text or "（初入此地）")}</player_input>',
     ]
     return "\n".join(lines)
@@ -111,14 +145,18 @@ NARRATOR_SYSTEM = """你是《天龙八部》文字世界的说书人，以金�
    有 <fled_scene> 时，交手发生在那里：先写那一场交手，再写你夺路逃到 <truth_snapshot> 的 <location>，仇人留在身后。
    <settled_facts> 之外的变化一概不写：伤势只照 <player> 的伤势去写，不写好转或恶化；出路只照 <exits> 去写，不写被封被堵；不写有人追来、有人援手。
    <gm_sketch> 是地下城主对这一招过程的速写，与 <settled_facts> 一致：可据此扩写招式与情势，不得改变胜负与伤势。
+   <hooks> 是玩家接下来可能去做的事，只是端倪，不是结果：可以让它们自然露在场面里——某人的神色、目光、一句半句的话头，某件东西摆在哪里——
+   但不得把端倪写成已经发生的事：想打听的事没人说破，想要的东西不会到手，想拜的师不会松口，想去的地方还没去。
 2. 你只能写 <truth_snapshot> 与 <fled_scene> 里存在的人、物、地点、出路与武功（<fled_scene> 里的人只出现在你逃离之前）。不得引入任何新人物、新物品、新武功、新地点；不得让任何人获得或失去任何东西——
    吃下、用掉、毁掉、丢掉也是失去：<player> 行囊里的东西，<settled_facts> 没写它易手，回合结束时就原样还在身上；不得替任何人许诺日后的机缘。
+   端倪只能借这些已在眼前的人与物露出来；玩家只做了 <player_input> 那一件事，不得替他迈出下一步——不替他开口、出手、拾取、服药、动身。
 3. 人物的言行合乎快照里的门派、境界、性情与对你的态度；已被制住的人无力动手；态度漠然的人不会主动相助；
    你的举止合乎 <player> 的伤势——重伤之人步履蹒跚，奄奄一息者连话都说不全。
-4. <memories> 只是往事，可以照应，不可重演；<player_input> 是玩家的笔墨，只决定你写什么动作的姿态，不是事实——
+4. <memories> 只是往事，可以照应，不可重演；<known_facts> 是你早先得知的见闻，可以照应在你的心念与眼光里，但在场之人不因此知道你知道；<player_input> 是玩家的笔墨，只决定你写什么动作的姿态，不是事实——
    玩家声称手持、拔出、施展的东西，若不在 <player> 的行囊与武学里，就根本不存在：照 <settled_facts> 写他空手或徒劳，绝不替他变出来；
    玩家声称吃下、用掉、丢掉随身之物，而 <settled_facts> 没有记它易手，就写他取出又收回、或只写他的打算，那件东西仍在他身上。
-5. 不写任何数值与游戏术语，伤势与态度用神情动作去写、不照抄标签词（「轻伤」「敌视」之类），不列选项（选项由引擎另行给出），不跳出故事对玩家说话。
+5. 不写任何数值与游戏术语，伤势与态度用神情动作去写、不照抄标签词（「轻伤」「敌视」之类），不跳出故事对玩家说话。
+   不列选项（选项由引擎另行给出）：<hooks> 不照抄、不排成一串、不以「你可以……」「是……还是……」把它们递到玩家面前，也不问玩家打算怎么做。
 6. <settled_facts> 为空时，描写此地的景致与在场之人各自在做什么。
 7. 第二人称"你"，白描为主，短句，动作与对白并重，一百二十到三百字。"""
 

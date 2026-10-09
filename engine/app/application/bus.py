@@ -1,10 +1,12 @@
 """
 [INPUT]: 依赖 pydantic v2 的 BaseModel / Field，依赖 domain/intent 的 PlayerIntent，依赖 application/options 的 ActionOption
 [OUTPUT]: 对外提供 命令 Command / SpawnPlayer / ResumePlayer（quiet 只重新接上、不复述此景）/ SubmitText / ChooseOption、
-          回合消息 SessionOpened / TurnResolved / NarrationDelta / TurnCompleted 与 PlayerStatus（境界 / 伤势 / 武学火候皆为语义标签）、
+          回合消息 SessionOpened / TurnResolved / NarrationDelta / TurnCompleted 与 PlayerStatus（境界 / 伤势 / 武学火候皆为语义标签，
+          另有人情 Bond 与心事 Pursuit 两栏，由 application/status 现算）、
           CommandHandler 抽象、CommandBus（按命令类型分派到处理器，返回回合消息的异步流）
 [POS]: application 的边界契约：命令进、消息流出。presentation 只认识这里的类型，不认识聚合根、图谱与大模型；
-       处理器以异步流回传消息，流式叙事因此是协议的一等公民而非事后补丁。新增命令 = 新命令类 + 新处理器 + 注册一行（开闭）
+       处理器以异步流回传消息，流式叙事因此是协议的一等公民而非事后补丁。新增命令 = 新命令类 + 新处理器 + 注册一行（开闭）。
+       PlayerStatus 只做加法：新栏位一律有缺省值，旧客户端照读
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -52,6 +54,21 @@ class _Message(BaseModel):
     model_config = ConfigDict(frozen=True)
 
 
+class Bond(_Message):
+    """人情一栏：对你态度不是漠然的人。"""
+
+    name: str
+    attitude: str  # 敌视 / 戒备 / 友善 / 信赖
+    cause: str = ""  # 缘由：「你打伤其得意门徒」；不知缘由则空
+
+
+class Pursuit(_Message):
+    """心事一栏：未了的所图。打探的线索只写对象，见闻正文从不上状态栏。"""
+
+    label: str  # 「求艺 · 白虹贯日」「打探 · 左子穆」
+    note: str = ""  # 「口风已松；已试：言辞」
+
+
 class PlayerStatus(_Message):
     """状态栏：只有语义标签，没有数值——熟练度与气血是领域内部的整数，玩家看到的永远是火候与伤势。"""
 
@@ -63,6 +80,8 @@ class PlayerStatus(_Message):
     death_cause: str | None = None
     inventory: tuple[str, ...] = ()
     skills: tuple[str, ...] = ()  # 「北冥神功（略有小成）」：武学连同火候
+    bonds: tuple[Bond, ...] = ()  # 人情：在场者优先、至多 6 条（status.bonds）
+    pursuits: tuple[Pursuit, ...] = ()  # 心事：至多 3 条（status.pursuits）
 
 
 class SessionOpened(_Message):

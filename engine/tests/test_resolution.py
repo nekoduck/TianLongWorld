@@ -1,10 +1,11 @@
 """
-[INPUT]: 依赖 app.application.resolution_agent 的地下城主全套，依赖 app.domain 的 rules / combat，依赖 app.container 的 build_container，
+[INPUT]: 依赖 app.application.resolution_agent 的地下城主全套（含 GM_SYSTEMS / SocialResult / CovertResult），依赖 app.domain 的 rules / combat / social / covert / stakes，依赖 app.container 的 build_container，
          依赖 tests/test_rules 的 scene() 快照工厂，依赖 tests/conftest 的 ScriptedLLM / spawned_at / play
 [OUTPUT]: 模糊裁决引擎的单测与端到端用例：战况简报含双方图谱状态与可裁区间且逐值转义、schema 的枚举只列可裁结局、
           区间内的提议被采纳（速写经 NarrationRequest 传给叙事）、区间外与不合契约的输出重采样后兜底、LLMError（可重试与否）兜底不抛错、
           结果已定不花钱、结局既认枚举名也认中文、正的扣减由领域钳位；「徒手攻击狠辣的龚光杰」→ 重伤逃脱；
-          越界的地下城主被领域钳回区间、速写作废
+          越界的地下城主被领域钳回区间、速写作废；P1：出手一路的铁律在共用框架里逐字仍是 v3、交涉与暗中各有铁律段 / 简报 / schema
+          （只有 {outcome, narrative_hint}，枚举只列可裁结局，结局认枚举名也认中文，速写闸门同出手）、求艺的松动含义照效果表写、区间外的如愿被重采样
 [POS]: tests 的"地下城主只能提议"证明：大模型第一次参与"发生了什么"，却写不出图谱不允许的结局，它的散文也进不了事件与记忆
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -16,23 +17,32 @@ import pytest
 
 from app.application.bus import SubmitText, TurnCompleted, TurnResolved
 from app.application.resolution_agent import (
+    GM_SYSTEM,
+    GM_SYSTEMS,
     HINT_CHARS,
     CanonicalResolver,
     CombatResult,
+    CovertResult,
     LLMResolutionAgent,
     Resolution,
     Resolver,
+    SocialResult,
     combat_brief,
 )
 from app.config import Settings
 from app.container import build_container
 from app.domain.aggregates import PlayerState
+from app.domain.approach import Route
 from app.domain.combat import CombatOutcome, CombatProposal, Stakes, assess
+from app.domain.covert import CovertStakes
 from app.domain.events import HealthChanged, PlayerDied, SkillExecuted
-from app.domain.intent import ActionType, PlayerIntent
+from app.domain.intent import ActionType, Approach, PlayerIntent
 from app.domain.models import Disposition, Tier
+from app.domain.outcomes import CovertOutcome, SocialOutcome
 from app.domain.rules import decide, stakes
 from app.domain.snapshot import LocalSnapshot
+from app.domain.social import SocialStakes
+from app.domain.stakes import AnyStakes, Proposal
 from app.errors import LLMError
 from tests.conftest import ScriptedLLM, play, spawned_at
 from tests.test_rules import scene
@@ -205,6 +215,77 @@ async def test_a_positive_hp_change_is_read_as_damage_and_clamped_by_the_domain(
 
 
 # ============================================================
+#  交涉与暗中：按路线出铁律、简报与 schema
+# ============================================================
+def told(outcome: str, hint: str = "他眉头一松，却只说容后再议。") -> str:
+    return json.dumps({"outcome": outcome, "narrative_hint": hint}, ensure_ascii=False)
+
+
+def test_the_combat_rules_are_still_v3_word_for_word_inside_the_shared_frame() -> None:
+    assert GM_SYSTEM is GM_SYSTEMS[Route.COMBAT]
+    assert GM_SYSTEM.startswith("你是《天龙八部》文字世界的地下城主，只裁这一招的胜负与伤势。")
+    assert "\n6. DEATH 只在 <admissible> 里有它时才可选。" in GM_SYSTEM and "\n9. 只输出符合 schema 的 JSON 对象，不要解释。" in GM_SYSTEM
+    for route in (Route.SOCIAL, Route.COVERT):
+        system = GM_SYSTEMS[route]
+        assert "0. <admissible> 里每种结局后面写明了它在故事里意味着什么" in system  # 共用铁律
+        assert "只输出符合 schema 的 JSON 对象" in system and "永不动武" in system and "hp_change" not in system
+
+
+@pytest.mark.parametrize(
+    ("model", "raw", "expected"),
+    [
+        (SocialResult, "SOFTENED", SocialOutcome.SOFTENED), (SocialResult, " granted ", SocialOutcome.GRANTED),
+        (SocialResult, "翻脸", SocialOutcome.FALLOUT), (CovertResult, "FOILED", CovertOutcome.FOILED),
+        (CovertResult, "败露", CovertOutcome.EXPOSED),
+    ],
+)
+def test_social_and_covert_results_accept_names_and_chinese_values(model: type, raw: str, expected: object) -> None:
+    result = model.model_validate({"outcome": raw, "narrative_hint": "他一怔。", "hp_change": -9})  # 多余字段忽略
+    assert (result.outcome, result.narrative_hint) == (expected, "他一怔。")
+    assert model.model_validate({"outcome": raw, "narrative_hint": "他退了3步"}).narrative_hint == ""  # 速写闸门同出手
+    with pytest.raises(ValueError, match="outcome"):
+        model.model_validate({"outcome": "VICTORY", "narrative_hint": ""})
+
+
+async def test_a_parley_gets_its_own_rules_brief_and_schema() -> None:
+    state, snap = await scene("loc:无量山")
+    plea = PlayerIntent(action_type=ActionType.LEARN, skill_used="无量剑法", target_entity="辛双清", approach=Approach.WORDS)
+    at_stake = stakes(plea, state, snap)
+    assert isinstance(at_stake, SocialStakes) and at_stake.admissible == (
+        SocialOutcome.SOFTENED, SocialOutcome.NOTHING, SocialOutcome.REBUFFED)
+    llm = ScriptedLLM(told("GRANTED"), "好的：" + told("松动"))
+    resolution = await LLMResolutionAgent(llm).resolve(at_stake, snap, state, "求<前辈>指点")
+    assert resolution == Resolution(Proposal(SocialOutcome.SOFTENED), "他眉头一松，却只说容后再议。", "地下城主")
+    assert len(llm.calls) == 2  # 区间外的如愿被重采样
+    system, user, schema = llm.calls[0]
+    assert system == GM_SYSTEMS[Route.SOCIAL] and schema is not None
+    assert schema["properties"]["outcome"]["enum"] == ["SOFTENED", "NOTHING", "REBUFFED"]
+    assert schema["required"] == ["outcome", "narrative_hint"] and "hp_change" not in schema["properties"]
+    assert "辛双清｜无量剑西宗｜境界三流｜性情中庸｜对你漠然｜行动自如" in user
+    assert "所图：求艺｜标的：无量剑法（三流，须他对你友善才肯传）" in user and "手段：言辞" in user
+    assert "- SOFTENED（松动：他口风已松，却未当场答应）" in user  # 求艺的松动升不到门槛：含义照效果表写
+    assert "求＜前辈＞指点" in user and "GRANTED" not in user
+    events = decide(plea, state, snap, resolution.proposal)
+    assert events[0].outcome is SocialOutcome.SOFTENED  # type: ignore[union-attr]
+
+
+async def test_a_theft_gets_its_own_rules_brief_and_schema() -> None:
+    state, snap = await scene("loc:无量山")
+    sneak = PlayerIntent(action_type=ActionType.TAKE, target_entity="无量剑", approach=Approach.STEALTH)
+    at_stake = stakes(sneak, state, snap)
+    assert isinstance(at_stake, CovertStakes) and at_stake.contested
+    llm = ScriptedLLM(told("EXPOSED", "你刚摸到剑柄，左子穆已回过头来。"))
+    resolution = await LLMResolutionAgent(llm).resolve(at_stake, snap, state, None)
+    assert resolution == Resolution(Proposal(CovertOutcome.EXPOSED), "你刚摸到剑柄，左子穆已回过头来。", "地下城主")
+    system, user, schema = llm.calls[0]
+    assert system == GM_SYSTEMS[Route.COVERT] and schema is not None
+    assert schema["properties"]["outcome"]["enum"] == ["FOILED", "EXPOSED", "CAUGHT"]
+    assert "左子穆｜无量剑东宗｜境界三流｜性情中庸｜对你漠然｜行动自如" in user
+    assert "所取：无量剑｜兵器" in user and "手段：潜行（偷取）" in user and "情势：你比他低一境" in user
+    assert "- EXPOSED（败露：东西到了你手里，却被左子穆当场看破，从此与你结仇）" in user
+
+
+# ============================================================
 #  端到端：命令 → 解析 → 地下城主 → 柔和的领域事件 → 叙事
 # ============================================================
 async def test_bare_handed_against_ruthless_gong_guangjie_escapes_severely_wounded(settings: Settings) -> None:
@@ -240,7 +321,7 @@ class RogueMaster(Resolver):
     def __init__(self) -> None:
         self.calls = 0
 
-    async def resolve(self, stakes: Stakes, scene: LocalSnapshot, state: PlayerState, said: str | None) -> Resolution:
+    async def resolve(self, stakes: AnyStakes, scene: LocalSnapshot, state: PlayerState, said: str | None) -> Resolution:
         self.calls += 1
         return Resolution(CombatProposal(Out.SUCCESS, 0), "你一招便制住了龚光杰。", "地下城主")
 

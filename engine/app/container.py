@@ -1,9 +1,10 @@
 """
-[INPUT]: 依赖 app.config 的 Settings / LLMRole，依赖 domain 的端口与 WorldBlueprint，依赖 application 的总线 / 处理器 / 解析器 / 地下城主 / 选项 / 叙事 / 投影，
+[INPUT]: 依赖 app.config 的 Settings / LLMRole，依赖 domain 的端口与 WorldBlueprint，依赖 application 的总线 / 处理器 / 解析器 / 地下城主与气运 / 一席裁决 / 选项 / 叙事 / 投影，
          依赖 infrastructure 的事件账本、图谱、记忆与大模型工厂的全部实现
 [OUTPUT]: 对外提供 Container（总线 + 流水线 + 投影协调者 + 播种器 + 关闭钩子）、build_container()（按配置装配整个引擎）
 [POS]: 引擎唯一的组合根（依赖注入）：只有这里知道"端口背后是谁"。四类后端各自二选一（memory / 生产实现），大模型缺席时
        换上离线解析器、规则裁决与白描说书人；意图解析、地下城主与叙事渲染按职责各取一套（模型, 思考档位）、共用一份调用次数保险丝（LLM_CALL_LIMIT）；
+       一席裁决（AdjudicationSlot）把地下城主交给自由文本回合、把气运（FortuneResolver，FORTUNE_ON_CLICK 缺省开，关掉即确定性裁决）交给点选回合；
        意图守卫豁免原著里撞上禁词的正名（WorldviewGuard.for_canon，Neo4j 后端读入库的 blueprint.json）；其余模块只依赖抽象，互不 new 对方。
        测试经 blueprint / llm / resolver 参数注入替身，与生产走同一条装配路径
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -13,6 +14,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
+from app.application.adjudication import AdjudicationSlot
 from app.application.bus import CommandBus
 from app.application.handlers import TurnPipeline, register_handlers
 from app.application.intent_parser import HeuristicIntentParser, IntentParser, LLMIntentParser, WorldviewGuard
@@ -20,7 +22,7 @@ from app.application.narrator import FallbackNarrator, LLMNarrator, Narrator, Te
 from app.application.options import OptionGenerator
 from app.application.ports import LLMClient
 from app.application.projections import ProjectionCoordinator
-from app.application.resolution_agent import CanonicalResolver, LLMResolutionAgent, Resolver
+from app.application.resolution_agent import CanonicalResolver, FortuneResolver, LLMResolutionAgent, Resolver
 from app.config import LLMRole, Settings
 from app.domain.models import WorldBlueprint
 from app.domain.ports import EventStore, WorldProjector, WorldReader, WorldSeeder
@@ -66,7 +68,7 @@ async def build_container(
     """
     llm 是测试替身：同时顶替意图、地下城主与叙事三种在线职责（剧本按调用顺序编排）。
     resolver 显式指定地下城主，优先于 llm——测试借此注入一个越界的地下城主，证明钳位与速写作废由领域与流水线守住，
-    而不依赖 LLMResolutionAgent 自己守规矩。
+    而不依赖 LLMResolutionAgent 自己守规矩。地下城主只为自由文本回合发言；点选回合归气运（不花钱），由 fortune_on_click 开关。
     """
     closers: list[Callable[[], Awaitable[None]]] = []
 
@@ -124,7 +126,7 @@ async def build_container(
         coordinator=coordinator,
         memory=memory,
         parser=parser,
-        resolver=resolver,
+        slot=AdjudicationSlot(resolver, FortuneResolver() if settings.fortune_on_click else None),
         options=OptionGenerator(),
         narrator=narrator,
         recall_k=settings.memory_recall_k,

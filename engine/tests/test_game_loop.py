@@ -1,8 +1,12 @@
 """
-[INPUT]: 依赖 app.application.bus 的命令与回合消息，依赖 app.container 的 build_container，依赖 tests/conftest 的 container / play / spawned_at / ScriptedLLM / wire / sse
+[INPUT]: 依赖 app.application.bus 的命令与回合消息，依赖 app.container 的 build_container，依赖 tests/conftest 的 container / play / spawned_at / ScriptedLLM / wire / sse，
+         依赖 tests/test_option_metrics 的 canon（入库的正典蓝图，含掌故）
 [OUTPUT]: CQRS 游戏环路端到端用例：完整的逻辑死线剧情（入门 → 参照典籍练到略有小成 → 制敌夺剑 → 物归原主直升信赖 → 拜师一阳指）、
           极端找死的永久死亡、重伤后避开仇人调息疗伤、选项点选与防伪、断线重连即重放、投影自愈、
           叙事失败不影响真相、地下城主越界的提议被钳回区间、在场者的人物行写明恩怨、记忆召回带上焦点与在场者、
+          P1 验收（正典蓝图上 ScriptedLLM 直接给意图 JSON）：交涉路线（言辞求艺 → 地下城主在区间里裁 → 心事线索 → 菜单「换个手段」→ 点选归气运）、
+          暗取路线（点选零次地下城主、文本骗貂败露到手即中毒、人情一栏写明缘由）、随身之物（通天草驳回 NO_USE、金创药疗伤且只有一句白描）、
+          每回合至多三次调用、点选与结果已定的文本回合零次地下城主、菜单作端倪进 <hooks>、
           真实三件套后端上的整局（设置 PG 与 Neo4j 环境变量时）
 [POS]: tests 的总装验收：经组合根装配的完整引擎，测试与生产走同一条路径
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -25,9 +29,21 @@ from app.application.bus import (
 from app.application.options import OptionCategory
 from app.config import Settings
 from app.container import Container, build_container
-from app.domain.events import ActionFailed, HealthChanged, PlayerDied, SkillPracticed
+from app.domain.events import (
+    ActionFailed,
+    HealthChanged,
+    ItemConsumed,
+    Maneuvered,
+    Parleyed,
+    PlayerDied,
+    SkillPracticed,
+)
+from app.domain.intent import Approach
+from app.domain.models import WorldBlueprint
+from app.domain.outcomes import CovertOutcome, SocialOutcome
 from app.errors import LLMError, OptionExpiredError, PlayerDeadError, UnknownPlayerError, WorldNotSeededError
 from tests.conftest import NEO4J_PASSWORD, NEO4J_URI, NEO4J_USER, PG_DSN, ScriptedLLM, kinds, play, spawned_at, sse
+from tests.test_option_metrics import canon
 from tests.world import WORLD
 
 
@@ -299,6 +315,141 @@ async def test_narration_failure_degrades_but_truth_stands(settings: Settings) -
         pid = await spawned_at(container, "无量山")
         _, done = await say(container, pid, "捡起地上的玉佩")
         assert "阿星在无量山地上拾得玉佩。" in done.narration and done.status.inventory == ("玉佩",)
+    finally:
+        await container.aclose()
+
+
+# ============================================================
+#  P1 验收：正典蓝图（含掌故）上的三条路线——ScriptedLLM 直接给意图 JSON，只测下游
+# ============================================================
+def _json(**fields: str) -> str:
+    return json.dumps(fields, ensure_ascii=False)
+
+
+def _gm_calls(llm: ScriptedLLM, since: int = 0) -> list[tuple[str, str, Any]]:
+    """地下城主的调用：它的 schema 有 outcome（交涉 / 暗中）或 outcome_type（出手）。"""
+    return [c for c in llm.calls[since:] if c[2] is not None and {"outcome", "outcome_type"} & c[2]["properties"].keys()]
+
+
+async def _turn(container: Container, llm: ScriptedLLM, command: Any) -> tuple[list[Any], int, int]:
+    """一回合：消息、这一回合的大模型调用次数、其中地下城主的次数。每回合至多三次（意图 + 地下城主 + 叙事）。"""
+    before = len(llm.calls)
+    messages = await play(container, command)
+    spent, judged = len(llm.calls) - before, len(_gm_calls(llm, before))
+    assert spent <= 3
+    return messages, spent, judged
+
+
+def _foreshadows(bp: WorldBlueprint) -> list[str]:
+    return [c.foreshadow for c in bp.characters if c.foreshadow]
+
+
+async def test_the_social_route_end_to_end(settings: Settings) -> None:
+    """
+    言辞求艺遇不肯：走交涉，地下城主只在区间（无果 / 碰壁）里裁，Parleyed 入账、开出一条心事线索；
+    下一份菜单给出没试过的手段（人情，why「换个手段」），并作端倪进 <hooks>；点选它归气运，不请地下城主。
+    """
+    bp = canon()
+    learn = _json(action_type="LEARN", target_entity="木婉清", skill_used="晓风拂柳", approach="言辞", aim="求艺")
+    verdict = _json(outcome="无果", narrative_hint="木婉清冷冷瞥你一眼，转过脸去")
+    llm = ScriptedLLM("山风猎猎。", learn, verdict, "木婉清不答。", "你又陪了几句好话。")
+    container = await build_container(settings, blueprint=bp, llm=llm)
+    try:
+        pid = await spawned_at(container, "无量山")
+        messages, spent, judged = await _turn(container, llm, SubmitText(player_id=pid, text="恳请木婉清传我晓风拂柳"))
+        assert (spent, judged) == (3, 1)  # 意图、地下城主、叙事各一次
+        resolved, done = messages[0], messages[-1]
+        assert isinstance(resolved, TurnResolved) and isinstance(done, TurnCompleted)
+        assert resolved.facts == ("阿星以言辞向木婉清求艺，无果而终。",)
+        system, brief, schema = _gm_calls(llm)[0]
+        assert schema["properties"]["outcome"]["enum"] == ["NOTHING", "REBUFFED"]  # 求艺够不上门槛：如愿不在区间里
+        assert "木婉清" in brief and not any(f in system + brief for f in _foreshadows(bp))  # 简报只用 T=0
+        assert "<gm_sketch>木婉清冷冷瞥你一眼，转过脸去</gm_sketch>" in llm.calls[-1][1]  # 结局被采纳，速写交给叙事
+        parley = (await container.store.load(pid))[-1].event
+        assert isinstance(parley, Parleyed) and parley.outcome is SocialOutcome.NOTHING and parley.subject_id == "art:晓风拂柳"
+        assert [(p.label, p.note) for p in done.status.pursuits] == [("求艺 · 晓风拂柳", "尚无眉目；已试：言辞")]
+
+        retry = next(o for o in done.options if o.why == "换个手段")
+        assert retry.intent.approach is Approach.FAVOR and retry.intent.skill_used == "晓风拂柳"
+        assert f"<hooks>\n- {retry.label}（换个手段）" in llm.calls[-1][1]  # 菜单先于叙事算好，作端倪交给说书人
+
+        messages, spent, judged = await _turn(container, llm, ChooseOption(player_id=pid, option_id=retry.id))
+        assert (spent, judged) == (1, 0)  # 点选：气运裁决，只花叙事一次
+        parley = (await container.store.load(pid))[-1].event
+        assert isinstance(parley, Parleyed) and parley.approach is Approach.FAVOR
+        assert parley.outcome in (SocialOutcome.NOTHING, SocialOutcome.REBUFFED)  # 气运也越不出区间
+        done = messages[-1]
+        assert isinstance(done, TurnCompleted) and done.status.pursuits[0].note.endswith("已试：言辞、人情")
+        assert all(o.why != "换个手段" for o in done.options)  # 求艺的手段只有言辞与人情：都试过了
+    finally:
+        await container.aclose()
+
+
+def _remedy_on_the_ground(bp: WorldBlueprint) -> WorldBlueprint:
+    """正典里金创药在木婉清身上，不入流的玩家讨不来也偷不到——验收用例让它落在无量山的地上（唯一的改动）。"""
+    items = tuple(
+        i.model_copy(update={"owner_id": None, "location_id": "loc:无量山"}) if i.id == "itm:金创药" else i for i in bp.items
+    )
+    return bp.model_copy(update={"items": items})
+
+
+async def test_the_covert_route_and_what_you_carry(settings: Settings) -> None:
+    """
+    暗取：点选「摸走」归气运（区间里好一格不存在、差一格是败露，只能留在未遂），文本骗貂请地下城主，败露即到手、到手即中毒；
+    结果已定的文本回合不请地下城主；通天草不能服用（NO_USE），金创药疗伤，服药只有一句白描（HealthChanged(source=item) 不出声）。
+    """
+    bp = _remedy_on_the_ground(canon())
+    guile = _json(action_type="TAKE", target_entity="闪电貂", approach="计谋")
+    exposed = _json(outcome="败露", narrative_hint="钟灵一把揪住你衣袖，尖声叫了起来")
+    llm = ScriptedLLM(
+        "剑湖宫前。", "你的手缩了回来。",
+        guile, exposed, "貂儿反口一咬。",
+        _json(action_type="MOVE", target_entity="出大门"), "你出了宫门。",
+        _json(action_type="TAKE", target_entity="通天草"), "你拔起一株草。",
+        _json(action_type="USE", item_used="通天草"), "草叶苦涩。",
+        _json(action_type="TAKE", target_entity="金创药"), "你拾起药瓶。",
+        _json(action_type="USE", item_used="金创药"), "药力透入伤处。",
+    )
+    container = await build_container(settings, blueprint=bp, llm=llm)
+    try:
+        pid = await spawned_at(container, "剑湖宫")
+        opening = (await play(container, ResumePlayer(player_id=pid, quiet=True)))[-1]
+        assert isinstance(opening, TurnCompleted)
+        steal = next(o for o in opening.options if o.intent.approach is Approach.STEALTH)
+        assert steal.intent.target_entity == "闪电貂" and steal.risk is not None and steal.risk.value == "有险"
+        _, spent, judged = await _turn(container, llm, ChooseOption(player_id=pid, option_id=steal.id))
+        assert (spent, judged) == (1, 0)
+        tried = (await container.store.load(pid))[-1].event
+        assert isinstance(tried, Maneuvered) and tried.outcome is CovertOutcome.FOILED
+
+        messages, spent, judged = await _turn(container, llm, SubmitText(player_id=pid, text="骗钟灵把闪电貂借我玩玩"))
+        assert (spent, judged) == (3, 1)
+        assert _gm_calls(llm)[0][2]["properties"]["outcome"]["enum"] == ["FOILED", "EXPOSED", "CAUGHT"]
+        events = [e.event for e in await container.store.load(pid)]
+        assert any(isinstance(e, Maneuvered) and e.outcome is CovertOutcome.EXPOSED for e in events)
+        bite = events[-1]
+        assert isinstance(bite, HealthChanged) and bite.source == "blow" and bite.source_id == "itm:闪电貂" and bite.delta < 0
+        done = messages[-1]
+        assert isinstance(done, TurnCompleted) and done.status.health == "轻伤" and "闪电貂" in done.status.inventory
+        assert [(b.name, b.attitude, b.cause) for b in done.status.bonds] == [("钟灵", "敌视", "识破你的骗局")]
+
+        for text in ("出大门", "拾起通天草"):
+            _, spent, judged = await _turn(container, llm, SubmitText(player_id=pid, text=text))
+            assert (spent, judged) == (2, 0)  # 结果已定：意图与叙事，地下城主一次也不请
+        messages, _, _ = await _turn(container, llm, SubmitText(player_id=pid, text="服下通天草"))
+        refused = (await container.store.load(pid))[-1].event
+        assert isinstance(refused, ActionFailed) and refused.reason_code == "NO_USE"
+
+        await _turn(container, llm, SubmitText(player_id=pid, text="拾起金创药"))
+        messages, spent, judged = await _turn(container, llm, SubmitText(player_id=pid, text="敷上金创药"))
+        resolved, done = messages[0], messages[-1]
+        assert isinstance(resolved, TurnResolved) and resolved.facts == ("阿星以金创药疗伤。",)  # 回气血那条不出声
+        assert "<settled_facts>\n1. 阿星以金创药疗伤。\n</settled_facts>" in llm.calls[-1][1]
+        tail = [e.event for e in (await container.store.load(pid))[-2:]]
+        assert isinstance(tail[0], ItemConsumed) and isinstance(tail[1], HealthChanged) and tail[1].source == "item"
+        assert isinstance(done, TurnCompleted) and done.status.health == "安然无恙" and "金创药" not in done.status.inventory
+        remembered = await container.pipeline._memory.recall(pid, "金创药 疗伤", 20, 10**6)
+        assert remembered and all(m.text for m in remembered)  # 空串白描不入记忆
     finally:
         await container.aclose()
 

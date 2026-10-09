@@ -2,12 +2,13 @@
 [INPUT]: 依赖 domain/events 的全部领域事件，依赖 domain/combat 的 CombatOutcome，依赖 domain/outcomes 的 SocialOutcome / CovertOutcome，
          依赖 domain/intent 的 ActionType / Approach，依赖 domain/models 的 Attitude / EntityKind / kind_of，
          依赖 domain/snapshot 的 LocalSnapshot / CharacterView
-[OUTPUT]: 对外提供 describe(event, labels, player_name) —— 一条领域事件的确定性白描（一句话）；
+[OUTPUT]: 对外提供 describe(event, labels, player_name) —— 一条领域事件的确定性白描（一句话；不出声的事件为空串，调用方一律滤掉）；
           titled(character) —— 「段延庆（恶贯满盈）」式的称呼；known_arts(snapshot) —— 「北冥神功（略有小成）」式的武学与火候
 [POS]: application 的事实渲染器：把事件与快照翻成人话。describe 供三处消费——回合结果帧里的 facts、叙事 Prompt 里的 <settled_facts>、
        长线记忆的向量语料。它只读事件与名称表，不经大模型：记忆里存的是这里的白描而非大模型的散文，幻觉因此进不了记忆；
        也不写数值——熟练度与气血的涨落只说"有所精进""受了伤"，到了哪一步由快照里的火候与伤势去说。
        人情五档各有措辞（敌视「心生敌意」… 信赖「深为信赖」），交涉、见闻、用物、暗中取物各有一句白描。
+       服药是两条事件（ItemConsumed + HealthChanged(source="item")）一句话：后者不出声（空串），免得「以金创药疗伤」之后再来一句「伤势有所好转」。
        titled / known_arts 是称呼与火候的唯一写法：状态栏、叙事 Hard Prompt 与地下城主的战况简报共用，三处说法不会各执一词
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -111,6 +112,8 @@ def describe(event: DomainEvent, labels: Mapping[str, str], player_name: str) ->
             how = f"以{name(skill)}" if skill else "徒手"
             weapon = f"，手持{name(item)}" if item else ""
             return f"{me}{how}向{name(target)}出手{weapon}——{_OUTCOME[outcome]}。"
+        case HealthChanged(source="item"):  # ItemConsumed 那一句已说了服药疗伤
+            return ""
         case HealthChanged(delta=delta, cause=cause) if delta < 0:
             return f"{me}受了伤（{cause}）。"
         case HealthChanged(cause=cause):

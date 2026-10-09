@@ -1,0 +1,1238 @@
+{
+  "version": "tlbb-lore-v2",
+  "fingerprint": "35226a8b1eeb",
+  "personas": [
+    {
+      "persona": {
+        "character_id": "chr:容子矩",
+        "likes": [
+          "守护本门禁地"
+        ],
+        "dislikes": [
+          "外人偷采后山药草",
+          "旁人出言顶撞"
+        ],
+        "worry": "",
+        "sources": [
+          "chunk:1"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "persona": {
+        "character_id": "chr:左子穆",
+        "likes": [
+          "东宗压过西宗",
+          "众人喝彩奉承"
+        ],
+        "dislikes": [
+          "有人讥笑本门武功",
+          "外人擅入后山禁地",
+          "当众失了颜面"
+        ],
+        "worry": "本门秘奥被外人窥探",
+        "sources": [
+          "chunk:0",
+          "chunk:1"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "persona": {
+        "character_id": "chr:干光豪",
+        "likes": [
+          "偷闲四处闲逛",
+          "甜言蜜语哄人"
+        ],
+        "dislikes": [
+          "枯坐苦练的功课",
+          "师父的大道理"
+        ],
+        "worry": "",
+        "sources": [
+          "chunk:4",
+          "chunk:20"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "persona": {
+        "character_id": "chr:木婉清",
+        "likes": [
+          "骑着骏马独来独往",
+          "说一不二"
+        ],
+        "dislikes": [
+          "男子花言巧语",
+          "旁人想揭她面幕"
+        ],
+        "worry": "仇家一路穷追不舍",
+        "sources": [
+          "chunk:12",
+          "chunk:14",
+          "chunk:15"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "persona": {
+        "character_id": "chr:段誉",
+        "likes": [
+          "读经说易谈佛理",
+          "游山玩水",
+          "赏玩名种茶花"
+        ],
+        "dislikes": [
+          "动刀动剑的厮杀",
+          "被逼着学武",
+          "恃强欺人"
+        ],
+        "worry": "逃家在外怕被逼回学武",
+        "sources": [
+          "chunk:0",
+          "chunk:2",
+          "chunk:4"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "persona": {
+        "character_id": "chr:符圣使",
+        "likes": [
+          "属下俯首听命"
+        ],
+        "dislikes": [
+          "属下办事糊涂",
+          "靠不住的天下男子"
+        ],
+        "worry": "",
+        "sources": [
+          "chunk:19",
+          "chunk:20"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "persona": {
+        "character_id": "chr:葛光佩",
+        "likes": [
+          "打听本门旧事"
+        ],
+        "dislikes": [
+          "西宗被东宗压一头"
+        ],
+        "worry": "",
+        "sources": [
+          "chunk:11",
+          "chunk:20"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "persona": {
+        "character_id": "chr:辛双清",
+        "likes": [
+          "西宗扳回颜面",
+          "人前冷面少言"
+        ],
+        "dislikes": [
+          "师兄得意忘形的嘴脸",
+          "旁人夸口小觑本派"
+        ],
+        "worry": "本届比剑又要输给东宗",
+        "sources": [
+          "chunk:0",
+          "chunk:1"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "persona": {
+        "character_id": "chr:郁光标",
+        "likes": [
+          "拿同门说笑取乐",
+          "说到做到"
+        ],
+        "dislikes": [
+          "有人大呼小叫"
+        ],
+        "worry": "",
+        "sources": [
+          "chunk:19",
+          "chunk:20"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "persona": {
+        "character_id": "chr:钟灵",
+        "likes": [
+          "嗑瓜子",
+          "逗弄毒蛇喂貂儿",
+          "瞧热闹"
+        ],
+        "dislikes": [
+          "被人凶霸霸地逼问",
+          "被人打听爹娘名讳"
+        ],
+        "worry": "怕闯了祸瞒不过爹爹",
+        "sources": [
+          "chunk:2",
+          "chunk:3"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "persona": {
+        "character_id": "chr:钱光胜",
+        "likes": [
+          "凡事听师兄拿主意"
+        ],
+        "dislikes": [
+          "深夜听见朱蛤吼叫",
+          "被人拿妖物吓唬"
+        ],
+        "worry": "",
+        "sources": [
+          "chunk:20"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "persona": {
+        "character_id": "chr:马五德",
+        "likes": [
+          "结交四方朋友",
+          "款待落魄的武师",
+          "设宴劝酒化解争执"
+        ],
+        "dislikes": [
+          "当众欺负晚辈",
+          "朋友间伤了和气"
+        ],
+        "worry": "",
+        "sources": [
+          "chunk:0"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "persona": {
+        "character_id": "chr:龚光杰",
+        "likes": [
+          "使虚招诱敌上当",
+          "在师父跟前逞能"
+        ],
+        "dislikes": [
+          "被人当面取笑",
+          "外人小看东宗"
+        ],
+        "worry": "怕此阵失手误了东宗",
+        "sources": [
+          "chunk:0"
+        ]
+      },
+      "by": "claude-subagent"
+    }
+  ],
+  "facts": [
+    {
+      "fact": {
+        "id": "fact:万卉争艳",
+        "text": "敌人当头攻来时，左子穆惯以万卉争艳舞出满天剑光，封住上盘",
+        "subject_ids": [
+          "chr:左子穆",
+          "art:万卉争艳"
+        ],
+        "knower_ids": [
+          "chr:左子穆",
+          "chr:龚光杰",
+          "chr:干光豪"
+        ],
+        "unlock": {
+          "kind": "TEACHING",
+          "target_id": "art:万卉争艳"
+        },
+        "sources": [
+          "chunk:18"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:僻静山道",
+        "text": "干光豪嫌对着玉壁枯坐无聊，常借故溜开，摸熟了一条少有人知的僻静山道",
+        "subject_ids": [
+          "chr:干光豪",
+          "loc:无量山·后山"
+        ],
+        "knower_ids": [
+          "chr:干光豪"
+        ],
+        "unlock": {
+          "kind": "MOTIVE",
+          "target_id": "chr:干光豪"
+        },
+        "sources": [
+          "chunk:4"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:剑会旧例",
+        "text": "两宗每五年在剑湖宫比剑，五阵三胜者入住；东宗胜过五回，西宗三回，本届已是第九回",
+        "subject_ids": [
+          "loc:剑湖宫",
+          "chr:左子穆",
+          "chr:辛双清"
+        ],
+        "knower_ids": [
+          "chr:左子穆",
+          "chr:辛双清",
+          "chr:龚光杰",
+          "chr:干光豪",
+          "chr:葛光佩"
+        ],
+        "unlock": null,
+        "sources": [
+          "chunk:0"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:后山禁地",
+        "text": "无量山后山是祖师传下的禁地，外人一概不许踏入，连至交好友也不例外",
+        "subject_ids": [
+          "loc:无量山·后山",
+          "chr:左子穆",
+          "chr:辛双清"
+        ],
+        "knower_ids": [
+          "chr:左子穆",
+          "chr:辛双清",
+          "chr:龚光杰",
+          "chr:干光豪",
+          "chr:葛光佩",
+          "chr:容子矩",
+          "chr:郁光标",
+          "chr:钱光胜"
+        ],
+        "unlock": {
+          "kind": "MOTIVE",
+          "target_id": "chr:左子穆"
+        },
+        "sources": [
+          "chunk:1"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:喂毒短箭",
+        "text": "木婉清袖里藏着喂毒的短箭，扬手即发，中者顷刻倒地",
+        "subject_ids": [
+          "chr:木婉清",
+          "itm:短箭"
+        ],
+        "knower_ids": [
+          "chr:木婉清"
+        ],
+        "unlock": null,
+        "sources": [
+          "chunk:11",
+          "chunk:12"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:孙三霸之死",
+        "text": "岳老三一脉单传的弟子孙三霸，想看木婉清的容貌，死在了她手下",
+        "subject_ids": [
+          "chr:木婉清",
+          "chr:孙三霸",
+          "chr:岳老三"
+        ],
+        "knower_ids": [
+          "chr:木婉清",
+          "chr:岳老三"
+        ],
+        "unlock": {
+          "kind": "MOTIVE",
+          "target_id": "chr:木婉清"
+        },
+        "sources": [
+          "chunk:14"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:左家幼子",
+        "text": "左子穆膝下有个幼子，小名山山，他疼爱得如同心头肉",
+        "subject_ids": [
+          "chr:左子穆",
+          "chr:左山山"
+        ],
+        "knower_ids": [
+          "chr:左子穆",
+          "chr:辛双清",
+          "chr:龚光杰",
+          "chr:干光豪"
+        ],
+        "unlock": {
+          "kind": "LEVERAGE",
+          "target_id": "chr:左山山"
+        },
+        "sources": [
+          "chunk:18"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:干葛私情",
+        "text": "东宗干光豪与西宗葛光佩暗中相好，早已私订终身，两宗师长都蒙在鼓里",
+        "subject_ids": [
+          "chr:干光豪",
+          "chr:葛光佩"
+        ],
+        "knower_ids": [
+          "chr:干光豪",
+          "chr:葛光佩"
+        ],
+        "unlock": {
+          "kind": "LEVERAGE",
+          "target_id": "chr:左子穆"
+        },
+        "sources": [
+          "chunk:4"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:得意门徒",
+        "text": "龚光杰是左子穆最得意的弟子，最盼在师父面前替东宗争光",
+        "subject_ids": [
+          "chr:龚光杰",
+          "chr:左子穆"
+        ],
+        "knower_ids": [
+          "chr:龚光杰",
+          "chr:左子穆",
+          "chr:干光豪",
+          "chr:辛双清"
+        ],
+        "unlock": {
+          "kind": "LEVERAGE",
+          "target_id": "chr:左子穆"
+        },
+        "sources": [
+          "chunk:0"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:晓风拂柳",
+        "text": "木婉清有一招护身掌法晓风拂柳，遇险时以左掌护住面门",
+        "subject_ids": [
+          "chr:木婉清",
+          "art:晓风拂柳"
+        ],
+        "knower_ids": [
+          "chr:木婉清"
+        ],
+        "unlock": {
+          "kind": "TEACHING",
+          "target_id": "art:晓风拂柳"
+        },
+        "sources": [
+          "chunk:29"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:有意相让",
+        "text": "五年前剑会上葛光佩胜了干光豪，其实是他假作内力不济有意相让",
+        "subject_ids": [
+          "chr:干光豪",
+          "chr:葛光佩"
+        ],
+        "knower_ids": [
+          "chr:干光豪",
+          "chr:葛光佩"
+        ],
+        "unlock": null,
+        "sources": [
+          "chunk:4"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:木婉清仇家",
+        "text": "瑞婆婆、平婆婆是姑苏王家的家奴头领，一路从江南追杀木婉清到大理",
+        "subject_ids": [
+          "chr:木婉清",
+          "chr:瑞婆婆",
+          "chr:平婆婆"
+        ],
+        "knower_ids": [
+          "chr:木婉清",
+          "chr:瑞婆婆",
+          "chr:平婆婆"
+        ],
+        "unlock": {
+          "kind": "MOTIVE",
+          "target_id": "chr:木婉清"
+        },
+        "sources": [
+          "chunk:12",
+          "chunk:16"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:木婉清南下",
+        "text": "师叔甘宝宝说出两个害苦师父的女子所在，木婉清便随师父下山，要去姑苏与大理寻仇",
+        "subject_ids": [
+          "chr:木婉清",
+          "chr:秦红棉",
+          "chr:甘宝宝"
+        ],
+        "knower_ids": [
+          "chr:木婉清",
+          "chr:秦红棉",
+          "chr:甘宝宝"
+        ],
+        "unlock": {
+          "kind": "LEVERAGE",
+          "target_id": "chr:甘宝宝"
+        },
+        "sources": [
+          "chunk:15",
+          "chunk:16"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:木婉清师承",
+        "text": "木婉清自幼无父无母，由师父幽谷客在深山养大、传授武艺",
+        "subject_ids": [
+          "chr:木婉清",
+          "chr:秦红棉"
+        ],
+        "knower_ids": [
+          "chr:木婉清",
+          "chr:秦红棉"
+        ],
+        "unlock": {
+          "kind": "LEVERAGE",
+          "target_id": "chr:秦红棉"
+        },
+        "sources": [
+          "chunk:15",
+          "chunk:24"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:朱蛤怪吼",
+        "text": "东宗弟子相传无量山里藏着万毒之王莽牯朱蛤，吼声如牛，多年难得一闻，撞上凶多吉少",
+        "subject_ids": [
+          "itm:莽牯朱蛤",
+          "loc:剑湖宫",
+          "chr:郁光标",
+          "chr:钱光胜"
+        ],
+        "knower_ids": [
+          "chr:郁光标",
+          "chr:钱光胜",
+          "chr:左子穆",
+          "chr:辛双清",
+          "chr:干光豪",
+          "chr:葛光佩"
+        ],
+        "unlock": {
+          "kind": "HAZARD",
+          "target_id": "itm:莽牯朱蛤"
+        },
+        "sources": [
+          "chunk:20"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:段家点穴",
+        "text": "段誉之父会一门点穴绝技，点中便叫人麻痒难当，武林中人闻之无不眼红",
+        "subject_ids": [
+          "chr:段誉",
+          "chr:段正淳"
+        ],
+        "knower_ids": [
+          "chr:段誉",
+          "chr:段正淳"
+        ],
+        "unlock": {
+          "kind": "LEVERAGE",
+          "target_id": "chr:段正淳"
+        },
+        "sources": [
+          "chunk:2"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:段誉不会武",
+        "text": "段誉的业师孟述圣只教他经书与易理，他本人半点武艺也不会",
+        "subject_ids": [
+          "chr:段誉",
+          "chr:孟述圣"
+        ],
+        "knower_ids": [
+          "chr:段誉"
+        ],
+        "unlock": null,
+        "sources": [
+          "chunk:2"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:段誉投奔",
+        "text": "段誉盘缠用尽，投到马五德家中白吃白住，又随他上无量山观景，两人只是初交",
+        "subject_ids": [
+          "chr:段誉",
+          "chr:马五德",
+          "loc:无量山"
+        ],
+        "knower_ids": [
+          "chr:段誉",
+          "chr:马五德"
+        ],
+        "unlock": null,
+        "sources": [
+          "chunk:0",
+          "chunk:2"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:段誉逃家",
+        "text": "段誉不肯随父亲习武，被逼得紧了，便偷偷离家出走，四处游荡",
+        "subject_ids": [
+          "chr:段誉",
+          "chr:段正淳"
+        ],
+        "knower_ids": [
+          "chr:段誉"
+        ],
+        "unlock": {
+          "kind": "MOTIVE",
+          "target_id": "chr:段誉"
+        },
+        "sources": [
+          "chunk:2"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:灵鹫宫号令",
+        "text": "钟灵捉蛇时偷听到，神农帮奉了缥缈峰灵鹫宫的号令，要夺剑湖宫、查探玉璧",
+        "subject_ids": [
+          "chr:钟灵",
+          "loc:剑湖宫",
+          "itm:无量玉璧"
+        ],
+        "knower_ids": [
+          "chr:钟灵"
+        ],
+        "unlock": null,
+        "sources": [
+          "chunk:1"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:玉壁仙影",
+        "text": "本门秘传：两宗前辈曾在月夜望见玉壁上有人影舞剑，剑法奇妙却总看不分明",
+        "subject_ids": [
+          "itm:无量玉璧",
+          "chr:左子穆",
+          "chr:辛双清"
+        ],
+        "knower_ids": [
+          "chr:左子穆",
+          "chr:辛双清",
+          "chr:龚光杰",
+          "chr:干光豪",
+          "chr:葛光佩"
+        ],
+        "unlock": null,
+        "sources": [
+          "chunk:4"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:玉壁禁谈",
+        "text": "本派规矩不许对外人谈论玉壁，左子穆被问起，只推说是山上一块平滑如镜的石头",
+        "subject_ids": [
+          "chr:左子穆",
+          "chr:辛双清",
+          "itm:无量玉璧"
+        ],
+        "knower_ids": [
+          "chr:左子穆",
+          "chr:辛双清",
+          "chr:龚光杰",
+          "chr:干光豪",
+          "chr:葛光佩",
+          "chr:郁光标",
+          "chr:钱光胜"
+        ],
+        "unlock": {
+          "kind": "MOTIVE",
+          "target_id": "chr:左子穆"
+        },
+        "sources": [
+          "chunk:0",
+          "chunk:1"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:玉壁苦参",
+        "text": "左子穆每隔五天便领弟子去对着玉壁参详，十年来始终瞧不出门道",
+        "subject_ids": [
+          "chr:左子穆",
+          "itm:无量玉璧"
+        ],
+        "knower_ids": [
+          "chr:左子穆",
+          "chr:龚光杰",
+          "chr:干光豪",
+          "chr:郁光标",
+          "chr:钱光胜"
+        ],
+        "unlock": {
+          "kind": "MOTIVE",
+          "target_id": "chr:左子穆"
+        },
+        "sources": [
+          "chunk:4"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:玉壁难近",
+        "text": "玉壁前横着剑湖，湖西又是深谷，两宗弟子只能在高崖上隔湖远望，近前不得",
+        "subject_ids": [
+          "itm:无量玉璧",
+          "loc:高崖",
+          "chr:左子穆",
+          "chr:辛双清"
+        ],
+        "knower_ids": [
+          "chr:左子穆",
+          "chr:辛双清",
+          "chr:龚光杰",
+          "chr:干光豪",
+          "chr:葛光佩",
+          "chr:郁光标",
+          "chr:钱光胜"
+        ],
+        "unlock": null,
+        "sources": [
+          "chunk:4"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:用毒外行",
+        "text": "无量剑两宗剑法虽精，于用毒解毒却人人外行，这正是他们忌惮神农帮之处",
+        "subject_ids": [
+          "chr:左子穆",
+          "chr:辛双清",
+          "chr:司空玄"
+        ],
+        "knower_ids": [
+          "chr:左子穆",
+          "chr:辛双清",
+          "chr:龚光杰",
+          "chr:干光豪",
+          "chr:葛光佩",
+          "chr:容子矩"
+        ],
+        "unlock": null,
+        "sources": [
+          "chunk:1"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:白虹贯日",
+        "text": "白虹贯日是左子穆的一记快剑，剑尖笔直去取对手咽喉",
+        "subject_ids": [
+          "chr:左子穆",
+          "art:白虹贯日"
+        ],
+        "knower_ids": [
+          "chr:左子穆",
+          "chr:龚光杰",
+          "chr:干光豪"
+        ],
+        "unlock": {
+          "kind": "TEACHING",
+          "target_id": "art:白虹贯日"
+        },
+        "sources": [
+          "chunk:18"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:第四阵",
+        "text": "本届剑会龚光杰替东宗出战第四阵，此阵若胜，东宗便可再住剑湖宫五年",
+        "subject_ids": [
+          "chr:龚光杰",
+          "loc:剑湖宫"
+        ],
+        "knower_ids": [
+          "chr:龚光杰",
+          "chr:左子穆",
+          "chr:干光豪",
+          "chr:辛双清"
+        ],
+        "unlock": {
+          "kind": "MOTIVE",
+          "target_id": "chr:龚光杰"
+        },
+        "sources": [
+          "chunk:0"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:貂毒时限",
+        "text": "被闪电貂咬中，约莫七日毒发身亡；求不到她爹，便只有当即斩断伤肢保命",
+        "subject_ids": [
+          "itm:闪电貂",
+          "chr:钟灵"
+        ],
+        "knower_ids": [
+          "chr:钟灵"
+        ],
+        "unlock": {
+          "kind": "HAZARD",
+          "target_id": "itm:闪电貂"
+        },
+        "sources": [
+          "chunk:2",
+          "chunk:3"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:貂毒难解",
+        "text": "闪电貂的毒，钟灵身上并无解药，通天草也不管用，只有她爹的独门内功化得开",
+        "subject_ids": [
+          "itm:闪电貂",
+          "chr:钟灵",
+          "itm:通天草",
+          "chr:钟万仇"
+        ],
+        "knower_ids": [
+          "chr:钟灵"
+        ],
+        "unlock": {
+          "kind": "HAZARD",
+          "target_id": "itm:闪电貂"
+        },
+        "sources": [
+          "chunk:2",
+          "chunk:3"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:跌扑步",
+        "text": "龚光杰练熟了跌扑步，佯作失足引人抢攻，等对方近身再回剑取胜",
+        "subject_ids": [
+          "chr:龚光杰",
+          "art:跌扑步"
+        ],
+        "knower_ids": [
+          "chr:龚光杰",
+          "chr:左子穆",
+          "chr:干光豪"
+        ],
+        "unlock": {
+          "kind": "TEACHING",
+          "target_id": "art:跌扑步"
+        },
+        "sources": [
+          "chunk:0"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:辛双清盼玉壁",
+        "text": "辛双清十年里两次比剑都输给东宗，一心盼着能再回剑湖宫看那玉壁",
+        "subject_ids": [
+          "chr:辛双清",
+          "itm:无量玉璧"
+        ],
+        "knower_ids": [
+          "chr:辛双清",
+          "chr:葛光佩"
+        ],
+        "unlock": {
+          "kind": "MOTIVE",
+          "target_id": "chr:辛双清"
+        },
+        "sources": [
+          "chunk:0",
+          "chunk:4"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:采药结仇",
+        "text": "去年神农帮求采后山药草遭左子穆回绝，偷采时被容子矩撞见杀了两人，江畔再斗血债更深",
+        "subject_ids": [
+          "chr:左子穆",
+          "chr:司空玄",
+          "loc:无量山·后山"
+        ],
+        "knower_ids": [
+          "chr:左子穆",
+          "chr:辛双清",
+          "chr:龚光杰",
+          "chr:干光豪",
+          "chr:容子矩",
+          "chr:郁光标",
+          "chr:钱光胜",
+          "chr:司空玄"
+        ],
+        "unlock": {
+          "kind": "MOTIVE",
+          "target_id": "chr:左子穆"
+        },
+        "sources": [
+          "chunk:1"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:采通天草",
+        "text": "钟灵还听见神农帮众说，要拚死采得通天草，替帮主稍减生死符发作之苦",
+        "subject_ids": [
+          "chr:钟灵",
+          "itm:通天草"
+        ],
+        "knower_ids": [
+          "chr:钟灵"
+        ],
+        "unlock": null,
+        "sources": [
+          "chunk:1"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:金针渡劫",
+        "text": "左子穆剑术精准，一招金针渡劫刺到分毫不差，西宗上下无人能及",
+        "subject_ids": [
+          "chr:左子穆",
+          "art:金针渡劫"
+        ],
+        "knower_ids": [
+          "chr:左子穆",
+          "chr:辛双清",
+          "chr:龚光杰",
+          "chr:干光豪"
+        ],
+        "unlock": {
+          "kind": "TEACHING",
+          "target_id": "art:金针渡劫"
+        },
+        "sources": [
+          "chunk:0"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:钟家山谷",
+        "text": "钟灵家在一处隐秘山谷，入口设有机关暗号；她爹放过话，外人踏进谷中便是死",
+        "subject_ids": [
+          "chr:钟灵",
+          "chr:钟万仇"
+        ],
+        "knower_ids": [
+          "chr:钟灵"
+        ],
+        "unlock": {
+          "kind": "LEVERAGE",
+          "target_id": "chr:钟万仇"
+        },
+        "sources": [
+          "chunk:3"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:钟灵师承",
+        "text": "钟灵一身功夫是娘亲所授，爹娘的名讳她从不肯对外人吐露",
+        "subject_ids": [
+          "chr:钟灵",
+          "chr:甘宝宝"
+        ],
+        "knower_ids": [
+          "chr:钟灵"
+        ],
+        "unlock": {
+          "kind": "LEVERAGE",
+          "target_id": "chr:甘宝宝"
+        },
+        "sources": [
+          "chunk:2",
+          "chunk:3"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:钟灵怕爹",
+        "text": "爹娘不许钟灵在外惹是非，她闯了祸最怕瞒不过爹爹",
+        "subject_ids": [
+          "chr:钟灵",
+          "chr:钟万仇"
+        ],
+        "knower_ids": [
+          "chr:钟灵"
+        ],
+        "unlock": {
+          "kind": "MOTIVE",
+          "target_id": "chr:钟灵"
+        },
+        "sources": [
+          "chunk:2",
+          "chunk:3"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:钱光胜胆小",
+        "text": "钱光胜生性胆小，夜里听见朱蛤怪吼便心惊肉跳",
+        "subject_ids": [
+          "chr:钱光胜",
+          "itm:莽牯朱蛤"
+        ],
+        "knower_ids": [
+          "chr:钱光胜",
+          "chr:郁光标",
+          "chr:干光豪",
+          "chr:龚光杰"
+        ],
+        "unlock": {
+          "kind": "MOTIVE",
+          "target_id": "chr:钱光胜"
+        },
+        "sources": [
+          "chunk:20"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:闪电貂",
+        "text": "钟灵腰间皮囊藏着闪电貂，专吃毒蛇，快如闪电，咬人带剧毒，连她爹娘也使唤不动",
+        "subject_ids": [
+          "itm:闪电貂",
+          "chr:钟灵"
+        ],
+        "knower_ids": [
+          "chr:钟灵"
+        ],
+        "unlock": {
+          "kind": "HAZARD",
+          "target_id": "itm:闪电貂"
+        },
+        "sources": [
+          "chunk:1",
+          "chunk:2"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:随身伤药",
+        "text": "木婉清身边带着金创药，另有一盒形似胭脂的红膏，止血收口极灵",
+        "subject_ids": [
+          "chr:木婉清",
+          "itm:金创药",
+          "itm:盛胭脂的小木盒"
+        ],
+        "knower_ids": [
+          "chr:木婉清"
+        ],
+        "unlock": null,
+        "sources": [
+          "chunk:11",
+          "chunk:13"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:顺水推舟",
+        "text": "左子穆的顺水推舟先架住来招，再借着来势把剑锋推向敌喉",
+        "subject_ids": [
+          "chr:左子穆",
+          "art:顺水推舟"
+        ],
+        "knower_ids": [
+          "chr:左子穆",
+          "chr:龚光杰",
+          "chr:干光豪"
+        ],
+        "unlock": {
+          "kind": "TEACHING",
+          "target_id": "art:顺水推舟"
+        },
+        "sources": [
+          "chunk:18"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:马五德好客",
+        "text": "马五德家财豪富，生性好客，落魄武师前来投奔，他总是诚心款待",
+        "subject_ids": [
+          "chr:马五德"
+        ],
+        "knower_ids": [
+          "chr:马五德"
+        ],
+        "unlock": {
+          "kind": "MOTIVE",
+          "target_id": "chr:马五德"
+        },
+        "sources": [
+          "chunk:0"
+        ]
+      },
+      "by": "claude-subagent"
+    },
+    {
+      "fact": {
+        "id": "fact:黑巾蒙面",
+        "text": "木婉清终日黑巾蒙面，曾对师父立誓：见过她容貌的男子，不杀便嫁",
+        "subject_ids": [
+          "chr:木婉清",
+          "itm:面幕",
+          "chr:秦红棉"
+        ],
+        "knower_ids": [
+          "chr:木婉清",
+          "chr:秦红棉"
+        ],
+        "unlock": {
+          "kind": "MOTIVE",
+          "target_id": "chr:木婉清"
+        },
+        "sources": [
+          "chunk:14",
+          "chunk:15",
+          "chunk:16"
+        ]
+      },
+      "by": "claude-subagent"
+    }
+  ]
+}

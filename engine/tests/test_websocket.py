@@ -1,7 +1,9 @@
 """
-[INPUT]: 依赖 fastapi.testclient 的 TestClient，依赖 app.main 的 create_app，依赖 app.container 的 build_container，依赖 tests/world 的 WORLD
-[OUTPUT]: WebSocket 线协议用例：投胎 → 流式叙事 → 终帧（状态栏只有语义标签：境界、伤势、武学火候）、自由文本与选项点选（turn_resolved 的意图含手段 / 所图 / 话题）、
-          错误帧不断连接、选项只下发 id / 标签 / 方向 / why（意图不下发）、健康检查、极端找死即永久死亡
+[INPUT]: 依赖 fastapi.testclient 的 TestClient，依赖 app.main 的 create_app，依赖 app.container 的 build_container，依赖 tests/world 的 WORLD，
+         依赖 app.application 的 bus（回合消息与状态栏）/ options（ActionOption），依赖 app.presentation.protocol 的 to_frame
+[OUTPUT]: WebSocket 线协议用例：投胎 → 流式叙事 → 终帧（状态栏只有语义标签：境界、伤势、武学火候，人情与心事两栏缺省为空）、
+          自由文本与选项点选（turn_resolved 的意图含手段 / 所图 / 话题）、错误帧不断连接、选项只下发 id / 标签 / 方向 / why / risk（意图不下发，风险档有才下发）、
+          终帧的 bonds / pursuits / risk 与 frontend/src/engineTypes.ts 逐字段一致、健康检查、极端找死即永久死亡
 [POS]: tests 的表现层验收：经 create_app 的 lifespan 装配，与 uvicorn 启动走同一条路径
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -13,10 +15,18 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.testclient import WebSocketTestSession
 
+from app.application.bus import Bond, PlayerStatus, Pursuit, TurnCompleted
+from app.application.options import ActionOption, OptionCategory
 from app.config import Settings
 from app.container import build_container
+from app.domain.intent import ActionType, PlayerIntent
+from app.domain.stakes import Risk
 from app.main import create_app
+from app.presentation.protocol import to_frame
 from tests.world import WORLD
+
+OPTION_KEYS = {"id", "label", "category", "why"}
+RISKS = {r.value for r in Risk}
 
 
 @pytest.fixture
@@ -48,7 +58,9 @@ def test_a_full_session_over_the_wire(client: TestClient) -> None:
         done = frames[-1]
         assert done["status"]["location"] == "无量山" and not done["game_over"]
         assert done["status"]["health"] == "安然无恙" and done["status"]["tier"] == "不入流"
-        assert all(set(o) == {"id", "label", "category", "why"} for o in done["options"])  # 意图留在服务端
+        assert all(OPTION_KEYS <= set(o) <= {*OPTION_KEYS, "risk"} for o in done["options"])  # 意图留在服务端
+        assert all(o.get("risk", Risk.SAFE.value) in RISKS for o in done["options"])  # 风险档只有三档语义标签
+        assert done["status"]["bonds"] == [] and done["status"]["pursuits"] == []  # 初入江湖：无人情、无心事
         assert all(0 < len(o["why"]) <= 12 for o in done["options"])  # 上榜缘由随选项下发
 
         ws.send_json({"type": "act", "text": "拾起玉佩"})
@@ -109,3 +121,27 @@ def test_forged_options_and_the_dead(client: TestClient) -> None:
         assert done["game_over"] is True and done["status"]["health"] == "气绝"
         ws.send_json({"type": "act", "text": "静观"})
         assert ws.receive_json()["code"] == "PLAYER_DEAD"
+
+
+def test_status_and_risk_mirror_the_frontend_contract() -> None:
+    """终帧逐字段对照 frontend/src/engineTypes.ts：EngineOption {id, label, category, why?, risk?}、Bond {name, attitude, cause}、Pursuit {label, note}。"""
+    look = PlayerIntent(action_type=ActionType.OBSERVE)
+    talk = PlayerIntent(action_type=ActionType.TALK, target_entity="左子穆")
+    options = (
+        ActionOption.of(OptionCategory.EXPLORE, "静观四周", look, why="四下无事"),
+        ActionOption.of(OptionCategory.SOCIAL, "向左子穆打听", talk, why="心事未了").model_copy(update={"risk": Risk.RISKY}),
+    )
+    status = PlayerStatus(
+        name="阿星", location="无量山", tier="不入流", health="轻伤", alive=True,
+        bonds=(Bond(name="辛双清", attitude="敌视", cause="你打伤其师兄"),),
+        pursuits=(Pursuit(label="打探 · 左子穆", note="碰了钉子；已试：言辞"),),
+    )
+    frame = to_frame(TurnCompleted(narration="", options=options, status=status, game_over=False))
+    assert frame["options"][0] == {"id": options[0].id, "label": "静观四周", "category": OptionCategory.EXPLORE.value,
+                                   "why": "四下无事"}  # 没有风险档就不下发这个键
+    assert frame["options"][1]["risk"] == "有险" and set(frame["options"][1]) == {*OPTION_KEYS, "risk"}
+    assert frame["status"]["bonds"] == [{"name": "辛双清", "attitude": "敌视", "cause": "你打伤其师兄"}]
+    assert frame["status"]["pursuits"] == [{"label": "打探 · 左子穆", "note": "碰了钉子；已试：言辞"}]
+    assert set(frame["status"]) == {"name", "location", "tier", "health", "alive", "death_cause", "inventory", "skills",
+                                    "bonds", "pursuits"}
+    assert "intent" not in str(frame["options"])

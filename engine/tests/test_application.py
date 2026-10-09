@@ -1,8 +1,8 @@
 """
 [INPUT]: 依赖 app.application 的 intent_parser / options / narrator / chronicle，依赖 tests/test_rules 的 scene() 快照工厂与事件夹具，依赖 tests/conftest 的 ScriptedLLM
 [OUTPUT]: 应用层单测：意图解析的三道防线与离线解析（含调息疗伤先于练功）、守卫两道检查都先剔除场景正名（原著的「金针渡劫」）、
-          场景词表的称号与火候、选项菜单（合法、世界不变则逐字不变、跟进席跟着焦点、脱身席、调息按伤势加权、MMR 不扎堆、why）、
-          修习选项随凭借改换措辞、Hard Prompt 的边界与转义（称号、火候、伤势、地下城主速写、恩怨）、降级叙事、事实白描
+          场景词表的称号与火候、选项菜单（合法、世界不变则逐字不变、跟进席跟着焦点、脱身席、调息按伤势加权、MMR 不扎堆、why；
+          标签是按意图哈希挑出的措辞变体，every_label 把席位、补位与同一对象的上限都拉满）、修习选项随凭借改换措辞、Hard Prompt 的边界与转义（称号、火候、伤势、地下城主速写、恩怨）、降级叙事、事实白描
 [POS]: tests 的"大模型无权改写世界"证明：解析器只产出意图、选项从不经大模型、叙事只拿到快照与已定的结果
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -187,7 +187,7 @@ async def test_options_are_legal_stable_and_recomputable() -> None:
     assert all(isinstance(rules.adjudicate(o.intent, state, snap), rules.Approval) for o in options)
     assert len({(o.intent.action_type, o.intent.target_entity, o.intent.skill_used) for o in options}) == len(options)
     assert all(0 < len(o.why) <= 12 for o in options)
-    assert options[0].label == "向辛双清求教无量剑法" and options[0].why == "有人肯传授"  # 底分最高的机缘
+    assert options[0].label == "拜请辛双清传授无量剑法" and options[0].why == "有人肯传授"  # 底分最高的机缘（措辞变体按意图哈希挑）
     assert OptionGenerator().generate(state, snap) == options  # 点选时可重算核验
     for n in range(1, 4):  # 版本号一路变，世界不变：不再按版本轮换
         refused = [ActionFailed(action=ActionType.TALK, target="段誉", reason_code="NOT_PRESENT", reason="此处不见「段誉」。")]
@@ -220,8 +220,8 @@ async def test_options_never_offer_what_rules_would_refuse() -> None:
 
 
 def every_label(state: PlayerState, snap: LocalSnapshot, category: OptionCategory | None = None) -> list[str]:
-    """不设上限地列出全部合法选项：min_options 拉满，轮转会把每个方向的池子取尽。"""
-    options = OptionGenerator(max_options=99, min_options=99).generate(state, snap)
+    """不设上限地列出全部合法选项：席位、补位与同一对象的上限都拉满。"""
+    options = OptionGenerator(max_options=99, min_options=99, per_target=99).generate(state, snap)
     return [o.label for o in options if category in (None, o.category)]
 
 
@@ -232,7 +232,7 @@ async def test_cultivation_options_speak_of_what_the_rules_rely_on() -> None:
     assert "闭门苦练北冥神功" in every_label(state, snap)
     friend = RelationChanged(character_id="chr:辛双清", attitude=Attitude.FRIENDLY, cause="敌人之敌")
     state, snap = await scene("loc:无量山", friend, practiced("art:无量剑法", 10, "chr:辛双清"))
-    assert "随辛双清精研无量剑法" in every_label(state, snap)
+    assert "跟辛双清再练无量剑法" in every_label(state, snap)  # 名师点拨的一种说法
     peak, snap = await scene("loc:无量山", friend, practiced("art:无量剑法", 200, "chr:辛双清"))
     assert every_label(peak, snap, OptionCategory.CULTIVATE) == []  # 登峰造极，无可精进
 
@@ -249,7 +249,7 @@ async def test_rest_is_weighted_by_the_wound() -> None:
     assert "调息疗伤" in every_label(state, snap)  # 只是补位：合法，凑不足时才上
     state, snap = await scene("loc:无量玉洞", bruised)  # 空无一人的石洞只有两件事可做：调息补上第三席
     labels = [o.label for o in OptionGenerator().generate(state, snap)]
-    assert labels == ["拾起北冥神功卷轴", "沿「攀上」前往无量山", "调息疗伤"]
+    assert labels == ["拾起北冥神功卷轴", "经「攀上」往无量山", "调息疗伤"]
     scratched, snap = await scene("loc:大理城", HealthChanged(delta=-5, cause="磕碰"))
     assert scratched.vitality.value == "安然无恙" and "调息疗伤" not in every_label(scratched, snap)
     assert "调息疗伤" not in every_label(*(await scene("loc:大理城")))  # 无伤可疗
@@ -262,9 +262,9 @@ async def test_salience_and_mmr_keep_the_menu_varied() -> None:
     friend = RelationChanged(character_id="chr:辛双清", attitude=Attitude.FRIENDLY, cause="你替她解围")
     bruised = HealthChanged(delta=-30, cause="与龚光杰交手", source_id="chr:龚光杰")
     state, snap = await scene("loc:无量山", friend, bruised)
-    assert {"拾起玉佩", "调息疗伤", "向辛双清求教无量剑法"} <= set(every_label(state, snap))
+    assert {"拾起玉佩", "调息疗伤", "拜请辛双清传授无量剑法"} <= set(every_label(state, snap))
     options = OptionGenerator().generate(state, snap)
-    assert [o.label for o in options[:2]] == ["向辛双清求教无量剑法", "拾起玉佩"]
+    assert [o.label for o in options[:2]] == ["拜请辛双清传授无量剑法", "拾起玉佩"]
     assert len({o.intent.action_type for o in options}) == len(options) == 4  # 四席四种动作
     assert all(o.category is not OptionCategory.RECOVER for o in options)  # 轻伤的调息不占席
 
@@ -341,9 +341,10 @@ async def test_focus_goes_stale_once_you_move_on() -> None:
     there, home = (Moved(from_location_id="loc:无量山", to_location_id="loc:大理城", exit_label="南下"),
                    Moved(from_location_id="loc:大理城", to_location_id="loc:无量山", exit_label="北上"))
     state, snap = await scene("loc:无量山", jade, there, chat)  # 刚与段誉叙过话：跟进席压过物归原主
-    assert OptionGenerator().generate(state, snap)[0].label == "与段誉攀谈"
+    first = OptionGenerator().generate(state, snap)[0]
+    assert first.intent.target_entity == "段誉" and first.why == "方才打过交道"
     state, snap = await scene("loc:无量山", jade, there, chat, home, there)  # 走开又回来：段誉只是先前的人，物归原主居先
-    assert OptionGenerator().generate(state, snap)[0].label == "将玉佩交还段正淳"
+    assert OptionGenerator().generate(state, snap)[0].label == "奉还段正淳的玉佩"
     refused = ActionFailed(action=ActionType.TALK, target="x", reason_code="NOT_PRESENT", reason="此处不见「x」。")
     state, _ = await scene("loc:无量山", talk, refused)
     assert state.focus_fresh  # 碰壁什么也没改变：焦点照旧新鲜，菜单照旧

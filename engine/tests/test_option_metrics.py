@@ -1,15 +1,21 @@
 """
-[INPUT]: 依赖 app.application.options 的 OptionGenerator，依赖 app.domain 的 aggregates / events / rules / models / progression，
+[INPUT]: 依赖 app.application.options 的 OptionGenerator，依赖 app.domain 的 aggregates / events / rules / models / progression / intent，
          依赖 InMemoryWorldGraph，读入库的原著蓝图 data/world/blueprint.json 与实录事件流 tests/fixtures/live_session_events.jsonl
 [OUTPUT]: canon_graph()（种下原著蓝图的内存图谱，供别的用例复用）、recorded() / turn_ends() / replay()（实录逐回合重放），
           以及菜单的验收指标：世界不变菜单逐字不变 100%、上回合的焦点在场即被提到 ≥80%、仇人在侧必有出路 100%、
-          调息按伤势加权（安然无恙 0、轻伤 ≤50%、重伤及以上且无仇人 100%）、why ≤12 字；重放回合 1 段誉不再生好感、回合 11 不再「素不相识」
+          调息按伤势加权（安然无恙 0、轻伤 ≤50%、重伤及以上且无仇人 100%）、why ≤12 字；重放回合 1 段誉不再生好感、回合 11 不再「素不相识」；
+          P1 验收：有人在场的回合里菜单 (动作, 手段) ≥3 种的比例 ≥80%、带机械后果的选项（canonical 下 rules.decide 至少一条事件）≥90%、
+          去专名后的标签模板 ≥15 种、同一对象至多两席、拾起无量玉璧 / 莽牯朱蛤 / 蒲团的选项为 0（实录每回合的全部候选 + 在它们的正典所在投胎）
 [POS]: tests 的零费用回归基线：29 回合真实 Gemini 实录只把事件流入库（无叙事、无密钥），逐版本折叠聚合、投影内存图谱、
-       在每个回合边界重算快照与菜单——改选项算法或改蓝图之后都在这里重算一遍指标（P1 审计让段延庆后来才到场，样本门槛随之重定：焦点在眼前 ≥4 回合、仇人在侧 ≥3 回合）
+       在每个回合边界重算快照与菜单——改选项算法或改蓝图之后都在这里重算一遍指标（P1 审计让段延庆后来才到场，样本门槛随之重定：焦点在眼前 ≥4 回合、仇人在侧 ≥3 回合）。
+       掌故入库（人设 13、见闻 43）后重算：打探之招开始出现（回合 5「向钟灵探问消息」），P1 指标不动——(动作, 手段) ≥3 种 13/13、
+       机械后果 114/114、模板 18 种、焦点 4/4；风险档 稳妥 104 / 有险 10
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
 import json
+import re
+from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import cache
@@ -28,6 +34,7 @@ from app.domain.events import (
     HealthChanged,
     Moved,
     PlayerDied,
+    PlayerSpawned,
     RelationChanged,
     decode_event,
 )
@@ -220,3 +227,94 @@ async def test_replaying_turn_eleven_no_longer_says_strangers() -> None:
     ask = PlayerIntent(action_type=ActionType.LEARN, target_entity="木婉清", skill_used="晓风拂柳")
     refused = rules.decide(ask, state, snap)
     assert isinstance(refused[0], ActionFailed) and refused[0].reason == "木婉清不肯将晓风拂柳传给素无交情之人。"
+
+
+# ============================================================
+#  P1 验收 —— 选项成为「招」
+# ============================================================
+IMMOVABLE = ("itm:无量玉璧", "itm:莽牯朱蛤", "itm:大蒲团", "itm:小蒲团")
+
+
+def every(state: PlayerState, snap: LocalSnapshot) -> tuple[ActionOption, ...]:
+    """全部合法的招：席位、补位、同一对象的上限都拉满。"""
+    return OptionGenerator(max_options=999, min_options=999, per_target=999).generate(state, snap)
+
+
+def _names() -> list[str]:
+    bp = canon()
+    names: set[str] = set()
+    for c in bp.characters:
+        names |= {c.true_name, *c.titles, *c.aliases}
+    for i in bp.items:
+        names |= {i.name, *i.aliases}
+    for a in bp.martial_arts:
+        names.add(a.name)
+    for loc in bp.locations:
+        names |= {loc.name, *loc.aliases}
+    return sorted((n for n in names if n), key=len, reverse=True)
+
+
+def denamed(label: str, names: list[str]) -> str:
+    """去专名：出路名整个换成占位，再由长到短抹掉人物物功地的名字，连着的占位并成一个。"""
+    text = re.sub(r"「[^」]*」", "「·」", label)
+    for name in names:
+        text = text.replace(name, "·")
+    return re.sub(r"·+", "·", text)
+
+
+async def test_people_in_view_get_several_kinds_of_moves() -> None:
+    """有人在场的回合里，菜单的 (动作, 手段) 组合 ≥3 种：≥80%（P0：回合 8~12 木婉清当面，菜单是一招恳请加三条出路）。"""
+    turns = [t for t in await replay() if t.state.alive and t.snap.characters]
+    varied = [t for t in turns if len({(o.intent.action_type, o.intent.approach) for o in t.menu}) >= 3]
+    assert len(turns) >= 10 and len(varied) / len(turns) >= 0.8
+
+
+async def test_options_have_mechanical_consequences() -> None:
+    """带机械后果的选项（canonical 下 rules.decide 至少产出一条事件）≥90%：静观之外，每一招都改变点什么。"""
+    pairs = [(t, o) for t in await replay() for o in t.menu]
+    moving = [o for t, o in pairs if rules.decide(o.intent, t.state, t.snap)]
+    assert len(moving) / len(pairs) >= 0.9
+
+
+async def test_labels_are_not_one_voice() -> None:
+    """去专名后的标签模板 ≥15 种：同一类招随人与物换着说法（措辞变体按意图哈希挑，世界不变则逐字不变）。"""
+    names = _names()
+    templates = {denamed(o.label, names) for t in await replay() for o in t.menu}
+    assert len(templates) >= 15, sorted(templates)
+    assert denamed("沿「入练武厅」前往剑湖宫·练武厅", names) == "沿「·」前往·"
+
+
+async def test_one_target_never_holds_more_than_two_seats() -> None:
+    for t in await replay():
+        held = Counter(
+            next((x for x in (ok.target, ok.source) if x and x.startswith("chr:")), None)
+            for o in t.menu if isinstance(ok := rules.adjudicate(o.intent, t.state, t.snap), rules.Approval)
+        )
+        held.pop(None, None)
+        assert max(held.values(), default=0) <= 2
+
+
+async def spawned(location_id: str) -> tuple[PlayerState, LocalSnapshot]:
+    graph = await canon_graph()
+    spawn = PlayerSpawned(player_id="ply:metrics", name="阿星", location_id=location_id)
+    await graph.project("ply:metrics", [EventEnvelope(stream_id="ply:metrics", version=1, event_id=uuid4(),
+                                                      recorded_at=datetime.now(UTC), event=spawn)])
+    return Player.replay([spawn]), await graph.local_snapshot("ply:metrics")  # type: ignore[return-value]
+
+
+async def test_immovable_things_are_never_offered() -> None:
+    """拾起无量玉璧 / 莽牯朱蛤 / 蒲团的选项为 0：实录每回合的全部候选里没有，在它们的正典所在投胎也没有（物性闸门由规则把关）。"""
+    def takes(state: PlayerState, snap: LocalSnapshot) -> list[str]:
+        return [o.label for o in every(state, snap) if o.intent.action_type is ActionType.TAKE
+                and any(snap.item(i) is not None and o.intent.target_entity in snap.item(i).names  # type: ignore[union-attr]
+                        for i in IMMOVABLE)]
+
+    for t in await replay():
+        if t.state.alive:
+            assert takes(t.state, t.snap) == []
+    homes = {i.location_id for i in canon().items if i.id in IMMOVABLE}
+    assert homes == {"loc:无量山", "loc:幽谷·玉像石室"}
+    for home in homes:
+        state, snap = await spawned(home)
+        assert {i.id for i in snap.items} & set(IMMOVABLE)  # 它们确实就在眼前
+        assert takes(state, snap) == []
