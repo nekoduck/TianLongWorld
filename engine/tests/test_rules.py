@@ -4,7 +4,8 @@
 [OUTPUT]: scene / act / recast / restock / reitem 助手（别的领域用例复用）；
           裁决规则的单测：每种动作的放行与驳回、模糊裁决的可裁区间与定案钳位、人情涟漪（只认开篇羁绊，「敌人之敌」升一档）、火候折算境界、
           修习的入门与精进逐条核验、仇人在侧不得修习、求教被拒的理由照实写人情、调息疗伤（source="rest"）、天降神兵此路不通；
-          P1：人情按 rank 比——求教门槛随武学境界（三流须友善、二流及以上须信赖，驳回带 unlock）、物归原主直升信赖（已信赖不重复）、
+          P1：人情按 rank 比——求教门槛随武学境界（三流须友善、二流及以上须信赖，驳回带 unlock）、物归原主直升信赖（已信赖不重复；
+          从物主本人手里偷来、讨来、夺来、取来的再还只是易手，经第三人转手也洗不白）、
           戒备不是仇人（不拦调息与修习）、服药（ItemConsumed + HealthChanged(source="item")，不在行囊 / 无用法 / 无伤可疗即驳回）、
           驳回入账带上所图与手段、rules 拆包后旧的导入路径照旧可用；
           P1 阶段 B：取物的物性闸门（不可携带 NOT_PORTABLE 带 unlock、险物到手即受伤且留一口气）、他人之物按手段分三路（寻常驳回并提示、武力夺物同出手区间且得手即易手、
@@ -39,7 +40,7 @@ from app.domain.events import (
 )
 from app.domain.intent import ActionType, Aim, Approach, PlayerIntent
 from app.domain.models import Attitude, Disposition, ItemUse, Tier
-from app.domain.outcomes import SocialOutcome
+from app.domain.outcomes import CovertOutcome, SocialOutcome
 from app.domain.progression import MAX_HP, REST_GAIN
 from app.domain.rules import Approval, Rejection, adjudicate, decide, resolve, stakes
 from app.domain.snapshot import ExitView, ItemView, LocalSnapshot
@@ -531,6 +532,46 @@ async def test_returning_an_item_jumps_straight_to_trust_and_only_once() -> None
     trusted = RelationChanged(character_id="chr:段正淳", attitude=Attitude.TRUSTED, cause="物归原主")
     state, snap = await scene("loc:大理城", jade, trusted)
     assert len(decide(act(ActionType.GIVE, target_entity="段正淳", item_used="玉佩"), state, snap)) == 1
+
+
+async def test_handing_back_what_you_took_from_the_owner_is_not_restoring_it() -> None:
+    """
+    物归原主只认真正的「归」：从物主本人手里偷来、讨来、夺来、从被制住的他身上取来的东西再还给他，只是易手，不升信赖——
+    否则弱者偷了再还就能把仇人刷成信赖、换来二流以上的传功。经第三人转一道手也洗不白；东西若是从别人手里得来的，照旧直升信赖。
+    """
+    give = act(ActionType.GIVE, target_entity="左子穆", item_used="无量剑")
+    sword = "itm:无量剑"
+    friend = RelationChanged(character_id="chr:左子穆", attitude=Attitude.FRIENDLY, cause="c")
+    beaten = SkillExecuted(skill_id="art:北冥神功", target_id="chr:左子穆", outcome=CombatOutcome.SUCCESS)
+
+    async def took(*setup: DomainEvent, intent: PlayerIntent, proposal: object = None, kind: bool = False) -> list[DomainEvent]:
+        state, snap = await scene("loc:无量山", *setup)
+        if kind:
+            snap = recast(snap, "chr:左子穆", disposition=Disposition.MERCIFUL)
+        events = decide(intent, state, snap, proposal)  # type: ignore[arg-type]
+        assert ItemTransferred(item_id=sword, from_holder="chr:左子穆", to_holder=PID) in events, events
+        return [*setup, *events]
+
+    histories = [
+        await took(intent=act(ActionType.TAKE, target_entity="无量剑", approach=Approach.STEALTH),
+                   proposal=Proposal(CovertOutcome.EXPOSED)),  # 偷来（败露）
+        await took(ROOTED, intent=act(ActionType.TAKE, target_entity="无量剑", approach=Approach.STEALTH)),  # 偷来（无痕）
+        await took(friend, intent=act(ActionType.TAKE, target_entity="无量剑", approach=Approach.WORDS),
+                   proposal=Proposal(SocialOutcome.GRANTED), kind=True),  # 讨来
+        await took(ROOTED, intent=act(ActionType.TAKE, target_entity="无量剑", approach=Approach.FORCE),
+                   proposal=CombatProposal(outcome=CombatOutcome.SUCCESS, hp_change=0)),  # 夺来
+        await took(ROOTED, beaten, intent=act(ActionType.TAKE, target_entity="无量剑")),  # 从被制住的他身上取来
+    ]
+    laundered = [ItemTransferred(item_id=sword, from_holder=PID, to_holder="chr:龚光杰"),
+                 ItemTransferred(item_id=sword, from_holder="chr:龚光杰", to_holder=PID)]
+    for history in (*histories, [*histories[0], *laundered]):
+        state, snap = await scene("loc:无量山", *history)
+        assert state.taken_from[sword] == "chr:左子穆" and state.attitude_of("chr:左子穆") is not Attitude.TRUSTED
+        assert decide(give, state, snap) == [ItemTransferred(item_id=sword, from_holder=PID, to_holder="chr:左子穆")]
+    found = ItemTransferred(item_id=sword, from_holder="chr:龚光杰", to_holder=PID)  # 从旁人手里得来：是真的物归原主
+    state, snap = await scene("loc:无量山", found)
+    assert decide(give, state, snap)[1] == RelationChanged(character_id="chr:左子穆", attitude=Attitude.TRUSTED,
+                                                          cause="物归原主", basis="物归原主")
 
 
 async def test_wariness_is_not_a_grudge() -> None:

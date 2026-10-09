@@ -1158,7 +1158,9 @@
       "tier": "不入流",
       "disposition": "仁厚",
       "location_id": "loc:剑湖宫·练武厅",
-      "skills": []
+      "skills": [],
+      "foreshadow": "",
+      "arrives_with": null
     },
     {
       "id": "chr:马五德",
@@ -1173,7 +1175,9 @@
       "tier": "三流",
       "disposition": "仁厚",
       "location_id": "loc:剑湖宫·练武厅",
-      "skills": []
+      "skills": [],
+      "foreshadow": "",
+      "arrives_with": null
     },
     {
       "id": "chr:左子穆",
@@ -1193,14 +1197,16 @@
         "art:白虹贯日",
         "art:万卉争艳",
         "art:顺水推舟"
-      ]
+      ],
+      "foreshadow": "",
+      "arrives_with": null
     },
     {
       "id": "chr:辛双清",
       "aliases": [
         "双清"
       ],
-      "description": "无量剑西宗掌门，出家道姑，本届比剑落败",
+      "description": "无量剑西宗掌门，出家道姑，本届比剑已处下风",
       "true_name": "辛双清",
       "titles": [],
       "faction": "无量剑西宗",
@@ -1208,12 +1214,14 @@
       "tier": "三流",
       "disposition": "中庸",
       "location_id": "loc:剑湖宫·练武厅",
-      "skills": []
+      "skills": [],
+      "foreshadow": "本届比剑落败",
+      "arrives_with": null
     },
     {
       "id": "chr:龚光杰",
       "aliases": [],
-      "description": "左子穆的中年弟子，比剑得胜后迁怒于段誉并动手",
+      "description": "左子穆的中年弟子，正在场中比剑",
       "true_name": "龚光杰",
       "titles": [],
       "faction": "无量剑东宗",
@@ -1223,7 +1231,9 @@
       "location_id": "loc:剑湖宫·练武厅",
       "skills": [
         "art:跌扑步"
-      ]
+      ],
+      "foreshadow": "比剑得胜后迁怒于段誉并动手",
+      "arrives_with": null
     },
     {
       "id": "chr:容子矩",
@@ -1236,12 +1246,14 @@
       "tier": "三流",
       "disposition": "狠辣",
       "location_id": "loc:剑湖宫·练武厅",
-      "skills": []
+      "skills": [],
+      "foreshadow": "",
+      "arrives_with": "portent:容子矩重伤撞进厅来"
     },
     {
       "id": "chr:干光豪",
       "aliases": [],
-      "description": "左子穆门下大弟子，出厅查探后回报神农帮约七八十人封山",
+      "description": "左子穆门下大弟子",
       "true_name": "干光豪",
       "titles": [],
       "faction": "无量剑东宗",
@@ -1249,7 +1261,9 @@
       "tier": "三流",
       "disposition": "狠辣",
       "location_id": "loc:剑湖宫·练武厅",
-      "skills": []
+      "skills": [],
+      "foreshadow": "出厅查探后回报神农帮约七八十人封山",
+      "arrives_with": null
     },
     {
       "id": "chr:司空玄",
@@ -1265,7 +1279,9 @@
       "tier": "二流",
       "disposition": "狠辣",
       "location_id": "loc:无量山·乱石堆",
-      "skills": []
+      "skills": [],
+      "foreshadow": "",
+      "arrives_with": null
     },
     {
       "id": "chr:天山童姥",
@@ -1282,7 +1298,9 @@
       "location_id": "loc:灵鹫宫",
       "skills": [
         "art:生死符"
-      ]
+      ],
+      "foreshadow": "",
+      "arrives_with": null
     },
     {
       "id": "chr:钟灵",
@@ -1291,7 +1309,7 @@
         "钟姑娘",
         "钟家姑娘"
       ],
-      "description": "十六岁的钟姓少女，养着毒貂，身手灵便，与段誉结伴同行",
+      "description": "十六岁的钟姓少女，养着毒貂，身手灵便",
       "true_name": "钟灵",
       "titles": [],
       "faction": "万仇谷",
@@ -1299,7 +1317,9 @@
       "tier": "三流",
       "disposition": "中庸",
       "location_id": "loc:剑湖宫",
-      "skills": []
+      "skills": [],
+      "foreshadow": "与段誉结伴同行",
+      "arrives_with": null
     },
     {
       "id": "chr:孟述圣",
@@ -1314,12 +1334,14 @@
       "tier": "不入流",
       "disposition": "中庸",
       "location_id": null,
-      "skills": []
+      "skills": [],
+      "foreshadow": "",
+      "arrives_with": null
     },
     {
       "id": "chr:阿胜",
       "aliases": [],
-      "description": "神农帮大汉，奉帮主之命反扭段誉双手",
+      "description": "神农帮大汉",
       "true_name": "阿胜",
       "titles": [],
       "faction": "神农帮",
@@ -1327,12 +1349,14 @@
       "tier": "三流",
       "disposition": "中庸",
       "location_id": "loc:无量山·乱石堆",
-      "skills": []
+      "skills": [],
+      "foreshadow": "奉帮主之命反扭段誉双手",
+      "arrives_with": null
     },
     {
       "id": "chr:阿洪",
       "aliases": [],
-      "description": "神农帮大汉，奉命捉拿钟灵，反被她一拳打翻",
+      "description": "神农帮大汉",
       "true_name": "阿洪",
       "titles": [],
       "faction": "神农帮",
@@ -1340,12 +1364,14 @@
       "tier": "三流",
       "disposition": "中庸",
       "location_id": "loc:无量山·乱石堆",
-      "skills": []
+      "skills": [],
+      "foreshadow": "奉命捉拿钟灵，反被她一拳打翻",
+      "arrives_with": null
     },
     {
       "id": "chr:葛光佩",
       "aliases": [],
-      "description": "西宗女弟子，与干光豪背弃师门出逃，还盼同门尽遭毒手",
+      "description": "西宗女弟子",
       "true_name": "葛光佩",
       "titles": [],
       "faction": "无量剑西宗",
@@ -1353,7 +1379,9 @@
       "tier": "三流",
       "disposition": "狠辣",
       "location_id": "loc:剑湖宫",
-      "skills": []
+      "skills": [],
+      "foreshadow": "与干光豪背弃师门出逃，还盼同门尽遭毒手",
+      "arrives_with": null
     },
     {
       "id": "chr:无涯子",
@@ -1366,12 +1394,14 @@
       "tier": "绝顶",
       "disposition": "中庸",
       "location_id": null,
-      "skills": []
+      "skills": [],
+      "foreshadow": "",
+      "arrives_with": null
     },
     {
       "id": "chr:秋水妹",
       "aliases": [],
-      "description": "无涯子所爱之人，段誉认定玉像即是她，并视绸包为她所留",
+      "description": "无涯子所爱之人",
       "true_name": "秋水妹",
       "titles": [
         "神仙姊姊"
@@ -1381,14 +1411,16 @@
       "tier": "三流",
       "disposition": "中庸",
       "location_id": null,
-      "skills": []
+      "skills": [],
+      "foreshadow": "段誉认定玉像即是她，并视绸包为她所留",
+      "arrives_with": null
     },
     {
       "id": "chr:甘宝宝",
       "aliases": [
         "阿宝"
       ],
-      "description": "钟灵之母，三十出头的清秀妇人，听到来客姓段时神色异样",
+      "description": "钟灵之母，三十出头的清秀妇人",
       "true_name": "甘宝宝",
       "titles": [
         "钟夫人",
@@ -1399,7 +1431,9 @@
       "tier": "二流",
       "disposition": "狠辣",
       "location_id": "loc:万劫谷",
-      "skills": []
+      "skills": [],
+      "foreshadow": "听到来客姓段时神色异样",
+      "arrives_with": null
     },
     {
       "id": "chr:崔百泉",
@@ -1415,7 +1449,9 @@
       "tier": "二流",
       "disposition": "狠辣",
       "location_id": "loc:镇南王府",
-      "skills": []
+      "skills": [],
+      "foreshadow": "",
+      "arrives_with": null
     },
     {
       "id": "chr:钟万仇",
@@ -1433,12 +1469,14 @@
       "tier": "二流",
       "disposition": "狠辣",
       "location_id": "loc:万劫谷",
-      "skills": []
+      "skills": [],
+      "foreshadow": "",
+      "arrives_with": null
     },
     {
       "id": "chr:进喜儿",
       "aliases": [],
-      "description": "钟家多年的老仆，奉命去北庄迎客，因一句奉承惹恼岳老三",
+      "description": "钟家多年的老仆",
       "true_name": "进喜儿",
       "titles": [],
       "faction": "",
@@ -1446,12 +1484,14 @@
       "tier": "不入流",
       "disposition": "中庸",
       "location_id": "loc:万劫谷",
-      "skills": []
+      "skills": [],
+      "foreshadow": "奉命去北庄迎客，因一句奉承惹恼岳老三",
+      "arrives_with": null
     },
     {
       "id": "chr:来福儿",
       "aliases": [],
-      "description": "钟家仆人，与进喜儿同去北庄，回谷禀明同伴遇害经过",
+      "description": "钟家仆人",
       "true_name": "来福儿",
       "titles": [],
       "faction": "",
@@ -1459,7 +1499,9 @@
       "tier": "不入流",
       "disposition": "中庸",
       "location_id": "loc:万劫谷",
-      "skills": []
+      "skills": [],
+      "foreshadow": "与进喜儿同去北庄，回谷禀明同伴遇害经过",
+      "arrives_with": null
     },
     {
       "id": "chr:岳老三",
@@ -1467,7 +1509,7 @@
         "岳老二",
         "岳二先生"
       ],
-      "description": "应钟万仇之邀来助拳的恶人，硬要人称他老二，无端下手杀仆",
+      "description": "应钟万仇之邀来助拳的恶人，硬要人称他老二",
       "true_name": "岳老三",
       "titles": [
         "南海鳄神",
@@ -1481,7 +1523,9 @@
       "skills": [
         "art:千斤坠",
         "art:鳄嘴剪"
-      ]
+      ],
+      "foreshadow": "无端下手杀仆",
+      "arrives_with": "portent:岳老三到北庄"
     },
     {
       "id": "chr:段正淳",
@@ -1502,12 +1546,14 @@
       "skills": [
         "art:一阳指",
         "art:五罗轻烟掌"
-      ]
+      ],
+      "foreshadow": "",
+      "arrives_with": null
     },
     {
       "id": "chr:瑞婆婆",
       "aliases": [],
-      "description": "矮小白发老妪，执铁拐杖，率众追拿黑衣女郎",
+      "description": "矮小白发老妪，执铁拐杖",
       "true_name": "瑞婆婆",
       "titles": [],
       "faction": "姑苏王家",
@@ -1515,7 +1561,9 @@
       "tier": "三流",
       "disposition": "狠辣",
       "location_id": "loc:大屋·大厅",
-      "skills": []
+      "skills": [],
+      "foreshadow": "率众追拿黑衣女郎",
+      "arrives_with": "portent:瑞婆婆围堵大屋"
     },
     {
       "id": "chr:平婆婆",
@@ -1530,7 +1578,9 @@
       "tier": "三流",
       "disposition": "狠辣",
       "location_id": "loc:大屋·大厅",
-      "skills": []
+      "skills": [],
+      "foreshadow": "",
+      "arrives_with": "portent:平婆婆围堵大屋"
     },
     {
       "id": "chr:木婉清",
@@ -1539,7 +1589,7 @@
         "婉妹",
         "婉儿"
       ],
-      "description": "向段誉自报姓名的女子，独斗四敌杀一伤三，肩头中锥后携他骑马突围",
+      "description": "黑衣蒙面的女子，出手狠辣",
       "true_name": "木婉清",
       "titles": [],
       "faction": "",
@@ -1549,7 +1599,9 @@
       "location_id": "loc:无量山",
       "skills": [
         "art:晓风拂柳"
-      ]
+      ],
+      "foreshadow": "向段誉自报姓名，独斗四敌杀一伤三，肩头中锥后携他骑马突围",
+      "arrives_with": null
     },
     {
       "id": "chr:孙三霸",
@@ -1564,7 +1616,9 @@
       "tier": "三流",
       "disposition": "中庸",
       "location_id": null,
-      "skills": []
+      "skills": [],
+      "foreshadow": "",
+      "arrives_with": null
     },
     {
       "id": "chr:秦红棉",
@@ -1583,7 +1637,9 @@
       "skills": [
         "art:五罗轻烟掌",
         "art:十字斫"
-      ]
+      ],
+      "foreshadow": "",
+      "arrives_with": "portent:秦红棉现身王府"
     },
     {
       "id": "chr:叶二娘",
@@ -1598,7 +1654,9 @@
       "tier": "一流",
       "disposition": "狠辣",
       "location_id": "loc:群山最高峰",
-      "skills": []
+      "skills": [],
+      "foreshadow": "",
+      "arrives_with": "portent:叶二娘登上峰顶"
     },
     {
       "id": "chr:段延庆",
@@ -1619,14 +1677,16 @@
       "location_id": "loc:澜沧江畔",
       "skills": [
         "art:一阳指"
-      ]
+      ],
+      "foreshadow": "",
+      "arrives_with": "portent:青袍客坐于江畔"
     },
     {
       "id": "chr:云中鹤",
       "aliases": [
         "云老四"
       ],
-      "description": "四大恶人中排行第四者，叶二娘仅提及其外号",
+      "description": "四大恶人中排行第四者",
       "true_name": "云中鹤",
       "titles": [
         "穷凶极恶"
@@ -1636,14 +1696,16 @@
       "tier": "一流",
       "disposition": "狠辣",
       "location_id": "loc:群山最高峰",
-      "skills": []
+      "skills": [],
+      "foreshadow": "叶二娘仅提及其外号",
+      "arrives_with": "portent:云中鹤登上峰顶"
     },
     {
       "id": "chr:左山山",
       "aliases": [
         "山山"
       ],
-      "description": "左子穆三四岁的幼子，被叶二娘抢来当玩物",
+      "description": "左子穆三四岁的幼子",
       "true_name": "左山山",
       "titles": [],
       "faction": "",
@@ -1651,12 +1713,14 @@
       "tier": "不入流",
       "disposition": "中庸",
       "location_id": "loc:群山最高峰",
-      "skills": []
+      "skills": [],
+      "foreshadow": "被叶二娘抢来当玩物",
+      "arrives_with": "portent:左山山被掳上峰顶"
     },
     {
       "id": "chr:朱丹臣",
       "aliases": [],
-      "description": "宫中四大护卫之一，持笔守一角，与同伴合围众恶人",
+      "description": "宫中四大护卫之一，持笔",
       "true_name": "朱丹臣",
       "titles": [],
       "faction": "大理国",
@@ -1664,12 +1728,14 @@
       "tier": "二流",
       "disposition": "仁厚",
       "location_id": "loc:群山最高峰",
-      "skills": []
+      "skills": [],
+      "foreshadow": "守住一角，与同伴合围众恶人",
+      "arrives_with": "portent:朱丹臣赶到峰顶"
     },
     {
       "id": "chr:褚万里",
       "aliases": [],
-      "description": "四大护卫中最先赶到者，以软索卷剑又掷还，追问段誉下落",
+      "description": "四大护卫之一，使软索",
       "true_name": "褚万里",
       "titles": [],
       "faction": "大理国",
@@ -1677,12 +1743,14 @@
       "tier": "二流",
       "disposition": "中庸",
       "location_id": "loc:群山最高峰",
-      "skills": []
+      "skills": [],
+      "foreshadow": "最先赶到，以软索卷剑又掷还，追问段誉下落",
+      "arrives_with": "portent:褚万里赶到峰顶"
     },
     {
       "id": "chr:傅思归",
       "aliases": [],
-      "description": "使熟铜棍的大理护卫，闻段誉遇害便悲愤地抡棍扑打叶二娘",
+      "description": "使熟铜棍的大理护卫",
       "true_name": "傅思归",
       "titles": [],
       "faction": "大理国",
@@ -1690,12 +1758,14 @@
       "tier": "二流",
       "disposition": "中庸",
       "location_id": "loc:群山最高峰",
-      "skills": []
+      "skills": [],
+      "foreshadow": "闻段誉遇害便悲愤地抡棍扑打叶二娘",
+      "arrives_with": "portent:傅思归赶到峰顶"
     },
     {
       "id": "chr:古笃诚",
       "aliases": [],
-      "description": "身躯粗壮的大理护卫，挥板斧专攻下盘，挨了一腿仍扑上再战",
+      "description": "身躯粗壮的大理护卫，挥板斧",
       "true_name": "古笃诚",
       "titles": [],
       "faction": "大理国",
@@ -1706,7 +1776,9 @@
       "skills": [
         "art:盘根错节十八斧",
         "art:乱披风斧法"
-      ]
+      ],
+      "foreshadow": "专攻下盘，挨了一腿仍扑上再战",
+      "arrives_with": "portent:古笃诚赶到峰顶"
     },
     {
       "id": "chr:高昇泰",
@@ -1714,7 +1786,7 @@
         "高君侯",
         "高侯爷"
       ],
-      "description": "长须持铁笛的中年高人，内力烫笛逼退叶二娘，救回左家幼儿",
+      "description": "长须持铁笛的中年高人",
       "true_name": "高昇泰",
       "titles": [
         "宽袍客",
@@ -1727,12 +1799,14 @@
       "location_id": "loc:群山最高峰",
       "skills": [
         "art:铁板桥"
-      ]
+      ],
+      "foreshadow": "内力烫笛逼退叶二娘，救回左家幼儿",
+      "arrives_with": "portent:宽袍客赶到峰顶"
     },
     {
       "id": "chr:符圣使",
       "aliases": [],
-      "description": "率八名绿衣女子的灵鹫宫使者，面带煞气，下令擒杀叛徒",
+      "description": "率八名绿衣女子的灵鹫宫使者，面带煞气",
       "true_name": "符圣使",
       "titles": [],
       "faction": "缥缈峰灵鹫宫",
@@ -1740,12 +1814,14 @@
       "tier": "三流",
       "disposition": "狠辣",
       "location_id": "loc:高崖",
-      "skills": []
+      "skills": [],
+      "foreshadow": "下令擒杀叛徒",
+      "arrives_with": "portent:符圣使降临高崖"
     },
     {
       "id": "chr:郁光标",
       "aliases": [],
-      "description": "无量剑东宗男弟子，押段誉入小屋，扬言多说一句便掌嘴",
+      "description": "无量剑东宗男弟子",
       "true_name": "郁光标",
       "titles": [],
       "faction": "无量剑东宗",
@@ -1753,12 +1829,14 @@
       "tier": "三流",
       "disposition": "中庸",
       "location_id": "loc:高崖",
-      "skills": []
+      "skills": [],
+      "foreshadow": "押段誉入小屋，扬言多说一句便掌嘴",
+      "arrives_with": "portent:郁光标押人上崖"
     },
     {
       "id": "chr:钱光胜",
       "aliases": [],
-      "description": "无量剑东宗男弟子，与同门挟持段誉下山并开门关人",
+      "description": "无量剑东宗男弟子",
       "true_name": "钱光胜",
       "titles": [],
       "faction": "无量剑东宗",
@@ -1766,7 +1844,9 @@
       "tier": "三流",
       "disposition": "中庸",
       "location_id": "loc:高崖",
-      "skills": []
+      "skills": [],
+      "foreshadow": "与同门挟持段誉下山并开门关人",
+      "arrives_with": "portent:钱光胜押人上崖"
     },
     {
       "id": "chr:刀白凤",
@@ -1775,7 +1855,7 @@
         "凤凰儿",
         "段王妃"
       ],
-      "description": "段誉之母，与镇南王失和而出家为道姑，以拂尘御敌，终为众人安危返回大理",
+      "description": "段誉之母，与镇南王失和而出家为道姑，惯以拂尘御敌",
       "true_name": "刀白凤",
       "titles": [
         "玉虚散人"
@@ -1787,12 +1867,14 @@
       "location_id": "loc:玉虚观",
       "skills": [
         "art:凤栖于梧"
-      ]
+      ],
+      "foreshadow": "终为众人安危返回大理",
+      "arrives_with": null
     },
     {
       "id": "chr:段正明",
       "aliases": [],
-      "description": "大理当朝天子，崇佛随和，喜爱木婉清的率真，饶过侄儿出走之罪",
+      "description": "大理当朝天子，崇佛随和",
       "true_name": "段正明",
       "titles": [
         "保定帝"
@@ -1804,7 +1886,9 @@
       "location_id": "loc:镇南王府",
       "skills": [
         "art:一阳指"
-      ]
+      ],
+      "foreshadow": "喜爱木婉清的率真，饶过侄儿出走之罪",
+      "arrives_with": "portent:皇上驾临王府"
     },
     {
       "id": "chr:段思平",
@@ -1819,7 +1903,9 @@
       "tier": "三流",
       "disposition": "中庸",
       "location_id": null,
-      "skills": []
+      "skills": [],
+      "foreshadow": "",
+      "arrives_with": null
     },
     {
       "id": "chr:段俭魏",
@@ -1832,7 +1918,9 @@
       "tier": "三流",
       "disposition": "中庸",
       "location_id": null,
-      "skills": []
+      "skills": [],
+      "foreshadow": "",
+      "arrives_with": null
     },
     {
       "id": "chr:梁阿婆",
@@ -1845,14 +1933,16 @@
       "tier": "不入流",
       "disposition": "中庸",
       "location_id": null,
-      "skills": []
+      "skills": [],
+      "foreshadow": "",
+      "arrives_with": null
     },
     {
       "id": "chr:巴天石",
       "aliases": [
         "巴司空"
       ],
-      "description": "黑瘦矮小的司空，轻功卓绝，暗中跟踪查出万劫谷所在",
+      "description": "黑瘦矮小的司空，轻功卓绝",
       "true_name": "巴天石",
       "titles": [],
       "faction": "大理国",
@@ -1860,7 +1950,9 @@
       "tier": "一流",
       "disposition": "中庸",
       "location_id": "loc:镇南王府·内堂",
-      "skills": []
+      "skills": [],
+      "foreshadow": "暗中跟踪查出万劫谷所在",
+      "arrives_with": "portent:巴司空入府复命"
     },
     {
       "id": "chr:华赫艮",
@@ -1878,14 +1970,16 @@
       "location_id": "loc:范骅府",
       "skills": [
         "art:虎爪功"
-      ]
+      ],
+      "foreshadow": "",
+      "arrives_with": null
     },
     {
       "id": "chr:范骅",
       "aliases": [
         "范司马"
       ],
-      "description": "司马，献计从地底掘道潜入谷中救出世子",
+      "description": "朝中司马",
       "true_name": "范骅",
       "titles": [],
       "faction": "大理国",
@@ -1893,7 +1987,9 @@
       "tier": "一流",
       "disposition": "中庸",
       "location_id": "loc:范骅府",
-      "skills": []
+      "skills": [],
+      "foreshadow": "献计从地底掘道潜入谷中救出世子",
+      "arrives_with": null
     },
     {
       "id": "chr:黄眉僧",
@@ -1901,7 +1997,7 @@
         "黄眉和尚",
         "黄眉大师"
       ],
-      "description": "长眉高僧，为救段誉赴谷挑战，自断足趾以争先手",
+      "description": "长眉高僧",
       "true_name": "黄眉僧",
       "titles": [],
       "faction": "拈花寺",
@@ -1912,12 +2008,14 @@
       "skills": [
         "art:金刚指",
         "art:拦云手"
-      ]
+      ],
+      "foreshadow": "为救段誉赴谷挑战，自断足趾以争先手",
+      "arrives_with": null
     },
     {
       "id": "chr:破疑",
       "aliases": [],
-      "description": "黄眉僧的大弟子，随师赴谷，替师父裹伤",
+      "description": "黄眉僧的大弟子",
       "true_name": "破疑",
       "titles": [],
       "faction": "拈花寺",
@@ -1925,7 +2023,9 @@
       "tier": "三流",
       "disposition": "中庸",
       "location_id": "loc:拈花寺·后院",
-      "skills": []
+      "skills": [],
+      "foreshadow": "随师赴谷，替师父裹伤",
+      "arrives_with": null
     },
     {
       "id": "chr:段廉义",
@@ -1940,7 +2040,9 @@
       "tier": "三流",
       "disposition": "中庸",
       "location_id": null,
-      "skills": []
+      "skills": [],
+      "foreshadow": "",
+      "arrives_with": null
     },
     {
       "id": "chr:段寿辉",
@@ -1955,7 +2057,9 @@
       "tier": "三流",
       "disposition": "中庸",
       "location_id": "loc:天龙寺",
-      "skills": []
+      "skills": [],
+      "foreshadow": "",
+      "arrives_with": null
     },
     {
       "id": "chr:杨义贞",
@@ -1968,7 +2072,9 @@
       "tier": "三流",
       "disposition": "狠辣",
       "location_id": null,
-      "skills": []
+      "skills": [],
+      "foreshadow": "",
+      "arrives_with": null
     },
     {
       "id": "chr:高智昇",
@@ -1981,12 +2087,14 @@
       "tier": "三流",
       "disposition": "仁厚",
       "location_id": null,
-      "skills": []
+      "skills": [],
+      "foreshadow": "",
+      "arrives_with": null
     },
     {
       "id": "chr:破嗔",
       "aliases": [],
-      "description": "黄眉僧次徒，善弈，在段誉与师父之间暗中传递棋着",
+      "description": "黄眉僧次徒，善弈",
       "true_name": "破嗔",
       "titles": [],
       "faction": "",
@@ -1994,7 +2102,9 @@
       "tier": "不入流",
       "disposition": "中庸",
       "location_id": "loc:万劫谷·石屋",
-      "skills": []
+      "skills": [],
+      "foreshadow": "在段誉与师父之间暗中传递棋着",
+      "arrives_with": "portent:随师入谷对弈"
     },
     {
       "id": "chr:丁老怪",
@@ -2009,7 +2119,9 @@
       "location_id": "loc:星宿海",
       "skills": [
         "art:化功大法"
-      ]
+      ],
+      "foreshadow": "",
+      "arrives_with": null
     },
     {
       "id": "chr:过彦之",
@@ -2024,7 +2136,9 @@
       "tier": "二流",
       "disposition": "中庸",
       "location_id": "loc:镇南王府·大厅",
-      "skills": []
+      "skills": [],
+      "foreshadow": "",
+      "arrives_with": "portent:过彦之登门求见"
     },
     {
       "id": "chr:柯百岁",
@@ -2039,7 +2153,9 @@
       "location_id": null,
       "skills": [
         "art:天灵千裂"
-      ]
+      ],
+      "foreshadow": "",
+      "arrives_with": null
     },
     {
       "id": "chr:乔峰",
@@ -2052,7 +2168,9 @@
       "tier": "不入流",
       "disposition": "中庸",
       "location_id": null,
-      "skills": []
+      "skills": [],
+      "foreshadow": "",
+      "arrives_with": null
     },
     {
       "id": "chr:慧真",
@@ -2065,7 +2183,9 @@
       "tier": "三流",
       "disposition": "中庸",
       "location_id": "loc:镇南王府·大厅",
-      "skills": []
+      "skills": [],
+      "foreshadow": "",
+      "arrives_with": "portent:少林二僧送信"
     },
     {
       "id": "chr:慧观",
@@ -2078,7 +2198,9 @@
       "tier": "三流",
       "disposition": "中庸",
       "location_id": "loc:镇南王府·大厅",
-      "skills": []
+      "skills": [],
+      "foreshadow": "",
+      "arrives_with": "portent:少林二僧送信"
     },
     {
       "id": "chr:玄慈",
@@ -2091,7 +2213,9 @@
       "tier": "三流",
       "disposition": "仁厚",
       "location_id": "loc:少林寺",
-      "skills": []
+      "skills": [],
+      "foreshadow": "",
+      "arrives_with": null
     },
     {
       "id": "chr:玄悲",
@@ -2106,12 +2230,14 @@
       "location_id": "loc:身戒寺",
       "skills": [
         "art:大韦陀杵"
-      ]
+      ],
+      "foreshadow": "",
+      "arrives_with": "portent:夜宿身戒寺"
     },
     {
       "id": "chr:五叶",
       "aliases": [],
-      "description": "身戒寺方丈，熟谙武林旧事，判断凶手多半出自姑苏慕容",
+      "description": "身戒寺方丈，熟谙武林旧事",
       "true_name": "五叶",
       "titles": [],
       "faction": "身戒寺",
@@ -2119,7 +2245,9 @@
       "tier": "三流",
       "disposition": "中庸",
       "location_id": "loc:身戒寺",
-      "skills": []
+      "skills": [],
+      "foreshadow": "判断凶手多半出自姑苏慕容",
+      "arrives_with": null
     },
     {
       "id": "chr:慕容博",
@@ -2134,7 +2262,9 @@
       "location_id": "loc:苏州",
       "skills": [
         "art:金刚指"
-      ]
+      ],
+      "foreshadow": "",
+      "arrives_with": null
     },
     {
       "id": "chr:章虚道人",
@@ -2147,7 +2277,9 @@
       "tier": "不入流",
       "disposition": "狠辣",
       "location_id": "loc:济南",
-      "skills": []
+      "skills": [],
+      "foreshadow": "",
+      "arrives_with": null
     },
     {
       "id": "chr:吕庆图",
@@ -2160,7 +2292,9 @@
       "tier": "不入流",
       "disposition": "狠辣",
       "location_id": "loc:吕庆图家",
-      "skills": []
+      "skills": [],
+      "foreshadow": "",
+      "arrives_with": null
     }
   ],
   "martial_arts": [
@@ -2722,7 +2856,11 @@
       "kind": "随身物",
       "owner_id": "chr:段誉",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:闪电貂",
@@ -2732,7 +2870,11 @@
       "kind": "灵兽",
       "owner_id": "chr:钟灵",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": false,
+      "hazard": "有毒",
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:毒信笺",
@@ -2742,7 +2884,11 @@
       "kind": "书信",
       "owner_id": null,
       "location_id": "loc:剑湖宫·练武厅",
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": "剧毒",
+      "use": null,
+      "arrives_with": "portent:神农帮射来毒信"
     },
     {
       "id": "itm:通天草",
@@ -2752,7 +2898,14 @@
       "kind": "药草",
       "owner_id": null,
       "location_id": "loc:无量山",
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": {
+        "effect": "解毒",
+        "potency": 2
+      },
+      "arrives_with": null
     },
     {
       "id": "itm:无量玉璧",
@@ -2764,7 +2917,11 @@
       "kind": "奇石",
       "owner_id": null,
       "location_id": "loc:无量山",
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": false,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:秘制蛇药",
@@ -2774,7 +2931,14 @@
       "kind": "药物",
       "owner_id": "chr:司空玄",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": {
+        "effect": "解毒",
+        "potency": 2
+      },
+      "arrives_with": null
     },
     {
       "id": "itm:断肠散",
@@ -2784,7 +2948,11 @@
       "kind": "毒药",
       "owner_id": "chr:司空玄",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:断肠散解药",
@@ -2794,7 +2962,14 @@
       "kind": "解药",
       "owner_id": "chr:司空玄",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": {
+        "effect": "解毒",
+        "potency": 2
+      },
+      "arrives_with": null
     },
     {
       "id": "itm:花鞋",
@@ -2804,7 +2979,11 @@
       "kind": "信物",
       "owner_id": "chr:钟灵",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:镶宝石的长剑",
@@ -2814,7 +2993,11 @@
       "kind": "兵器",
       "owner_id": null,
       "location_id": "loc:幽谷·峭壁",
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:大水晶",
@@ -2824,7 +3007,11 @@
       "kind": "宝物",
       "owner_id": null,
       "location_id": "loc:剑湖·第一间石室",
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": false,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:铜镜",
@@ -2834,7 +3021,11 @@
       "kind": "器物",
       "owner_id": null,
       "location_id": "loc:剑湖·第一间石室",
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:玉像",
@@ -2844,7 +3035,11 @@
       "kind": "雕像",
       "owner_id": null,
       "location_id": "loc:幽谷·玉像石室",
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": false,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:大蒲团",
@@ -2854,7 +3049,11 @@
       "kind": "器物",
       "owner_id": null,
       "location_id": "loc:幽谷·玉像石室",
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": false,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:小蒲团",
@@ -2864,7 +3063,11 @@
       "kind": "器物",
       "owner_id": null,
       "location_id": "loc:幽谷·玉像石室",
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": false,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:绸包",
@@ -2874,7 +3077,11 @@
       "kind": "遗书",
       "owner_id": null,
       "location_id": "loc:幽谷·玉像石室",
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:帛卷",
@@ -2887,7 +3094,11 @@
       "kind": "秘籍",
       "owner_id": null,
       "location_id": "loc:幽谷·玉像石室",
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:木制摇篮",
@@ -2897,7 +3108,11 @@
       "kind": "家具",
       "owner_id": null,
       "location_id": "loc:剑湖·第三间石室",
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": false,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:七弦琴",
@@ -2907,7 +3122,11 @@
       "kind": "乐器",
       "owner_id": null,
       "location_id": "loc:剑湖·第三间石室",
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:石几棋局",
@@ -2917,7 +3136,11 @@
       "kind": "棋局",
       "owner_id": null,
       "location_id": "loc:剑湖·第三间石室",
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": false,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:小铁锤",
@@ -2927,7 +3150,11 @@
       "kind": "器具",
       "owner_id": null,
       "location_id": "loc:万劫谷·草地",
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:梨木桌子",
@@ -2937,7 +3164,11 @@
       "kind": "家具",
       "owner_id": null,
       "location_id": "loc:万劫谷·瓦屋小厅",
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": false,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:钟夫人的长剑",
@@ -2947,7 +3178,11 @@
       "kind": "兵器",
       "owner_id": "chr:甘宝宝",
       "location_id": "loc:万劫谷·钟夫人卧室",
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:黄金钿盒",
@@ -2960,7 +3195,11 @@
       "kind": "器物",
       "owner_id": "chr:甘宝宝",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:纸片",
@@ -2970,7 +3209,11 @@
       "kind": "文书",
       "owner_id": "chr:甘宝宝",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:长剑",
@@ -2980,7 +3223,11 @@
       "kind": "兵器",
       "owner_id": "chr:甘宝宝",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:黑玫瑰",
@@ -2990,7 +3237,11 @@
       "kind": "坐骑",
       "owner_id": "chr:木婉清",
       "location_id": "loc:大屋",
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:铁拐杖",
@@ -3002,7 +3253,11 @@
       "kind": "兵器",
       "owner_id": "chr:瑞婆婆",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:短刀",
@@ -3014,7 +3269,11 @@
       "kind": "兵器",
       "owner_id": "chr:平婆婆",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:短箭",
@@ -3028,7 +3287,11 @@
       "kind": "暗器",
       "owner_id": "chr:木婉清",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:面幕",
@@ -3038,7 +3301,11 @@
       "kind": "衣饰",
       "owner_id": "chr:木婉清",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:碧玉",
@@ -3048,7 +3315,11 @@
       "kind": "饰物",
       "owner_id": "chr:段誉",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:药箱",
@@ -3058,7 +3329,11 @@
       "kind": "器具",
       "owner_id": "chr:司空玄",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:铁铲",
@@ -3068,7 +3343,11 @@
       "kind": "兵器",
       "owner_id": "chr:华赫艮",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:黄杨木梳",
@@ -3078,7 +3357,11 @@
       "kind": "梳妆",
       "owner_id": "chr:木婉清",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:小铜镜",
@@ -3088,7 +3371,11 @@
       "kind": "梳妆",
       "owner_id": "chr:木婉清",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:粉红色手帕",
@@ -3098,7 +3385,11 @@
       "kind": "衣饰",
       "owner_id": "chr:木婉清",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:盛胭脂的小木盒",
@@ -3108,7 +3399,14 @@
       "kind": "伤药",
       "owner_id": "chr:木婉清",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": {
+        "effect": "疗伤",
+        "potency": 2
+      },
+      "arrives_with": null
     },
     {
       "id": "itm:盛白粉的小木盒",
@@ -3118,7 +3416,11 @@
       "kind": "药物",
       "owner_id": "chr:木婉清",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:盛黄粉的小木盒",
@@ -3128,7 +3430,11 @@
       "kind": "药物",
       "owner_id": "chr:木婉清",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:木婉清的瓷瓶",
@@ -3138,7 +3444,11 @@
       "kind": "器物",
       "owner_id": "chr:木婉清",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:木婉清的长剑",
@@ -3148,7 +3458,11 @@
       "kind": "兵器",
       "owner_id": "chr:木婉清",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:护身皮甲",
@@ -3158,7 +3472,11 @@
       "kind": "护具",
       "owner_id": "chr:岳老三",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:牛腿",
@@ -3168,7 +3486,11 @@
       "kind": "食物",
       "owner_id": "chr:岳老三",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:金创药",
@@ -3178,7 +3500,14 @@
       "kind": "药物",
       "owner_id": "chr:木婉清",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": {
+        "effect": "疗伤",
+        "potency": 2
+      },
+      "arrives_with": null
     },
     {
       "id": "itm:板斧",
@@ -3188,7 +3517,11 @@
       "kind": "兵器",
       "owner_id": "chr:古笃诚",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:钢抓",
@@ -3198,7 +3531,11 @@
       "kind": "兵器",
       "owner_id": "chr:云中鹤",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:鳄嘴剪",
@@ -3208,7 +3545,11 @@
       "kind": "兵器",
       "owner_id": "chr:岳老三",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:鳄尾鞭",
@@ -3218,7 +3559,11 @@
       "kind": "兵器",
       "owner_id": "chr:岳老三",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:判官笔",
@@ -3228,7 +3573,11 @@
       "kind": "兵器",
       "owner_id": "chr:朱丹臣",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:铁杆软索",
@@ -3241,7 +3590,11 @@
       "kind": "兵器",
       "owner_id": "chr:褚万里",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:熟铜棍",
@@ -3253,7 +3606,11 @@
       "kind": "兵器",
       "owner_id": "chr:傅思归",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:铁笛",
@@ -3263,7 +3620,11 @@
       "kind": "兵器",
       "owner_id": "chr:高昇泰",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:莽牯朱蛤",
@@ -3275,7 +3636,11 @@
       "kind": "毒物",
       "owner_id": null,
       "location_id": "loc:无量山",
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": false,
+      "hazard": "剧毒",
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:王昌龄集",
@@ -3285,7 +3650,11 @@
       "kind": "书籍",
       "owner_id": "chr:朱丹臣",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:拂尘",
@@ -3295,7 +3664,11 @@
       "kind": "兵器",
       "owner_id": "chr:刀白凤",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:修罗刀",
@@ -3305,7 +3678,11 @@
       "kind": "兵器",
       "owner_id": "chr:秦红棉",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:铁杖",
@@ -3317,7 +3694,11 @@
       "kind": "兵器",
       "owner_id": "chr:段延庆",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:阴阳和合散",
@@ -3329,7 +3710,11 @@
       "kind": "春药",
       "owner_id": "chr:段延庆",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:大环刀",
@@ -3339,7 +3724,11 @@
       "kind": "兵器",
       "owner_id": "chr:钟万仇",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:薄刀",
@@ -3349,7 +3738,11 @@
       "kind": "兵器",
       "owner_id": "chr:叶二娘",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:方刀",
@@ -3359,7 +3752,11 @@
       "kind": "兵器",
       "owner_id": "chr:叶二娘",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:铁木鱼",
@@ -3369,7 +3766,11 @@
       "kind": "兵器",
       "owner_id": "chr:黄眉僧",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:小铁槌",
@@ -3382,7 +3783,11 @@
       "kind": "兵器",
       "owner_id": "chr:黄眉僧",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:青石棋局",
@@ -3392,7 +3797,11 @@
       "kind": "棋盘",
       "owner_id": null,
       "location_id": "loc:万劫谷·石屋",
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": false,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:钢斧",
@@ -3402,7 +3811,11 @@
       "kind": "兵器",
       "owner_id": "chr:古笃诚",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     },
     {
       "id": "itm:黄金算盘",
@@ -3412,7 +3825,11 @@
       "kind": "暗器",
       "owner_id": "chr:崔百泉",
       "location_id": null,
-      "provenance": "原著"
+      "provenance": "原著",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null
     }
   ],
   "relations": [
@@ -3420,775 +3837,906 @@
       "source_id": "chr:左子穆",
       "target_id": "chr:龚光杰",
       "kind": "师徒",
-      "note": "龚光杰是左子穆的得意门徒"
+      "note": "龚光杰是左子穆的得意门徒",
+      "era": "开篇"
     },
     {
       "source_id": "chr:左子穆",
       "target_id": "chr:辛双清",
       "kind": "同门",
-      "note": "同派东西两宗的掌门，以师兄妹相称"
+      "note": "同派东西两宗的掌门，以师兄妹相称",
+      "era": "开篇"
     },
     {
       "source_id": "chr:龚光杰",
       "target_id": "chr:段誉",
       "kind": "仇敌",
-      "note": "段誉嗤笑其诈败，龚光杰掌掴并摔跌了他"
+      "note": "段誉嗤笑其诈败，龚光杰掌掴并摔跌了他",
+      "era": "将至"
     },
     {
       "source_id": "chr:左子穆",
       "target_id": "chr:容子矩",
       "kind": "同门",
-      "note": "容子矩是左子穆的师弟"
+      "note": "容子矩是左子穆的师弟",
+      "era": "开篇"
     },
     {
       "source_id": "chr:左子穆",
       "target_id": "chr:干光豪",
       "kind": "师徒",
-      "note": "干光豪是左子穆门下大弟子"
+      "note": "干光豪是左子穆门下大弟子",
+      "era": "开篇"
     },
     {
       "source_id": "chr:干光豪",
       "target_id": "chr:龚光杰",
       "kind": "同门",
-      "note": "同为东宗大弟子，以师兄弟相称"
+      "note": "同为东宗大弟子，以师兄弟相称",
+      "era": "开篇"
     },
     {
       "source_id": "chr:容子矩",
       "target_id": "chr:龚光杰",
       "kind": "同门",
-      "note": "龚光杰称容子矩为师叔"
+      "note": "龚光杰称容子矩为师叔",
+      "era": "开篇"
     },
     {
       "source_id": "chr:左子穆",
       "target_id": "chr:司空玄",
       "kind": "仇敌",
-      "note": "神农帮扬言诛灭无量剑，两派已有血仇"
+      "note": "神农帮扬言诛灭无量剑，两派已有血仇",
+      "era": "开篇"
     },
     {
       "source_id": "chr:天山童姥",
       "target_id": "chr:司空玄",
       "kind": "主仆",
-      "note": "司空玄身中生死符，唯她能解，受其辖制"
+      "note": "司空玄身中生死符，唯她能解，受其辖制",
+      "era": "开篇"
     },
     {
       "source_id": "chr:孟述圣",
       "target_id": "chr:段誉",
       "kind": "师徒",
-      "note": "传授段誉经书与易理的读书师父，不涉武艺"
+      "note": "传授段誉经书与易理的读书师父，不涉武艺",
+      "era": "开篇"
     },
     {
       "source_id": "chr:司空玄",
       "target_id": "chr:阿胜",
       "kind": "主仆",
-      "note": "阿胜是帮众，听帮主号令拿人"
+      "note": "阿胜是帮众，听帮主号令拿人",
+      "era": "开篇"
     },
     {
       "source_id": "chr:司空玄",
       "target_id": "chr:阿洪",
       "kind": "主仆",
-      "note": "阿洪是帮众，奉帮主之命动手"
+      "note": "阿洪是帮众，奉帮主之命动手",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段誉",
       "target_id": "chr:钟灵",
       "kind": "情侣",
-      "note": "同被活埋时互许为友，段誉情不自禁亲了她脸颊"
+      "note": "同被活埋时互许为友，段誉情不自禁亲了她脸颊",
+      "era": "将至"
     },
     {
       "source_id": "chr:司空玄",
       "target_id": "chr:钟灵",
       "kind": "仇敌",
-      "note": "她放貂咬伤帮众与帮主，他下令将她活埋"
+      "note": "她放貂咬伤帮众与帮主，他下令将她活埋",
+      "era": "将至"
     },
     {
       "source_id": "chr:司空玄",
       "target_id": "chr:段誉",
       "kind": "仇敌",
-      "note": "司空玄逼他服毒，以此挟他去请钟灵之父"
+      "note": "司空玄逼他服毒，以此挟他去请钟灵之父",
+      "era": "将至"
     },
     {
       "source_id": "chr:干光豪",
       "target_id": "chr:葛光佩",
       "kind": "情侣",
-      "note": "东西两宗弟子私订终身，趁乱一同背师出逃"
+      "note": "东西两宗弟子私订终身，趁乱一同背师出逃",
+      "era": "开篇"
     },
     {
       "source_id": "chr:干光豪",
       "target_id": "chr:段誉",
       "kind": "仇敌",
-      "note": "察觉段誉偷听后一路追赶，欲杀之灭口"
+      "note": "察觉段誉偷听后一路追赶，欲杀之灭口",
+      "era": "将至"
     },
     {
       "source_id": "chr:无涯子",
       "target_id": "chr:秋水妹",
       "kind": "情侣",
-      "note": "他为她在石壁题字，二人似曾双宿双飞隐居谷底密洞"
+      "note": "他为她在石壁题字，二人似曾双宿双飞隐居谷底密洞",
+      "era": "开篇"
     },
     {
       "source_id": "chr:秋水妹",
       "target_id": "chr:段誉",
       "kind": "主仆",
-      "note": "段誉对玉像叩满千头，自认此后甘受神仙姊姊差遣"
+      "note": "段誉对玉像叩满千头，自认此后甘受神仙姊姊差遣",
+      "era": "将至"
     },
     {
       "source_id": "chr:甘宝宝",
       "target_id": "chr:钟灵",
       "kind": "亲族",
-      "note": "母女二人眉目相似，钟灵嘱段誉先来见母亲"
+      "note": "母女二人眉目相似，钟灵嘱段誉先来见母亲",
+      "era": "开篇"
     },
     {
       "source_id": "chr:钟万仇",
       "target_id": "chr:甘宝宝",
       "kind": "亲族",
-      "note": "二人是夫妻，丈夫对她又爱又敬，却总疑心吃醋"
+      "note": "二人是夫妻，丈夫对她又爱又敬，却总疑心吃醋",
+      "era": "开篇"
     },
     {
       "source_id": "chr:钟万仇",
       "target_id": "chr:钟灵",
       "kind": "亲族",
-      "note": "父女，女儿容貌全随母亲而不像他"
+      "note": "父女，女儿容貌全随母亲而不像他",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段正淳",
       "target_id": "chr:段誉",
       "kind": "亲族",
-      "note": "父子，段誉向钟家坦白了父亲名讳"
+      "note": "父子，段誉向钟家坦白了父亲名讳",
+      "era": "开篇"
     },
     {
       "source_id": "chr:钟万仇",
       "target_id": "chr:段正淳",
       "kind": "仇敌",
-      "note": "钟万仇对段正淳恨入骨髓，邀恶人前来相助报仇"
+      "note": "钟万仇对段正淳恨入骨髓，邀恶人前来相助报仇",
+      "era": "开篇"
     },
     {
       "source_id": "chr:钟万仇",
       "target_id": "chr:进喜儿",
       "kind": "主仆",
-      "note": "进喜儿是钟家服侍多年的家仆"
+      "note": "进喜儿是钟家服侍多年的家仆",
+      "era": "开篇"
     },
     {
       "source_id": "chr:钟万仇",
       "target_id": "chr:来福儿",
       "kind": "主仆",
-      "note": "来福儿受主人差遣去北庄迎接宾客"
+      "note": "来福儿受主人差遣去北庄迎接宾客",
+      "era": "开篇"
     },
     {
       "source_id": "chr:钟万仇",
       "target_id": "chr:段誉",
       "kind": "仇敌",
-      "note": "钟万仇疑段誉是情敌之子，踢倒他并出言辱骂"
+      "note": "钟万仇疑段誉是情敌之子，踢倒他并出言辱骂",
+      "era": "将至"
     },
     {
       "source_id": "chr:甘宝宝",
       "target_id": "chr:司空玄",
       "kind": "仇敌",
-      "note": "女儿被神农帮扣住，甘宝宝扬言要辣手报复"
+      "note": "女儿被神农帮扣住，甘宝宝扬言要辣手报复",
+      "era": "将至"
     },
     {
       "source_id": "chr:葛光佩",
       "target_id": "chr:段誉",
       "kind": "仇敌",
-      "note": "疑段誉引来同门，打手势要丈夫杀他"
+      "note": "疑段誉引来同门，打手势要丈夫杀他",
+      "era": "将至"
     },
     {
       "source_id": "chr:木婉清",
       "target_id": "chr:瑞婆婆",
       "kind": "仇敌",
-      "note": "瑞婆婆一伙一路穷追，双方拼杀互有死伤"
+      "note": "瑞婆婆一伙一路穷追，双方拼杀互有死伤",
+      "era": "开篇"
     },
     {
       "source_id": "chr:木婉清",
       "target_id": "chr:平婆婆",
       "kind": "仇敌",
-      "note": "平婆婆誓要追到天边，混战中被木婉清连伤数剑"
+      "note": "平婆婆誓要追到天边，混战中被木婉清连伤数剑",
+      "era": "开篇"
     },
     {
       "source_id": "chr:秦红棉",
       "target_id": "chr:木婉清",
       "kind": "师徒",
-      "note": "木婉清的武艺由她传授，入门前须先立誓"
+      "note": "木婉清的武艺由她传授，入门前须先立誓",
+      "era": "开篇"
     },
     {
       "source_id": "chr:岳老三",
       "target_id": "chr:孙三霸",
       "kind": "师徒",
-      "note": "门规一师只传一徒，孙三霸是他唯一的传人"
+      "note": "门规一师只传一徒，孙三霸是他唯一的传人",
+      "era": "开篇"
     },
     {
       "source_id": "chr:木婉清",
       "target_id": "chr:孙三霸",
       "kind": "仇敌",
-      "note": "孙三霸丧命于木婉清手下"
+      "note": "孙三霸丧命于木婉清手下",
+      "era": "开篇"
     },
     {
       "source_id": "chr:岳老三",
       "target_id": "chr:木婉清",
       "kind": "仇敌",
-      "note": "为替爱徒报仇而来，要揭她面幕再取其命"
+      "note": "为替爱徒报仇而来，要揭她面幕再取其命",
+      "era": "开篇"
     },
     {
       "source_id": "chr:木婉清",
       "target_id": "chr:段誉",
       "kind": "情侣",
-      "note": "段誉见了她真容，她依誓认他为夫，二人在崖上亲近"
+      "note": "段誉见了她真容，她依誓认他为夫，二人在崖上亲近",
+      "era": "将至"
     },
     {
       "source_id": "chr:甘宝宝",
       "target_id": "chr:木婉清",
       "kind": "同门",
-      "note": "甘宝宝是木婉清师父的师妹，即其师叔"
+      "note": "甘宝宝是木婉清师父的师妹，即其师叔",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段延庆",
       "target_id": "chr:岳老三",
       "kind": "结义",
-      "note": "同列四大恶人，以排行相称，岳老三争老大之位落败"
+      "note": "同列四大恶人，以排行相称，岳老三争老大之位落败",
+      "era": "开篇"
     },
     {
       "source_id": "chr:叶二娘",
       "target_id": "chr:岳老三",
       "kind": "结义",
-      "note": "同列四大恶人，姊弟相称，岳老三欲夺她的第二座次"
+      "note": "同列四大恶人，姊弟相称，岳老三欲夺她的第二座次",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段延庆",
       "target_id": "chr:叶二娘",
       "kind": "结义",
-      "note": "同列四大恶人，叶二娘奉他为首"
+      "note": "同列四大恶人，叶二娘奉他为首",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段延庆",
       "target_id": "chr:云中鹤",
       "kind": "结义",
-      "note": "同列四大恶人，云中鹤吃亏后扬言向老大告状"
+      "note": "同列四大恶人，云中鹤吃亏后扬言向老大告状",
+      "era": "开篇"
     },
     {
       "source_id": "chr:叶二娘",
       "target_id": "chr:云中鹤",
       "kind": "结义",
-      "note": "以姊弟相称，他遇敌时她袖手旁观"
+      "note": "以姊弟相称，他遇敌时她袖手旁观",
+      "era": "开篇"
     },
     {
       "source_id": "chr:岳老三",
       "target_id": "chr:云中鹤",
       "kind": "结义",
-      "note": "同为四大恶人，岳老三取笑他吃了大亏"
+      "note": "同为四大恶人，岳老三取笑他吃了大亏",
+      "era": "开篇"
     },
     {
       "source_id": "chr:左子穆",
       "target_id": "chr:左山山",
       "kind": "亲族",
-      "note": "父子，左子穆为救被掳的儿子甘受恶人摆布"
+      "note": "父子，左子穆为救被掳的儿子甘受恶人摆布",
+      "era": "开篇"
     },
     {
       "source_id": "chr:叶二娘",
       "target_id": "chr:左子穆",
       "kind": "仇敌",
-      "note": "她掳走其幼子，他明知不敌仍挺剑拼命"
+      "note": "她掳走其幼子，他明知不敌仍挺剑拼命",
+      "era": "将至"
     },
     {
       "source_id": "chr:云中鹤",
       "target_id": "chr:左子穆",
       "kind": "仇敌",
-      "note": "云中鹤以钢抓刺伤他肩头并将他踢倒"
+      "note": "云中鹤以钢抓刺伤他肩头并将他踢倒",
+      "era": "将至"
     },
     {
       "source_id": "chr:云中鹤",
       "target_id": "chr:木婉清",
       "kind": "仇敌",
-      "note": "他垂涎其美色，她以毒箭相射"
+      "note": "他垂涎其美色，她以毒箭相射",
+      "era": "将至"
     },
     {
       "source_id": "chr:叶二娘",
       "target_id": "chr:木婉清",
       "kind": "仇敌",
-      "note": "叶二娘要剜她双目，以鞋打伤了她"
+      "note": "叶二娘要剜她双目，以鞋打伤了她",
+      "era": "将至"
     },
     {
       "source_id": "chr:段誉",
       "target_id": "chr:褚万里",
       "kind": "主仆",
-      "note": "护卫称段誉为公子爷，一到便追问他的下落"
+      "note": "护卫称段誉为公子爷，一到便追问他的下落",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段誉",
       "target_id": "chr:傅思归",
       "kind": "主仆",
-      "note": "听说公子遇害，傅思归誓要替他报仇"
+      "note": "听说公子遇害，傅思归誓要替他报仇",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段誉",
       "target_id": "chr:古笃诚",
       "kind": "主仆",
-      "note": "古笃诚急于找到公子，先要除掉叶二娘"
+      "note": "古笃诚急于找到公子，先要除掉叶二娘",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段誉",
       "target_id": "chr:朱丹臣",
       "kind": "主仆",
-      "note": "朱丹臣随众护卫赶来寻找公子爷"
+      "note": "朱丹臣随众护卫赶来寻找公子爷",
+      "era": "开篇"
     },
     {
       "source_id": "chr:傅思归",
       "target_id": "chr:叶二娘",
       "kind": "仇敌",
-      "note": "傅思归挥棍猛攻，叶二娘以孩儿相挡"
+      "note": "傅思归挥棍猛攻，叶二娘以孩儿相挡",
+      "era": "将至"
     },
     {
       "source_id": "chr:古笃诚",
       "target_id": "chr:叶二娘",
       "kind": "仇敌",
-      "note": "他挥斧砍她下盘，被她踢中肩头"
+      "note": "他挥斧砍她下盘，被她踢中肩头",
+      "era": "将至"
     },
     {
       "source_id": "chr:高昇泰",
       "target_id": "chr:叶二娘",
       "kind": "仇敌",
-      "note": "他以铁笛逼她弃子，她撒暗器后脱身"
+      "note": "他以铁笛逼她弃子，她撒暗器后脱身",
+      "era": "将至"
     },
     {
       "source_id": "chr:天山童姥",
       "target_id": "chr:符圣使",
       "kind": "主仆",
-      "note": "圣使替童姥巡察属下，代她决定解药给否"
+      "note": "圣使替童姥巡察属下，代她决定解药给否",
+      "era": "开篇"
     },
     {
       "source_id": "chr:郁光标",
       "target_id": "chr:钱光胜",
       "kind": "同门",
-      "note": "同为东宗弟子，合力挟持段誉"
+      "note": "同为东宗弟子，合力挟持段誉",
+      "era": "开篇"
     },
     {
       "source_id": "chr:符圣使",
       "target_id": "chr:干光豪",
       "kind": "仇敌",
-      "note": "圣使认定他是叛徒，命无量洞抓回处死"
+      "note": "圣使认定他是叛徒，命无量洞抓回处死",
+      "era": "将至"
     },
     {
       "source_id": "chr:符圣使",
       "target_id": "chr:葛光佩",
       "kind": "仇敌",
-      "note": "圣使认定她是叛徒，命无量洞抓回处死"
+      "note": "圣使认定她是叛徒，命无量洞抓回处死",
+      "era": "将至"
     },
     {
       "source_id": "chr:符圣使",
       "target_id": "chr:辛双清",
       "kind": "主仆",
-      "note": "符圣使立她为无量洞之主，她依令看管段誉"
+      "note": "符圣使立她为无量洞之主，她依令看管段誉",
+      "era": "将至"
     },
     {
       "source_id": "chr:左子穆",
       "target_id": "chr:郁光标",
       "kind": "师徒",
-      "note": "看守段誉的弟子们以他为师父"
+      "note": "看守段誉的弟子们以他为师父",
+      "era": "开篇"
     },
     {
       "source_id": "chr:左子穆",
       "target_id": "chr:钱光胜",
       "kind": "师徒",
-      "note": "钱光胜是左子穆门下弟子"
+      "note": "钱光胜是左子穆门下弟子",
+      "era": "开篇"
     },
     {
       "source_id": "chr:左子穆",
       "target_id": "chr:木婉清",
       "kind": "仇敌",
-      "note": "左子穆仗剑追她，段誉怕被他抓去换回人质"
+      "note": "左子穆仗剑追她，段誉怕被他抓去换回人质",
+      "era": "将至"
     },
     {
       "source_id": "chr:朱丹臣",
       "target_id": "chr:云中鹤",
       "kind": "仇敌",
-      "note": "小店里泼汤掀桌、以判官笔与他交手，后又拦路阻他"
+      "note": "小店里泼汤掀桌、以判官笔与他交手，后又拦路阻他",
+      "era": "将至"
     },
     {
       "source_id": "chr:褚万里",
       "target_id": "chr:云中鹤",
       "kind": "仇敌",
-      "note": "某夜与古笃诚合斗此人，险胜一场"
+      "note": "某夜与古笃诚合斗此人，险胜一场",
+      "era": "开篇"
     },
     {
       "source_id": "chr:古笃诚",
       "target_id": "chr:云中鹤",
       "kind": "仇敌",
-      "note": "某夜与褚万里合斗此人，险胜一场"
+      "note": "某夜与褚万里合斗此人，险胜一场",
+      "era": "开篇"
     },
     {
       "source_id": "chr:刀白凤",
       "target_id": "chr:段誉",
       "kind": "亲族",
-      "note": "母子情深，段誉一见她便搂着撒娇"
+      "note": "母子情深，段誉一见她便搂着撒娇",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段正淳",
       "target_id": "chr:刀白凤",
       "kind": "亲族",
-      "note": "夫妻失和，王妃出家多年，丈夫亲自出城赔礼迎接"
+      "note": "夫妻失和，王妃出家多年，丈夫亲自出城赔礼迎接",
+      "era": "开篇"
     },
     {
       "source_id": "chr:刀白凤",
       "target_id": "chr:秦红棉",
       "kind": "仇敌",
-      "note": "一提此人王妃便变脸厉问，怀疑木婉清与她有关"
+      "note": "一提此人王妃便变脸厉问，怀疑木婉清与她有关",
+      "era": "开篇"
     },
     {
       "source_id": "chr:云中鹤",
       "target_id": "chr:刀白凤",
       "kind": "仇敌",
-      "note": "他想掳走王妃，两人以钢抓对拂尘交手"
+      "note": "他想掳走王妃，两人以钢抓对拂尘交手",
+      "era": "将至"
     },
     {
       "source_id": "chr:高昇泰",
       "target_id": "chr:岳老三",
       "kind": "仇敌",
-      "note": "二人对掌相拼，斗得正紧"
+      "note": "二人对掌相拼，斗得正紧",
+      "era": "将至"
     },
     {
       "source_id": "chr:褚万里",
       "target_id": "chr:朱丹臣",
       "kind": "结义",
-      "note": "众护卫以兄弟相称，褚万里唤他四弟"
+      "note": "众护卫以兄弟相称，褚万里唤他四弟",
+      "era": "开篇"
     },
     {
       "source_id": "chr:刀白凤",
       "target_id": "chr:傅思归",
       "kind": "主仆",
-      "note": "傅思归自称属下，仍按旧习称她王妃"
+      "note": "傅思归自称属下，仍按旧习称她王妃",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段正明",
       "target_id": "chr:段正淳",
       "kind": "亲族",
-      "note": "兄弟，皇帝是镇南王的大哥"
+      "note": "兄弟，皇帝是镇南王的大哥",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段正明",
       "target_id": "chr:段誉",
       "kind": "亲族",
-      "note": "伯侄，皇帝看着侄儿长大，宽恕其私逃"
+      "note": "伯侄，皇帝看着侄儿长大，宽恕其私逃",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段正淳",
       "target_id": "chr:岳老三",
       "kind": "仇敌",
-      "note": "为护儿子与闯府恶人硬拼一掌，双方都受震动"
+      "note": "为护儿子与闯府恶人硬拼一掌，双方都受震动",
+      "era": "将至"
     },
     {
       "source_id": "chr:段正明",
       "target_id": "chr:高昇泰",
       "kind": "主仆",
-      "note": "侯爷入花厅跪拜帝后，奉旨称臣"
+      "note": "侯爷入花厅跪拜帝后，奉旨称臣",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段正淳",
       "target_id": "chr:褚万里",
       "kind": "主仆",
-      "note": "护卫为王爷牵马侍奉，在府中垂手侍立"
+      "note": "护卫为王爷牵马侍奉，在府中垂手侍立",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段俭魏",
       "target_id": "chr:段思平",
       "kind": "亲族",
-      "note": "段氏始祖传至第六代出了开国之君"
+      "note": "段氏始祖传至第六代出了开国之君",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段思平",
       "target_id": "chr:段正明",
       "kind": "亲族",
-      "note": "开国太祖传了十四代至当今皇帝"
+      "note": "开国太祖传了十四代至当今皇帝",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段誉",
       "target_id": "chr:岳老三",
       "kind": "师徒",
-      "note": "岳老三输了赌约，当众磕八个头认段誉为师"
+      "note": "岳老三输了赌约，当众磕八个头认段誉为师",
+      "era": "将至"
     },
     {
       "source_id": "chr:段正淳",
       "target_id": "chr:古笃诚",
       "kind": "主仆",
-      "note": "奉王爷之命抬走并安葬遇害卫士"
+      "note": "奉王爷之命抬走并安葬遇害卫士",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段正淳",
       "target_id": "chr:傅思归",
       "kind": "主仆",
-      "note": "奉王爷之命料理遇害卫士的后事"
+      "note": "奉王爷之命料理遇害卫士的后事",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段正淳",
       "target_id": "chr:秦红棉",
       "kind": "情侣",
-      "note": "十八年前的旧情人，她恨他负心不肯相随"
+      "note": "十八年前的旧情人，她恨他负心不肯相随",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段正淳",
       "target_id": "chr:木婉清",
       "kind": "亲族",
-      "note": "父女，段正淳当面认下这个女儿"
+      "note": "父女，段正淳当面认下这个女儿",
+      "era": "开篇"
     },
     {
       "source_id": "chr:甘宝宝",
       "target_id": "chr:秦红棉",
       "kind": "同门",
-      "note": "甘宝宝是师妹，木婉清称她师叔"
+      "note": "甘宝宝是师妹，木婉清称她师叔",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段正淳",
       "target_id": "chr:甘宝宝",
       "kind": "情侣",
-      "note": "昔日恋人，她已另嫁且拒其亲近"
+      "note": "昔日恋人，她已另嫁且拒其亲近",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段延庆",
       "target_id": "chr:段正明",
       "kind": "仇敌",
-      "note": "恶贯满盈自称与他结下深仇，痛骂其伪善"
+      "note": "恶贯满盈自称与他结下深仇，痛骂其伪善",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段延庆",
       "target_id": "chr:段誉",
       "kind": "仇敌",
-      "note": "为报复段家，下药囚禁他兄妹二人"
+      "note": "为报复段家，下药囚禁他兄妹二人",
+      "era": "将至"
     },
     {
       "source_id": "chr:段正明",
       "target_id": "chr:巴天石",
       "kind": "主仆",
-      "note": "君臣，皇帝待他如兄弟，派他探查敌巢"
+      "note": "君臣，皇帝待他如兄弟，派他探查敌巢",
+      "era": "开篇"
     },
     {
       "source_id": "chr:巴天石",
       "target_id": "chr:云中鹤",
       "kind": "仇敌",
-      "note": "两人绕屋比拼轻功，彼此暗惊遇上劲敌"
+      "note": "两人绕屋比拼轻功，彼此暗惊遇上劲敌",
+      "era": "将至"
     },
     {
       "source_id": "chr:段正明",
       "target_id": "chr:褚万里",
       "kind": "主仆",
-      "note": "君臣，皇上下旨即罢战"
+      "note": "君臣，皇上下旨即罢战",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段正明",
       "target_id": "chr:傅思归",
       "kind": "主仆",
-      "note": "君臣，皇上下旨即罢战"
+      "note": "君臣，皇上下旨即罢战",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段正明",
       "target_id": "chr:朱丹臣",
       "kind": "主仆",
-      "note": "君臣，皇上下旨即罢战"
+      "note": "君臣，皇上下旨即罢战",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段正明",
       "target_id": "chr:古笃诚",
       "kind": "主仆",
-      "note": "君臣，皇上下旨即罢战"
+      "note": "君臣，皇上下旨即罢战",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段廉义",
       "target_id": "chr:段延庆",
       "kind": "亲族",
-      "note": "父子，宫变后太子下落不明多年"
+      "note": "父子，宫变后太子下落不明多年",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段寿辉",
       "target_id": "chr:段廉义",
       "kind": "亲族",
-      "note": "叔侄，侄儿平乱后继承帝位"
+      "note": "叔侄，侄儿平乱后继承帝位",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段寿辉",
       "target_id": "chr:段正明",
       "kind": "亲族",
-      "note": "堂兄弟，出家前把皇位传给他"
+      "note": "堂兄弟，出家前把皇位传给他",
+      "era": "开篇"
     },
     {
       "source_id": "chr:杨义贞",
       "target_id": "chr:段廉义",
       "kind": "仇敌",
-      "note": "奸臣作乱弑杀君主"
+      "note": "奸臣作乱弑杀君主",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段寿辉",
       "target_id": "chr:杨义贞",
       "kind": "仇敌",
-      "note": "借高僧与忠臣之力讨灭逆贼"
+      "note": "借高僧与忠臣之力讨灭逆贼",
+      "era": "开篇"
     },
     {
       "source_id": "chr:高智昇",
       "target_id": "chr:高昇泰",
       "kind": "亲族",
-      "note": "父子，儿子承父遗志守护段家江山"
+      "note": "父子，儿子承父遗志守护段家江山",
+      "era": "开篇"
     },
     {
       "source_id": "chr:黄眉僧",
       "target_id": "chr:段正明",
       "kind": "同门",
-      "note": "以师兄贤弟相称，皇帝少时常来听经"
+      "note": "以师兄贤弟相称，皇帝少时常来听经",
+      "era": "开篇"
     },
     {
       "source_id": "chr:黄眉僧",
       "target_id": "chr:破疑",
       "kind": "师徒",
-      "note": "大弟子随侍左右，替师父包扎伤口"
+      "note": "大弟子随侍左右，替师父包扎伤口",
+      "era": "开篇"
     },
     {
       "source_id": "chr:黄眉僧",
       "target_id": "chr:段延庆",
       "kind": "仇敌",
-      "note": "为救段誉上门挑战，以棋局与内力相拼"
+      "note": "为救段誉上门挑战，以棋局与内力相拼",
+      "era": "将至"
     },
     {
       "source_id": "chr:华赫艮",
       "target_id": "chr:范骅",
       "kind": "结义",
-      "note": "生死之交，以大哥二哥相称"
+      "note": "生死之交，以大哥二哥相称",
+      "era": "开篇"
     },
     {
       "source_id": "chr:华赫艮",
       "target_id": "chr:巴天石",
       "kind": "结义",
-      "note": "生死之交，少数知其盗墓出身的人"
+      "note": "生死之交，少数知其盗墓出身的人",
+      "era": "开篇"
     },
     {
       "source_id": "chr:范骅",
       "target_id": "chr:巴天石",
       "kind": "结义",
-      "note": "三公兄弟，一同谋划救出世子"
+      "note": "三公兄弟，一同谋划救出世子",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段正明",
       "target_id": "chr:华赫艮",
       "kind": "主仆",
-      "note": "君臣，盗墓出身的他辅佐皇帝屡建功勋"
+      "note": "君臣，盗墓出身的他辅佐皇帝屡建功勋",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段正明",
       "target_id": "chr:范骅",
       "kind": "主仆",
-      "note": "君臣，替君分忧筹划救人之策"
+      "note": "君臣，替君分忧筹划救人之策",
+      "era": "开篇"
     },
     {
       "source_id": "chr:黄眉僧",
       "target_id": "chr:破嗔",
       "kind": "师徒",
-      "note": "破嗔是黄眉僧的第二名弟子"
+      "note": "破嗔是黄眉僧的第二名弟子",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段延庆",
       "target_id": "chr:木婉清",
       "kind": "仇敌",
-      "note": "擒下她关进石屋"
+      "note": "擒下她关进石屋",
+      "era": "将至"
     },
     {
       "source_id": "chr:云中鹤",
       "target_id": "chr:钟万仇",
       "kind": "仇敌",
-      "note": "云中鹤扬言要夺其妻产，钟万仇约他事后比武"
+      "note": "云中鹤扬言要夺其妻产，钟万仇约他事后比武",
+      "era": "将至"
     },
     {
       "source_id": "chr:段正淳",
       "target_id": "chr:钟灵",
       "kind": "亲族",
-      "note": "钟灵其实是他与甘宝宝的私生女"
+      "note": "钟灵其实是他与甘宝宝的私生女",
+      "era": "开篇"
     },
     {
       "source_id": "chr:云中鹤",
       "target_id": "chr:钟灵",
       "kind": "仇敌",
-      "note": "趁乱把她掳走"
+      "note": "趁乱把她掳走",
+      "era": "将至"
     },
     {
       "source_id": "chr:柯百岁",
       "target_id": "chr:过彦之",
       "kind": "师徒",
-      "note": "过彦之是掌门大弟子，为师父披麻戴孝"
+      "note": "过彦之是掌门大弟子，为师父披麻戴孝",
+      "era": "开篇"
     },
     {
       "source_id": "chr:柯百岁",
       "target_id": "chr:崔百泉",
       "kind": "同门",
-      "note": "师兄弟，崔百泉誓为师兄报仇"
+      "note": "师兄弟，崔百泉誓为师兄报仇",
+      "era": "开篇"
     },
     {
       "source_id": "chr:崔百泉",
       "target_id": "chr:过彦之",
       "kind": "同门",
-      "note": "师叔与师侄"
+      "note": "师叔与师侄",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段正淳",
       "target_id": "chr:崔百泉",
       "kind": "主仆",
-      "note": "崔百泉化名投靠王府，在账房栖身多年"
+      "note": "崔百泉化名投靠王府，在账房栖身多年",
+      "era": "开篇"
     },
     {
       "source_id": "chr:段正淳",
       "target_id": "chr:高昇泰",
       "kind": "主仆",
-      "note": "高昇泰辅佐段氏兄弟，留心王府诸事"
+      "note": "高昇泰辅佐段氏兄弟，留心王府诸事",
+      "era": "开篇"
     },
     {
       "source_id": "chr:玄慈",
       "target_id": "chr:玄悲",
       "kind": "同门",
-      "note": "师兄弟，方丈为师弟南来写信托付"
+      "note": "师兄弟，方丈为师弟南来写信托付",
+      "era": "开篇"
     },
     {
       "source_id": "chr:慧真",
       "target_id": "chr:慧观",
       "kind": "同门",
-      "note": "同为少林僧，结伴来大理送信"
+      "note": "同为少林僧，结伴来大理送信",
+      "era": "开篇"
     },
     {
       "source_id": "chr:玄悲",
       "target_id": "chr:慧真",
       "kind": "师徒",
-      "note": "慧真随师父南来大理"
+      "note": "慧真随师父南来大理",
+      "era": "开篇"
     },
     {
       "source_id": "chr:玄悲",
       "target_id": "chr:慧观",
       "kind": "师徒",
-      "note": "慧观亦是玄悲门下弟子"
+      "note": "慧观亦是玄悲门下弟子",
+      "era": "开篇"
     },
     {
       "source_id": "chr:崔百泉",
       "target_id": "chr:吕庆图",
       "kind": "仇敌",
-      "note": "崔百泉为师兄友人出气，杀尽吕家"
+      "note": "崔百泉为师兄友人出气，杀尽吕家",
+      "era": "开篇"
     },
     {
       "source_id": "chr:慕容博",
       "target_id": "chr:章虚道人",
       "kind": "仇敌",
-      "note": "章虚道人遭同样手段惨死，慕容博的名言由他传出"
+      "note": "章虚道人遭同样手段惨死，慕容博的名言由他传出",
+      "era": "开篇"
     },
     {
       "source_id": "chr:慕容博",
       "target_id": "chr:崔百泉",
       "kind": "仇敌",
-      "note": "以算珠钉住崔百泉，扬言下回再取其命"
+      "note": "以算珠钉住崔百泉，扬言下回再取其命",
+      "era": "开篇"
     },
     {
       "source_id": "chr:慕容博",
       "target_id": "chr:柯百岁",
       "kind": "仇敌",
-      "note": "崔百泉认定师兄命丧慕容博之手"
+      "note": "崔百泉认定师兄命丧慕容博之手",
+      "era": "开篇"
     },
     {
       "source_id": "chr:慕容博",
       "target_id": "chr:黄眉僧",
       "kind": "仇敌",
-      "note": "据推断四十五年前曾以指力重伤黄眉僧"
+      "note": "据推断四十五年前曾以指力重伤黄眉僧",
+      "era": "开篇"
     },
     {
       "source_id": "chr:岳老三",
       "target_id": "chr:钟万仇",
       "kind": "仇敌",
-      "note": "为辈分之争要取钟万仇性命"
+      "note": "为辈分之争要取钟万仇性命",
+      "era": "将至"
     }
-  ]
+  ],
+  "personas": [],
+  "facts": []
 }

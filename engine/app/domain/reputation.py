@@ -5,7 +5,8 @@
 [POS]: domain 的名声：取代 rules 里的 _ripple。人情的涟漪只沿图谱的 HAS_RELATION 走一跳、只波及在场且行动自如的目睹之人，
        而且只认结于开篇（era=开篇）的羁绊——将至、后文才结下的关系在 T=0 还不存在，沿它翻转态度就是让人提前记起未来的恩怨。
        在开篇的范围内恢复「敌人之敌」：受害者的仇家对你升一档（至多友善，阶梯每次至多一档）；与受害者休戚与共者直落敌视。
-       缘由写明称谓与其人：目睹者是关系的上首（lead，师父、兄长）时写「你打伤其得意门徒某某」，反之「你打伤其师父某某」……
+       缘由写明称谓与其人：师徒、主仆按上首（lead）分——目睹者是师父时写「你打伤其得意门徒某某」，反之「你打伤其师父某某」；
+       亲族不分长幼统称「至亲」（亲族边里有父子也有夫妻、兄弟，方向靠不住）……
        RelationChanged.basis 记下称谓所据的关系（「师徒」）或受害者本人的「交手」
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -27,8 +28,8 @@ STRUCK = "交手"
 _KIN: dict[tuple[RelationKind, bool], str] = {
     (RelationKind.MENTOR, True): "得意门徒",
     (RelationKind.MENTOR, False): "师父",
-    (RelationKind.KIN, True): "至亲骨肉",
-    (RelationKind.KIN, False): "至亲长辈",
+    (RelationKind.KIN, True): "至亲",  # 亲族不分长幼：蓝图的亲族边里有父子，也有夫妻、兄弟，边的方向说不清谁是长辈
+    (RelationKind.KIN, False): "至亲",
     (RelationKind.FELLOW, True): "同门",
     (RelationKind.FELLOW, False): "同门",
     (RelationKind.SWORN, True): "结义兄弟",

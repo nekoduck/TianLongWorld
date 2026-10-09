@@ -5,7 +5,7 @@
          依赖 domain/stakes 的 AnyStakes / Ruling，依赖 domain/progression 的 MAX_HP / REST_GAIN，
          依赖 domain/intent 的 PlayerIntent，依赖 domain/snapshot 的 LocalSnapshot / ItemView；PlayerState 仅作类型标注
 [OUTPUT]: 对外提供 ObserveRule（静观，无事件）/ MoveRule（只沿 CONNECTS_TO）/ TakeRule（地上之物与被制住者身上之物定案；
-          他人手中之物按手段分路：武力 → 战·夺物、言辞 / 人情 / 借势 → 交·讨要、计谋 / 潜行 → 暗·骗取 / 偷取、寻常 → 驳回并提示换手段；
+          他人手中之物按手段分路（所图以格子为准）：武力 → 战·夺物、言辞 / 人情 / 借势 → 交·讨要、计谋 / 潜行 → 暗·骗取 / 偷取、寻常 → 驳回并提示换手段（带持有人与物的 id）；
           不可携带之物一律驳回 NOT_PORTABLE）/ HAZARD_HURT 与 handled()（险物取到手即受伤，留一口气）/
           UseRule（服用敷用随身之物：ItemConsumed + HealthChanged(source="item")）/ RestRule（调息：有伤且无仇人在侧，source="rest"）/
           InvalidRule（违背世界观永不获准）
@@ -81,7 +81,7 @@ class TakeRule(Rule):
                 return Rejection("ALREADY_CARRIED", f"「{mine.name}」已在你身上。")
             return Rejection("NOT_PRESENT", f"此处不见「{wanted}」。")
         if not thing.portable:
-            return Rejection("NOT_PORTABLE", f"「{thing.name}」无法随身带走。", unlock="就地察看")
+            return Rejection("NOT_PORTABLE", f"「{thing.name}」无法随身带走。", unlock="就地察看", subject_id=thing.id)
         holder = snap.character(thing.holder_id)
         if holder is None or holder.subdued:  # 地上之物、被制住者身上之物：伸手即得
             return Approval(intent, target=thing.id, source=thing.holder_id)
@@ -95,7 +95,8 @@ class TakeRule(Rule):
                                 skill=skill.id if skill else None, route=Route.COMBAT, aim=aim)
             case Route.SOCIAL | Route.COVERT:
                 return Approval(intent, target=holder.id, item=thing.id, source=holder.id, route=cell.route, aim=aim)
-        return Rejection("HELD_BY_OTHER", f"「{thing.name}」在{holder.name}手中，须先胜过此人，或待其相赠。", unlock=HELD_HINT)
+        return Rejection("HELD_BY_OTHER", f"「{thing.name}」在{holder.name}手中，须先胜过此人，或待其相赠。", unlock=HELD_HINT,
+                         target_id=holder.id, subject_id=thing.id)
 
     def stakes(self, ok: Approval, state: PlayerState, snap: LocalSnapshot) -> AnyStakes | None:
         match ok.route:

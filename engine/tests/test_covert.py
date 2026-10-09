@@ -1,9 +1,9 @@
 """
 [INPUT]: 依赖 app.domain.covert 的 assess_covert / settle_covert / effects / CovertStakes / CovertRuling，依赖 app.domain.rules 的 decide / stakes，
          依赖 app.domain.stakes 的 Proposal，依赖 tests/test_rules 的 scene / act / recast / reitem / ROOTED
-[OUTPUT]: 暗中取物的单测：区间矩阵（境界差、失主戒心 −1、骗取信你之人 +1、失主被制住 +2）按「无痕 / 未遂 / 败露 / 失手」连续切片、
+[OUTPUT]: 暗中取物的单测：区间矩阵（境界差、失主戒心 −1、骗取信你之人 +1、失主被制住 +2；≤ −2 只有失手）按「无痕 / 未遂 / 败露 / 失手」连续切片、
           settle 出界取确定性裁决、效果（无痕易手、未遂只留 Maneuvered、败露易手且失主敌视、失手只结仇、已敌视不重复入账、永不伤人）；
-          经 rules 端到端：潜行偷剑、计谋骗剑、高一境稳稳得手、险物到手照样受伤而不致死
+          经 rules 端到端：潜行偷剑、计谋骗剑、高一境稳稳得手、险物到手照样受伤而不致死、差两境以上（偷绝顶之人）只有失手、东西绝不到手
 [POS]: tests 的暗中死线：被察觉才是代价；暗中行事永不致死
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -36,7 +36,8 @@ def filch(player: Tier, holder: Tier, attitude: Attitude = Attitude.NEUTRAL, app
         (filch(Tier.SECOND, Tier.THIRD), 1, (C.CLEAN, C.FOILED), C.CLEAN),
         (filch(Tier.THIRD, Tier.THIRD), 0, (C.CLEAN, C.FOILED, C.EXPOSED), C.FOILED),
         (filch(Tier.NONE, Tier.THIRD), -1, (C.FOILED, C.EXPOSED, C.CAUGHT), C.FOILED),
-        (filch(Tier.NONE, Tier.SECOND), -2, (C.EXPOSED, C.CAUGHT), C.CAUGHT),
+        (filch(Tier.NONE, Tier.SECOND), -2, (C.CAUGHT,), C.CAUGHT),  # 差两境：东西绝不会到手
+        (filch(Tier.NONE, Tier.PEERLESS), -4, (C.CAUGHT,), C.CAUGHT),
         (filch(Tier.THIRD, Tier.THIRD, Attitude.WARY), -1, (C.FOILED, C.EXPOSED, C.CAUGHT), C.FOILED),  # 他正盯着你
         (filch(Tier.THIRD, Tier.THIRD, Attitude.FRIENDLY, P.GUILE), 1, (C.CLEAN, C.FOILED), C.CLEAN),  # 骗的是信你的人
         (filch(Tier.THIRD, Tier.THIRD, Attitude.FRIENDLY), 0, (C.CLEAN, C.FOILED, C.EXPOSED), C.FOILED),  # 偷不沾这份信任
@@ -104,3 +105,17 @@ async def test_a_better_hand_lifts_it_clean_and_a_hazard_still_bites() -> None:
     wary = recast(snap, "chr:左子穆", attitude=Attitude.WARY)
     at_stake = stakes(sneak, state, wary)
     assert isinstance(at_stake, CovertStakes) and at_stake.margin == 0  # 二流对三流 +1，他正盯着你 −1
+
+
+async def test_a_hopelessly_outclassed_thief_never_walks_off_with_it() -> None:
+    """差了两境以上（不入流偷绝顶乔峰的打狗棒，差额 −4）：区间只有失手，不论地下城主提议什么，东西都不会到手——暗取不是越级取胜的后门。"""
+    state, snap = await scene("loc:无锡城")
+    for approach in (P.STEALTH, P.GUILE):
+        lift = act(ActionType.TAKE, target_entity="打狗棒", approach=approach)
+        at_stake = stakes(lift, state, snap)
+        assert isinstance(at_stake, CovertStakes) and at_stake.margin == -4
+        assert (at_stake.admissible, at_stake.canonical, at_stake.contested) == ((C.CAUGHT,), C.CAUGHT, False)
+        for outcome in (None, *C):
+            events = decide(lift, state, snap, Proposal(outcome) if outcome else None)
+            assert not any(isinstance(e, ItemTransferred) for e in events), events
+            assert events[0] == Maneuvered(item_id="itm:打狗棒", target_id="chr:乔峰", approach=approach, outcome=C.CAUGHT)

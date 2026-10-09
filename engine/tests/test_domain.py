@@ -1,10 +1,12 @@
 """
 [INPUT]: 依赖 app.domain 的 models / lore / intent / outcomes / events / aggregates / progression / snapshot，依赖 tests/world 的 WORLD
 [OUTPUT]: 本体完整性、事件不可变与 JSONB 往返及旧账上抛、渐进式状态的折算、聚合根纯函数折叠（含焦点与恩怨缘由）的单测；
-          P1 词汇：人情阶梯 rank / step、关系 era 与物性缺省、掌故闸门（人设与见闻的悬空引用、知情人须与主体有涉、unlock 须落在边上、字数与出处）、
+          P1 词汇：人情阶梯 rank / step、关系 era 与物性缺省、掌故闸门（人设与见闻的悬空引用、知情人须与主体有涉、unlock 须落在边上、字数与出处、
+          主体与知情人不得重复、关系边只认开篇、后来才到场的物品不作主体与险物目标）、
           手段 / 所图 / 话题与 USE、四种新事件往返、旧账缺新字段照读、HealthChanged 上抛（调息疗伤 → rest）与焦点只因调息而不新鲜、
-          快照新视图的缺省值与固定排序；P1 阶段 B 的折叠：已知见闻、用掉之物离开行囊（易手覆盖照旧）、交涉与暗取进焦点 / 近来手段 / 尝试次数 / 心事线索
-[POS]: tests 的领域地基：蓝图是最后一道闸门（悬空引用 / 根基成环 / 人物主键不是本名一律拒收，下落不明的物品合法存在）；
+          快照新视图的缺省值与固定排序；P1 阶段 B 的折叠：已知见闻、用掉之物离开行囊（易手覆盖照旧）、交涉与暗取进焦点 / 近来手段 / 尝试次数 / 心事线索、
+          物品最初的来路 taken_from（转手再拿回来不改）；ActionFailed.target_id / subject_id 与 Parleyed.subject_id 往返且旧账缺省为 None
+[POS]: tests 的领域地基：蓝图是最后一道闸门（悬空引用 / 根基成环 / 人物主键不是本名 / 关系边自环或一对人两条边一律拒收，下落不明的物品合法存在）；
        "当前状态 = reduce(evolve, 历史)"——不查状态表，只凭事件流重算位置、行囊、火候与气血；拿到秘籍不等于学会
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -119,6 +121,19 @@ def test_blueprint_rejects_foundation_cycle() -> None:
     assert prerequisite_cycle({"x": ("y",), "y": ()}) == []
 
 
+def test_blueprint_rejects_self_relations_and_parallel_edges() -> None:
+    a = Character(id="chr:甲", true_name="甲")
+    b = Character(id="chr:乙", true_name="乙")
+    with pytest.raises(ValidationError, match="自环"):
+        WorldBlueprint(characters=(a,), relations=(CharacterRelation(source_id="chr:甲", target_id="chr:甲", kind=RelationKind.SWORN),))
+    twice = (
+        CharacterRelation(source_id="chr:甲", target_id="chr:乙", kind=RelationKind.SWORN),
+        CharacterRelation(source_id="chr:乙", target_id="chr:甲", kind=RelationKind.ENEMY),
+    )
+    with pytest.raises(ValidationError, match="至多一条"):
+        WorldBlueprint(characters=(a, b), relations=twice)  # 不论方向与类别：人情涟漪与掌故落边都按"一对人一条边"读
+
+
 def test_acquisition_and_practice_are_separate_gates() -> None:
     art = next(a for a in WORLD.martial_arts if a.id == "art:凌波微步")
     assert art.acquisition.items == ("itm:北冥神功卷轴",) and art.acquisition.location_id == "loc:无量玉洞"
@@ -231,6 +246,47 @@ def test_lore_gate_rejects(extra: dict[str, object], message: str) -> None:
         _lore(**extra)
 
 
+@pytest.mark.parametrize(
+    ("update", "message"),
+    [
+        ({"subject_ids": ("chr:左子穆", "chr:辛双清", "chr:左子穆")}, "主体有重复：chr:左子穆"),
+        ({"knower_ids": ("chr:龚光杰", "chr:龚光杰")}, "知情人有重复：chr:龚光杰"),
+    ],
+)
+def test_lore_gate_rejects_repeated_ids(update: dict[str, object], message: str) -> None:
+    """主体与知情人不得重复：两套图谱对重复的处理不同（内存照留、Neo4j 合并），从源头拒收，快照才逐字段同构。"""
+    with pytest.raises(ValidationError, match=message):
+        _lore(facts=(RIVALRY.model_copy(update=update),))
+
+
+@pytest.mark.parametrize("era", [Era.IMMINENT, Era.LATER])
+def test_lore_gate_only_counts_bonds_of_the_opening(era: Era) -> None:
+    """将至、后文才结下的关系在 T=0 还不存在：既不让人知情，也不作把柄。"""
+    later = tuple(r.model_copy(update={"era": era}) for r in WORLD.relations)
+    rival = Fact(id="fact:左子穆的剑", text="左子穆剑法凌厉", subject_ids=("chr:左子穆",), knower_ids=("chr:辛双清",),
+                 sources=("chunk:1",))  # 不同门：辛双清知情全凭东西宗相争这条边
+    with pytest.raises(ValidationError, match="与主体无涉"):
+        _lore(relations=later, facts=(rival,))
+    lever = RIVALRY.model_copy(update={"knower_ids": ("chr:左子穆",)})
+    with pytest.raises(ValidationError, match="落不到蓝图的边上"):  # 左子穆与辛双清的东西宗之争尚未结下
+        _lore(relations=later, facts=(lever,))
+    assert _lore(facts=(rival, lever)).facts == (rival, lever)  # 同样的边结于开篇即可
+
+
+def test_lore_gate_rejects_items_that_only_arrive_later() -> None:
+    """后来才到场的物品（arrives_with）属于 P2 的世界事件：不能作见闻的主体，也不能作险物 unlock 的目标。"""
+    toad = Item(id="itm:朱蛤", name="朱蛤", kind="毒物", location_id="loc:无量山", portable=False, hazard="剧毒",
+                arrives_with="portent:莽牯朱蛤")
+    items = (*WORLD.items, toad)
+    venom = Fact(id="fact:朱蛤有毒", text="山间朱蛤剧毒，碰不得", subject_ids=("itm:朱蛤",), knower_ids=("chr:辛双清",),
+                 unlock=FactUnlock(kind="HAZARD", target_id="itm:朱蛤"), sources=("chunk:9",))
+    with pytest.raises(ValidationError, match="后来才到场"):
+        WorldBlueprint.model_validate({**WORLD.model_dump(), "items": items, "facts": (venom,)})
+    warned = RIVALRY.model_copy(update={"unlock": FactUnlock(kind="HAZARD", target_id="itm:朱蛤")})
+    with pytest.raises(ValidationError, match="落不到蓝图的边上"):
+        WorldBlueprint.model_validate({**WORLD.model_dump(), "items": items, "facts": (warned,)})
+
+
 def test_lore_fields_are_bounded() -> None:
     with pytest.raises(ValidationError):
         Persona(character_id="chr:左子穆", likes=("话" * 17,), sources=("chunk:1",))  # 每条 ≤16 字
@@ -269,13 +325,13 @@ ALL_EVENTS = [
     RelationChanged(character_id="chr:段正淳", attitude=Attitude.FRIENDLY, cause="物归原主"),
     ActionFailed(action=ActionType.MOVE, target="少林寺", reason_code="NO_PATH", reason="无路"),
     ActionFailed(action=ActionType.LEARN, target="一阳指", reason_code="UNWILLING", reason="交情尚浅", unlock="信赖",
-                 aim=Aim.LEARN, approach=Approach.WORDS),
+                 aim=Aim.LEARN, approach=Approach.WORDS, target_id="chr:段正淳", subject_id="art:一阳指"),
     HealthChanged(delta=5, cause="服用金创药", source_id="itm:金创药", source="item"),
     Conversed(npc_id="chr:左子穆", topic_id="fact:东西宗比剑"),
     RelationChanged(character_id="chr:龚光杰", attitude=Attitude.WARY, cause="师徒左子穆受你攻击", basis="师徒"),
     SkillExecuted(skill_id=None, target_id="chr:龚光杰", outcome=CombatOutcome.STALEMATE, approach=Approach.GUILE),
     Parleyed(npc_id="chr:左子穆", aim=Aim.LEARN, approach=Approach.WORDS, outcome=SocialOutcome.SOFTENED,
-             leverage_ids=("fact:东西宗比剑",)),
+             leverage_ids=("fact:东西宗比剑",), subject_id="art:无量剑法"),
     FactLearned(fact_id="fact:东西宗比剑", source_id="chr:左子穆"),
     ItemConsumed(item_id="itm:金创药", effect="疗伤"),
     Maneuvered(item_id="itm:无量剑", target_id="chr:左子穆", approach=Approach.STEALTH, outcome=CovertOutcome.FOILED),
@@ -308,6 +364,9 @@ def test_old_ledgers_read_without_the_new_fields() -> None:
     """P1 给旧事件加的字段一律有缺省值：账本里没有它们的旧账照读。"""
     failed = decode_event({"type": "ActionFailed", "action": "TALK", "target": None, "reason_code": "X", "reason": "y"})
     assert isinstance(failed, ActionFailed) and (failed.unlock, failed.aim, failed.approach) == ("", None, Approach.PLAIN)
+    assert (failed.target_id, failed.subject_id) == (None, None)
+    parley = decode_event({"type": "Parleyed", "npc_id": "chr:段誉", "aim": "结交", "approach": "言辞", "outcome": "无果"})
+    assert isinstance(parley, Parleyed) and parley.subject_id is None
     talked = decode_event({"type": "Conversed", "npc_id": "chr:段誉"})
     assert isinstance(talked, Conversed) and talked.topic_id is None
     hit = decode_event({"type": "SkillExecuted", "skill_id": None, "target_id": "chr:段誉", "outcome": "得手"})
@@ -334,6 +393,18 @@ def test_only_resting_lets_the_focus_go_stale() -> None:
     legacy = decode_event({"type": "HealthChanged", "delta": 10, "cause": "调息疗伤"})
     rested = Player.replay([*talk, legacy])
     assert rested is not None and not rested.focus_fresh
+
+
+def test_provenance_remembers_where_an_item_first_came_from() -> None:
+    """taken_from 记下物品最初从谁手里到你身上：转手第三人再拿回来不改（偷来的底子洗不白），离手也不抹。"""
+    base = [PlayerSpawned(player_id=PID, name="阿星", location_id="loc:无量山")]
+    stolen = ItemTransferred(item_id="itm:无量剑", from_holder="chr:左子穆", to_holder=PID)
+    passed = ItemTransferred(item_id="itm:无量剑", from_holder=PID, to_holder="chr:龚光杰")
+    back = ItemTransferred(item_id="itm:无量剑", from_holder="chr:龚光杰", to_holder=PID)
+    found = ItemTransferred(item_id="itm:玉佩", from_holder="loc:无量山", to_holder=PID)
+    elsewhere = ItemTransferred(item_id="itm:打狗棒", from_holder="chr:乔峰", to_holder="chr:段誉")
+    state = Player.replay([*base, stolen, passed, back, found, elsewhere])
+    assert state is not None and state.taken_from == {"itm:无量剑": "chr:左子穆", "itm:玉佩": "loc:无量山"}
 
 
 def test_the_new_vocabulary_folds_into_the_aggregate() -> None:

@@ -2,7 +2,7 @@
 [INPUT]: 依赖 pydantic v2 的 BaseModel，依赖 domain/models 的 Tier / Disposition / Attitude / Era / RelationKind / Acquisition / Practice / ItemUse，
          依赖 domain/lore 的 FactUnlock，依赖 domain/progression 的 MAX_HP / Mastery / Vitality / mastery_of / vitality
 [OUTPUT]: 对外提供 局部真理快照 LocalSnapshot（集合字段构造即按固定键排序、referenced_ids 列出名称表须覆盖的 id、玩家的熟练度 / 悟性 / 气血
-          及现算的 mastery / vitality、facts 知情人在场的见闻）及其视图 LocationView / ExitView（hostile_ahead 去处有仇人）/
+          及现算的 mastery / vitality、facts 知情人在场或已知而与在场者有涉的见闻（known 标明已知））及其视图 LocationView / ExitView（hostile_ahead 去处有仇人）/
           CharacterView（含称号、persona 外显人设）/ BondView（era 结于何时、lead 本人是关系的上首）/ ItemView（portable / hazard / use）/
           SkillView（获取要求 + 修炼要求）/ PersonaView / FactView
 [POS]: domain 的读模型（CQRS 查询侧）：图谱投影在"玩家此刻所在之处"的一个切片。
@@ -105,13 +105,17 @@ class PersonaView(_View):
 
 
 class FactView(_View):
-    """知情人之一在场的见闻：可经交涉、打探入账。"""
+    """
+    此情此景的见闻：知情人之一在场（可经打探入账），或玩家在此世界已知（FactLearned）且其主体或 unlock 目标在场（可作借势的筹码）。
+    known 标明玩家是否已知：打探只认 known=False 且知情人在场者，把柄 / 心事只认 known=True。
+    """
 
     id: str
     text: str
     subject_ids: tuple[str, ...] = ()
     knower_ids: tuple[str, ...] = ()
     unlock: FactUnlock | None = None
+    known: bool = False
 
     @model_validator(mode="before")
     @classmethod
@@ -170,7 +174,7 @@ class LocalSnapshot(_View):
     player_practice: dict[str, int] = {}  # 武学 → 熟练度之和
     player_aptitude: float = 1.0
     player_hp: int = MAX_HP
-    facts: tuple[FactView, ...] = ()  # 知情人之一在场的见闻
+    facts: tuple[FactView, ...] = ()  # 知情人之一在场的见闻 ∪ 已知且主体或 unlock 目标在场的见闻（known 标明已知）
     labels: dict[str, str] = {}
 
     @model_validator(mode="before")

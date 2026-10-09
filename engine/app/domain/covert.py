@@ -6,7 +6,8 @@
 [POS]: domain 的暗中行事硬轨，P1 只做一件事：计谋（骗取）或潜行（偷取）拿走他人身上之物。与 combat / social 对称——
        领域圈区间，地下城主在区间里挑。差额 margin = 你的境界 − 失主的境界；失主已被制住 +2，失主敌视或戒备 −1（正盯着你），
        骗取时失主友善以上 +1（信你）。区间按 outcomes 的次序（无痕 / 未遂 / 败露 / 失手，被察觉才是代价）切片：
-         ≥2 无痕；1 无痕·未遂（无痕）；0 无痕·未遂·败露（未遂）；−1 未遂·败露·失手（未遂）；≤−2 败露·失手（失手）。
+         ≥2 无痕；1 无痕·未遂（无痕）；0 无痕·未遂·败露（未遂）；−1 未遂·败露·失手（未遂）；≤−2 只有失手——
+       差了两境以上，东西绝不会到手（与出手的「越级取胜不在区间里」同一条硬轨：暗取不是绕开境界的后门）。
        效果：无痕 → 易手；未遂 → 什么也没惹出来；败露 → 易手且失主敌视；失手 → 失主敌视。每次都入账一条 Maneuvered。
        暗中行事永不致死：不产出 HealthChanged 或 PlayerDied（险物取到手的伤另由 rules 按物性追加，同样留一口气）
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -56,7 +57,7 @@ def _envelope(margin: int) -> tuple[tuple[CovertOutcome, ...], CovertOutcome]:
         return (C.CLEAN, C.FOILED, C.EXPOSED), C.FOILED
     if margin == -1:
         return (C.FOILED, C.EXPOSED, C.CAUGHT), C.FOILED
-    return (C.EXPOSED, C.CAUGHT), C.CAUGHT
+    return (C.CAUGHT,), C.CAUGHT  # 差了两境以上：东西绝不会到手（越级取胜不在区间里，暗取也不是后门）
 
 
 def assess_covert(

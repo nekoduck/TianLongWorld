@@ -1,0 +1,2472 @@
+{
+  "version": "tlbb-audit-v2",
+  "fingerprint": "5b80cb66b365",
+  "relations": [
+    {
+      "source_id": "chr:云中鹤",
+      "target_id": "chr:刀白凤",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:云中鹤",
+      "target_id": "chr:左子穆",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:云中鹤",
+      "target_id": "chr:木婉清",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:云中鹤",
+      "target_id": "chr:钟万仇",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "云中鹤到万劫谷后扬言夺其妻产，开篇之后才结怨",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:云中鹤",
+      "target_id": "chr:钟灵",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "云中鹤掳走钟灵是后几回的事",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:傅思归",
+      "target_id": "chr:叶二娘",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:刀白凤",
+      "target_id": "chr:傅思归",
+      "kind": "主仆",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:刀白凤",
+      "target_id": "chr:段誉",
+      "kind": "亲族",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:刀白凤",
+      "target_id": "chr:秦红棉",
+      "kind": "仇敌",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:华赫艮",
+      "target_id": "chr:巴天石",
+      "kind": "结义",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:华赫艮",
+      "target_id": "chr:范骅",
+      "kind": "结义",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:古笃诚",
+      "target_id": "chr:云中鹤",
+      "kind": "仇敌",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:古笃诚",
+      "target_id": "chr:叶二娘",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:叶二娘",
+      "target_id": "chr:云中鹤",
+      "kind": "结义",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:叶二娘",
+      "target_id": "chr:岳老三",
+      "kind": "结义",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:叶二娘",
+      "target_id": "chr:左子穆",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:叶二娘",
+      "target_id": "chr:木婉清",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:司空玄",
+      "target_id": "chr:段誉",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "逼段誉服毒挟其求援是后来之事",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:司空玄",
+      "target_id": "chr:钟灵",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "放貂伤人与下令活埋都在开篇之后",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:司空玄",
+      "target_id": "chr:阿洪",
+      "kind": "主仆",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:司空玄",
+      "target_id": "chr:阿胜",
+      "kind": "主仆",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:天山童姥",
+      "target_id": "chr:司空玄",
+      "kind": "主仆",
+      "era": "开篇",
+      "basis": "生死符早已种下，受辖制在开篇之前",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:天山童姥",
+      "target_id": "chr:符圣使",
+      "kind": "主仆",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:孟述圣",
+      "target_id": "chr:段誉",
+      "kind": "师徒",
+      "era": "开篇",
+      "basis": "教读经书是离家之前的事",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:容子矩",
+      "target_id": "chr:龚光杰",
+      "kind": "同门",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:岳老三",
+      "target_id": "chr:云中鹤",
+      "kind": "结义",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:岳老三",
+      "target_id": "chr:孙三霸",
+      "kind": "师徒",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:岳老三",
+      "target_id": "chr:木婉清",
+      "kind": "仇敌",
+      "era": "开篇",
+      "basis": "爱徒已死于她手，仇怨在开篇前已种下",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:岳老三",
+      "target_id": "chr:钟万仇",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "开篇时岳老三是应邀助拳的盟友，为辈分要杀钟万仇是第九回之事",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:崔百泉",
+      "target_id": "chr:吕庆图",
+      "kind": "仇敌",
+      "era": "开篇",
+      "basis": "灭吕家是崔百泉多年前旧事，开篇时仇已结下",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:崔百泉",
+      "target_id": "chr:过彦之",
+      "kind": "同门",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:左子穆",
+      "target_id": "chr:司空玄",
+      "kind": "仇敌",
+      "era": "开篇",
+      "basis": "去年采药起争执已杀伤人命，梁子早已结下",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:左子穆",
+      "target_id": "chr:容子矩",
+      "kind": "同门",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:左子穆",
+      "target_id": "chr:左山山",
+      "kind": "亲族",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:左子穆",
+      "target_id": "chr:干光豪",
+      "kind": "师徒",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:左子穆",
+      "target_id": "chr:木婉清",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:左子穆",
+      "target_id": "chr:辛双清",
+      "kind": "同门",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:左子穆",
+      "target_id": "chr:郁光标",
+      "kind": "师徒",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:左子穆",
+      "target_id": "chr:钱光胜",
+      "kind": "师徒",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:左子穆",
+      "target_id": "chr:龚光杰",
+      "kind": "师徒",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:巴天石",
+      "target_id": "chr:云中鹤",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "两人绕屋比拼轻功是后来的事，开篇时尚未交手",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:干光豪",
+      "target_id": "chr:段誉",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "段誉偷听之后才被他追杀",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:干光豪",
+      "target_id": "chr:葛光佩",
+      "kind": "情侣",
+      "era": "开篇",
+      "basis": "两人私情早已暗结，出逃只是后来显露",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:干光豪",
+      "target_id": "chr:龚光杰",
+      "kind": "同门",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:慕容博",
+      "target_id": "chr:崔百泉",
+      "kind": "仇敌",
+      "era": "开篇",
+      "basis": "算珠钉身是十八年前旧事，开篇前早已结仇",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:慕容博",
+      "target_id": "chr:柯百岁",
+      "kind": "仇敌",
+      "era": "开篇",
+      "basis": "柯百岁遇害时日不明，弟子远道报讯，按缺省判开篇",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:慕容博",
+      "target_id": "chr:章虚道人",
+      "kind": "仇敌",
+      "era": "开篇",
+      "basis": "章虚道人惨死是崔百泉追述的往年旧事",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:慕容博",
+      "target_id": "chr:黄眉僧",
+      "kind": "仇敌",
+      "era": "开篇",
+      "basis": "黄眉僧受指力之伤是四十多年前的旧事",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:慧真",
+      "target_id": "chr:慧观",
+      "kind": "同门",
+      "era": "开篇",
+      "basis": "二僧同出少林门下由来已久，开篇时早是师兄弟",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:无涯子",
+      "target_id": "chr:秋水妹",
+      "kind": "情侣",
+      "era": "开篇",
+      "basis": "石壁题字与隐居都是旧年往事",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:木婉清",
+      "target_id": "chr:孙三霸",
+      "kind": "仇敌",
+      "era": "开篇",
+      "basis": "孙三霸死在她手下是开篇前的旧事",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:木婉清",
+      "target_id": "chr:平婆婆",
+      "kind": "仇敌",
+      "era": "开篇",
+      "basis": "对方一路穷追而来，追杀早在开篇前已开始",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:木婉清",
+      "target_id": "chr:段誉",
+      "kind": "情侣",
+      "era": "将至",
+      "basis": "段誉见她真容后才依誓相许",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:木婉清",
+      "target_id": "chr:瑞婆婆",
+      "kind": "仇敌",
+      "era": "开篇",
+      "basis": "对方一路穷追而来，追杀早在开篇前已开始",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:朱丹臣",
+      "target_id": "chr:云中鹤",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:杨义贞",
+      "target_id": "chr:段廉义",
+      "kind": "仇敌",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:柯百岁",
+      "target_id": "chr:崔百泉",
+      "kind": "同门",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:柯百岁",
+      "target_id": "chr:过彦之",
+      "kind": "师徒",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段俭魏",
+      "target_id": "chr:段思平",
+      "kind": "亲族",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段寿辉",
+      "target_id": "chr:杨义贞",
+      "kind": "仇敌",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段寿辉",
+      "target_id": "chr:段廉义",
+      "kind": "亲族",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段寿辉",
+      "target_id": "chr:段正明",
+      "kind": "亲族",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段廉义",
+      "target_id": "chr:段延庆",
+      "kind": "亲族",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段延庆",
+      "target_id": "chr:云中鹤",
+      "kind": "结义",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段延庆",
+      "target_id": "chr:叶二娘",
+      "kind": "结义",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段延庆",
+      "target_id": "chr:岳老三",
+      "kind": "结义",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段延庆",
+      "target_id": "chr:木婉清",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "擒下木婉清关进石屋是后来之事",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段延庆",
+      "target_id": "chr:段正明",
+      "kind": "仇敌",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段延庆",
+      "target_id": "chr:段誉",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "段延庆后来才擒下段誉下药囚禁，开篇时两人素未谋面",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段思平",
+      "target_id": "chr:段正明",
+      "kind": "亲族",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段正明",
+      "target_id": "chr:傅思归",
+      "kind": "主仆",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段正明",
+      "target_id": "chr:华赫艮",
+      "kind": "主仆",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段正明",
+      "target_id": "chr:古笃诚",
+      "kind": "主仆",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段正明",
+      "target_id": "chr:巴天石",
+      "kind": "主仆",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段正明",
+      "target_id": "chr:朱丹臣",
+      "kind": "主仆",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段正明",
+      "target_id": "chr:段正淳",
+      "kind": "亲族",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段正明",
+      "target_id": "chr:段誉",
+      "kind": "亲族",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段正明",
+      "target_id": "chr:范骅",
+      "kind": "主仆",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段正明",
+      "target_id": "chr:褚万里",
+      "kind": "主仆",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段正明",
+      "target_id": "chr:高昇泰",
+      "kind": "主仆",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段正淳",
+      "target_id": "chr:傅思归",
+      "kind": "主仆",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段正淳",
+      "target_id": "chr:刀白凤",
+      "kind": "亲族",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段正淳",
+      "target_id": "chr:古笃诚",
+      "kind": "主仆",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段正淳",
+      "target_id": "chr:岳老三",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段正淳",
+      "target_id": "chr:崔百泉",
+      "kind": "主仆",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段正淳",
+      "target_id": "chr:木婉清",
+      "kind": "亲族",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段正淳",
+      "target_id": "chr:段誉",
+      "kind": "亲族",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段正淳",
+      "target_id": "chr:甘宝宝",
+      "kind": "情侣",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段正淳",
+      "target_id": "chr:秦红棉",
+      "kind": "情侣",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段正淳",
+      "target_id": "chr:褚万里",
+      "kind": "主仆",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段正淳",
+      "target_id": "chr:钟灵",
+      "kind": "亲族",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段正淳",
+      "target_id": "chr:高昇泰",
+      "kind": "主仆",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段誉",
+      "target_id": "chr:傅思归",
+      "kind": "主仆",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段誉",
+      "target_id": "chr:古笃诚",
+      "kind": "主仆",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段誉",
+      "target_id": "chr:岳老三",
+      "kind": "师徒",
+      "era": "将至",
+      "basis": "岳老三赌输后才当众磕头拜师，事在开篇之后数回",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段誉",
+      "target_id": "chr:朱丹臣",
+      "kind": "主仆",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段誉",
+      "target_id": "chr:褚万里",
+      "kind": "主仆",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:段誉",
+      "target_id": "chr:钟灵",
+      "kind": "情侣",
+      "era": "将至",
+      "basis": "比剑后才与钟姑娘相识，同被活埋时方生情愫",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:玄悲",
+      "target_id": "chr:慧真",
+      "kind": "师徒",
+      "era": "开篇",
+      "basis": "慧真拜在玄悲座下远在开篇之前",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:玄悲",
+      "target_id": "chr:慧观",
+      "kind": "师徒",
+      "era": "开篇",
+      "basis": "慧观本是玄悲弟子，师徒名分早定",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:玄慈",
+      "target_id": "chr:玄悲",
+      "kind": "同门",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:甘宝宝",
+      "target_id": "chr:司空玄",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "女儿被扣之后才扬言报复",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:甘宝宝",
+      "target_id": "chr:木婉清",
+      "kind": "同门",
+      "era": "开篇",
+      "basis": "师门渊源早已存在",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:甘宝宝",
+      "target_id": "chr:秦红棉",
+      "kind": "同门",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:甘宝宝",
+      "target_id": "chr:钟灵",
+      "kind": "亲族",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:秋水妹",
+      "target_id": "chr:段誉",
+      "kind": "主仆",
+      "era": "将至",
+      "basis": "段誉坠谷后才对玉像叩首认主",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:秦红棉",
+      "target_id": "chr:木婉清",
+      "kind": "师徒",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:符圣使",
+      "target_id": "chr:干光豪",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:符圣使",
+      "target_id": "chr:葛光佩",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:符圣使",
+      "target_id": "chr:辛双清",
+      "kind": "主仆",
+      "era": "将至",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:范骅",
+      "target_id": "chr:巴天石",
+      "kind": "结义",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:葛光佩",
+      "target_id": "chr:段誉",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "撞破私奔之后才要杀他",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:褚万里",
+      "target_id": "chr:云中鹤",
+      "kind": "仇敌",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:褚万里",
+      "target_id": "chr:朱丹臣",
+      "kind": "结义",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:郁光标",
+      "target_id": "chr:钱光胜",
+      "kind": "同门",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:钟万仇",
+      "target_id": "chr:来福儿",
+      "kind": "主仆",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:钟万仇",
+      "target_id": "chr:段正淳",
+      "kind": "仇敌",
+      "era": "开篇",
+      "basis": "夺妻旧恨由来已久",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:钟万仇",
+      "target_id": "chr:段誉",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "段誉到万劫谷后才被他迁怒",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:钟万仇",
+      "target_id": "chr:甘宝宝",
+      "kind": "亲族",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:钟万仇",
+      "target_id": "chr:进喜儿",
+      "kind": "主仆",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:钟万仇",
+      "target_id": "chr:钟灵",
+      "kind": "亲族",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:高昇泰",
+      "target_id": "chr:叶二娘",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:高昇泰",
+      "target_id": "chr:岳老三",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:高智昇",
+      "target_id": "chr:高昇泰",
+      "kind": "亲族",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:黄眉僧",
+      "target_id": "chr:段延庆",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "黄眉僧为救段誉上门挑战在第九回前后，开篇时未结怨",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:黄眉僧",
+      "target_id": "chr:段正明",
+      "kind": "同门",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:黄眉僧",
+      "target_id": "chr:破嗔",
+      "kind": "师徒",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:黄眉僧",
+      "target_id": "chr:破疑",
+      "kind": "师徒",
+      "era": "开篇",
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "source_id": "chr:龚光杰",
+      "target_id": "chr:段誉",
+      "kind": "仇敌",
+      "era": "将至",
+      "basis": "段誉旁观比剑时失笑才惹恼对方，结仇在开篇之后",
+      "by": "claude-subagent"
+    }
+  ],
+  "characters": [
+    {
+      "id": "chr:丁老怪",
+      "was": "星宿海的怪人，所练化功大法令延庆太子也忌惮",
+      "description": "星宿海的怪人，所练化功大法令延庆太子也忌惮",
+      "foreshadow": "",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:乔峰",
+      "was": "江湖俗语里与南慕容并称的北方人物",
+      "description": "江湖俗语里与南慕容并称的北方人物",
+      "foreshadow": "",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:云中鹤",
+      "was": "四大恶人中排行第四者，叶二娘仅提及其外号",
+      "description": "四大恶人中排行第四者",
+      "foreshadow": "叶二娘仅提及其外号",
+      "arrives_with": "portent:云中鹤登上峰顶",
+      "evidence": {
+        "ref": "chunk:18",
+        "quote": "和云中鹤同时喜道"
+      },
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:五叶",
+      "was": "身戒寺方丈，熟谙武林旧事，判断凶手多半出自姑苏慕容",
+      "description": "身戒寺方丈，熟谙武林旧事",
+      "foreshadow": "判断凶手多半出自姑苏慕容",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:傅思归",
+      "was": "使熟铜棍的大理护卫，闻段誉遇害便悲愤地抡棍扑打叶二娘",
+      "description": "使熟铜棍的大理护卫",
+      "foreshadow": "闻段誉遇害便悲愤地抡棍扑打叶二娘",
+      "arrives_with": "portent:傅思归赶到峰顶",
+      "evidence": {
+        "ref": "chunk:19",
+        "quote": "手持熟铜棍的护卫傅思归"
+      },
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:刀白凤",
+      "was": "段誉之母，与镇南王失和而出家为道姑，以拂尘御敌，终为众人安危返回大理",
+      "description": "段誉之母，与镇南王失和而出家为道姑，惯以拂尘御敌",
+      "foreshadow": "终为众人安危返回大理",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "开篇已在道观修道，回府是后来之事",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:华赫艮",
+      "was": "盗墓出身的司徒，凭墓中秘诀练成外门功夫，擅掘地道",
+      "description": "盗墓出身的司徒，凭墓中秘诀练成外门功夫，擅掘地道",
+      "foreshadow": "",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:古笃诚",
+      "was": "身躯粗壮的大理护卫，挥板斧专攻下盘，挨了一腿仍扑上再战",
+      "description": "身躯粗壮的大理护卫，挥板斧",
+      "foreshadow": "专攻下盘，挨了一腿仍扑上再战",
+      "arrives_with": "portent:古笃诚赶到峰顶",
+      "evidence": {
+        "ref": "chunk:19",
+        "quote": "待我古笃诚先杀了"
+      },
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:叶二娘",
+      "was": "四大恶人中排第二的妇人，身法如鬼魅，每日掳婴儿玩弄后送人",
+      "description": "四大恶人中排第二的妇人，身法如鬼魅，每日掳婴儿玩弄后送人",
+      "foreshadow": "",
+      "arrives_with": "portent:叶二娘登上峰顶",
+      "evidence": {
+        "ref": "chunk:18",
+        "quote": "叶二娘浅笑一声"
+      },
+      "basis": "峰顶之会在开篇数日之后",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:司空玄",
+      "was": "神农帮帮主，体内种有生死符，想借通天草减轻发作之苦",
+      "description": "神农帮帮主，体内种有生死符，想借通天草减轻发作之苦",
+      "foreshadow": "",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:吕庆图",
+      "was": "南阳为富不仁的土豪，害死他人全家，后遭崔百泉灭门",
+      "description": "南阳为富不仁的土豪，害死他人全家，后遭崔百泉灭门",
+      "foreshadow": "",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:天山童姥",
+      "was": "神农帮众敬称的老前辈，据说世上唯有她能化解生死符",
+      "description": "神农帮众敬称的老前辈，据说世上唯有她能化解生死符",
+      "foreshadow": "",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:孙三霸",
+      "was": "岳老三一脉单传、苦心调教十余年的徒弟，已死于木婉清之手",
+      "description": "岳老三一脉单传、苦心调教十余年的徒弟，已死于木婉清之手",
+      "foreshadow": "",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:孟述圣",
+      "was": "教段誉读经作文的业师，精研周易，并非武林人物",
+      "description": "教段誉读经作文的业师，精研周易，并非武林人物",
+      "foreshadow": "",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:容子矩",
+      "was": "左子穆的师弟，武功次于师兄，曾为采药之争杀了神农帮二人",
+      "description": "左子穆的师弟，武功次于师兄，曾为采药之争杀了神农帮二人",
+      "foreshadow": "",
+      "arrives_with": "portent:容子矩重伤撞进厅来",
+      "evidence": {
+        "ref": "ev:1#0",
+        "quote": ""
+      },
+      "basis": "开篇时人在厅外，后来带伤闯回",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:岳老三",
+      "was": "应钟万仇之邀来助拳的恶人，硬要人称他老二，无端下手杀仆",
+      "description": "应钟万仇之邀来助拳的恶人，硬要人称他老二",
+      "foreshadow": "无端下手杀仆",
+      "arrives_with": "portent:岳老三到北庄",
+      "evidence": {
+        "ref": "chunk:7",
+        "quote": "今日中午先到了一位"
+      },
+      "basis": "段誉到谷那日中午他才到北庄",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:崔百泉",
+      "was": "段家账房里的人，曾天天陪段誉下棋，后来反被段誉让子",
+      "description": "段家账房里的人，曾天天陪段誉下棋，后来反被段誉让子",
+      "foreshadow": "",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "开篇时仍化名隐身王府账房",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:左子穆",
+      "was": "无量剑东宗掌门，长须老者，剑法精准而好面子",
+      "description": "无量剑东宗掌门，长须老者，剑法精准而好面子",
+      "foreshadow": "",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:左山山",
+      "was": "左子穆三四岁的幼子，被叶二娘抢来当玩物",
+      "description": "左子穆三四岁的幼子",
+      "foreshadow": "被叶二娘抢来当玩物",
+      "arrives_with": "portent:左山山被掳上峰顶",
+      "evidence": {
+        "ref": "chunk:18",
+        "quote": "左山山见到父亲"
+      },
+      "basis": "被掳在开篇之后",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:巴天石",
+      "was": "黑瘦矮小的司空，轻功卓绝，暗中跟踪查出万劫谷所在",
+      "description": "黑瘦矮小的司空，轻功卓绝",
+      "foreshadow": "暗中跟踪查出万劫谷所在",
+      "arrives_with": "portent:巴司空入府复命",
+      "evidence": {
+        "ref": "chunk:31",
+        "quote": "巴司空参见皇上"
+      },
+      "basis": "黎明时分才进内堂禀报，开篇不在此处",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:干光豪",
+      "was": "左子穆门下大弟子，出厅查探后回报神农帮约七八十人封山",
+      "description": "左子穆门下大弟子",
+      "foreshadow": "出厅查探后回报神农帮约七八十人封山",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "出厅查探在容子矩死后",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:平婆婆",
+      "was": "粗鲁肥胖的老妪，腰插多柄短刀，杀人毫不手软",
+      "description": "粗鲁肥胖的老妪，腰插多柄短刀，杀人毫不手软",
+      "foreshadow": "",
+      "arrives_with": "portent:平婆婆围堵大屋",
+      "evidence": {
+        "ref": "chunk:9",
+        "quote": "平婆婆且慢"
+      },
+      "basis": "与瑞婆婆同来围屋",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:慕容博",
+      "was": "姑苏慕容世家人物，崔百泉一听其名便惊惶失措",
+      "description": "姑苏慕容世家人物，崔百泉一听其名便惊惶失措",
+      "foreshadow": "",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:慧真",
+      "was": "面容枯瘦的少林僧，奉方丈之命向段氏兄弟呈信",
+      "description": "面容枯瘦的少林僧，奉方丈之命向段氏兄弟呈信",
+      "foreshadow": "",
+      "arrives_with": "portent:少林二僧送信",
+      "evidence": {
+        "ref": "chunk:36",
+        "quote": "少林寺小僧慧真、慧观"
+      },
+      "basis": "后文才到王府呈信",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:慧观",
+      "was": "与慧真同来大理送信的少林僧",
+      "description": "与慧真同来大理送信的少林僧",
+      "foreshadow": "",
+      "arrives_with": "portent:少林二僧送信",
+      "evidence": {
+        "ref": "chunk:36",
+        "quote": "少林寺小僧慧真、慧观"
+      },
+      "basis": "与同伴一道后文才到王府",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:无涯子",
+      "was": "在密室石壁以惊人腕力刻下庄子文句赠秋水妹的高人",
+      "description": "在密室石壁以惊人腕力刻下庄子文句赠秋水妹的高人",
+      "foreshadow": "",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:木婉清",
+      "was": "向段誉自报姓名的女子，独斗四敌杀一伤三，肩头中锥后携他骑马突围",
+      "description": "黑衣蒙面的女子，出手狠辣",
+      "foreshadow": "向段誉自报姓名，独斗四敌杀一伤三，肩头中锥后携他骑马突围",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "原描述全是与段誉相遇之后的事",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:朱丹臣",
+      "was": "宫中四大护卫之一，持笔守一角，与同伴合围众恶人",
+      "description": "宫中四大护卫之一，持笔",
+      "foreshadow": "守住一角，与同伴合围众恶人",
+      "arrives_with": "portent:朱丹臣赶到峰顶",
+      "evidence": {
+        "ref": "chunk:18",
+        "quote": "护卫朱丹臣抱拳还礼"
+      },
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:来福儿",
+      "was": "钟家仆人，与进喜儿同去北庄，回谷禀明同伴遇害经过",
+      "description": "钟家仆人",
+      "foreshadow": "与进喜儿同去北庄，回谷禀明同伴遇害经过",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:杨义贞",
+      "was": "弑君篡位的奸臣，后被段寿辉等人剿灭",
+      "description": "弑君篡位的奸臣，后被段寿辉等人剿灭",
+      "foreshadow": "",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:柯百岁",
+      "was": "伏牛派掌门，遭人害死，弟子疑是姑苏慕容家所为",
+      "description": "伏牛派掌门，遭人害死，弟子疑是姑苏慕容家所为",
+      "foreshadow": "",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:梁阿婆",
+      "was": "替隐居的秦红棉采买米盐的老妇",
+      "description": "替隐居的秦红棉采买米盐的老妇",
+      "foreshadow": "",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:段俭魏",
+      "was": "大理段氏始祖，祖籍凉州武威，曾辅佐南诏蒙氏任清平官",
+      "description": "大理段氏始祖，祖籍凉州武威，曾辅佐南诏蒙氏任清平官",
+      "foreshadow": "",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:段寿辉",
+      "was": "平乱后即位一年，无意帝位，让位后剃度为僧",
+      "description": "平乱后即位一年，无意帝位，让位后剃度为僧",
+      "foreshadow": "",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:段廉义",
+      "was": "前代大理君主，十多年前遭权臣弑杀",
+      "description": "前代大理君主，十多年前遭权臣弑杀",
+      "foreshadow": "",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:段延庆",
+      "was": "四大恶人之首，几招之间便将岳老三打得爬不起身",
+      "description": "四大恶人之首，几招之间便将岳老三打得爬不起身",
+      "foreshadow": "",
+      "arrives_with": "portent:青袍客坐于江畔",
+      "evidence": {
+        "ref": "chunk:29",
+        "quote": "这时已料定是这青袍客作怪"
+      },
+      "basis": "江畔现身远在开篇之后，揍岳老三是旧事",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:段思平",
+      "was": "大理开国之君，原任通海节度使，丁酉年立国",
+      "description": "大理开国之君，原任通海节度使，丁酉年立国",
+      "foreshadow": "",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:段正明",
+      "was": "大理当朝天子，崇佛随和，喜爱木婉清的率真，饶过侄儿出走之罪",
+      "description": "大理当朝天子，崇佛随和",
+      "foreshadow": "喜爱木婉清的率真，饶过侄儿出走之罪",
+      "arrives_with": "portent:皇上驾临王府",
+      "evidence": {
+        "ref": "chunk:25",
+        "quote": "皇上与娘娘在王爷府中相候"
+      },
+      "basis": "开篇时天子在宫中，侄儿归来才到王府相候",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:段正淳",
+      "was": "段誉之父，住在大理城中，被钟万仇视为切齿仇人",
+      "description": "段誉之父，住在大理城中，被钟万仇视为切齿仇人",
+      "foreshadow": "",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:段誉",
+      "was": "手摇折扇的青衫书生，毫无武功，随马五德上山观光",
+      "description": "手摇折扇的青衫书生，毫无武功，随马五德上山观光",
+      "foreshadow": "",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:玄悲",
+      "was": "少林高僧，带着四名弟子正前往大理境内",
+      "description": "少林高僧，带着四名弟子正前往大理境内",
+      "foreshadow": "",
+      "arrives_with": "portent:夜宿身戒寺",
+      "evidence": {
+        "ref": "ev:37#0",
+        "quote": ""
+      },
+      "basis": "开篇仍在途中，后来才投宿该寺并遇害",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:玄慈",
+      "was": "少林方丈，致书大理段氏托其照拂南来的师弟",
+      "description": "少林方丈，致书大理段氏托其照拂南来的师弟",
+      "foreshadow": "",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:瑞婆婆",
+      "was": "矮小白发老妪，执铁拐杖，率众追拿黑衣女郎",
+      "description": "矮小白发老妪，执铁拐杖",
+      "foreshadow": "率众追拿黑衣女郎",
+      "arrives_with": "portent:瑞婆婆围堵大屋",
+      "evidence": {
+        "ref": "chunk:9",
+        "quote": "瑞婆婆亲口跟你说话"
+      },
+      "basis": "段誉借马那夜才率众围住大屋",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:甘宝宝",
+      "was": "钟灵之母，三十出头的清秀妇人，听到来客姓段时神色异样",
+      "description": "钟灵之母，三十出头的清秀妇人",
+      "foreshadow": "听到来客姓段时神色异样",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:破嗔",
+      "was": "黄眉僧次徒，善弈，在段誉与师父之间暗中传递棋着",
+      "description": "黄眉僧次徒，善弈",
+      "foreshadow": "在段誉与师父之间暗中传递棋着",
+      "arrives_with": "portent:随师入谷对弈",
+      "evidence": {
+        "ref": "chunk:34",
+        "quote": "黄眉僧的二弟子破嗔"
+      },
+      "basis": "开篇时在寺中，随师父赴谷后才到石屋旁",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:破疑",
+      "was": "黄眉僧的大弟子，随师赴谷，替师父裹伤",
+      "description": "黄眉僧的大弟子",
+      "foreshadow": "随师赴谷，替师父裹伤",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:秋水妹",
+      "was": "无涯子所爱之人，段誉认定玉像即是她，并视绸包为她所留",
+      "description": "无涯子所爱之人",
+      "foreshadow": "段誉认定玉像即是她，并视绸包为她所留",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:秦红棉",
+      "was": "木婉清的师父，避世山谷，授艺前要她立下面容之誓",
+      "description": "木婉清的师父，避世山谷，授艺前要她立下面容之誓",
+      "foreshadow": "",
+      "arrives_with": "portent:秦红棉现身王府",
+      "evidence": {
+        "ref": "chunk:27",
+        "quote": "昔日的情人秦红棉突然现身"
+      },
+      "basis": "开篇时隐居幽谷，很久之后才在王府现身",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:章虚道人",
+      "was": "山东道人，惯于断人四肢折磨致死，终在济南遭同样下场",
+      "description": "山东道人，惯于断人四肢折磨致死，终在济南遭同样下场",
+      "foreshadow": "",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:符圣使",
+      "was": "率八名绿衣女子的灵鹫宫使者，面带煞气，下令擒杀叛徒",
+      "description": "率八名绿衣女子的灵鹫宫使者，面带煞气",
+      "foreshadow": "下令擒杀叛徒",
+      "arrives_with": "portent:符圣使降临高崖",
+      "evidence": {
+        "ref": "chunk:19",
+        "quote": "符圣使，请你上复童姥"
+      },
+      "basis": "灵鹫宫使者在开篇之后才到无量山",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:范骅",
+      "was": "司马，献计从地底掘道潜入谷中救出世子",
+      "description": "朝中司马",
+      "foreshadow": "献计从地底掘道潜入谷中救出世子",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:葛光佩",
+      "was": "西宗女弟子，与干光豪背弃师门出逃，还盼同门尽遭毒手",
+      "description": "西宗女弟子",
+      "foreshadow": "与干光豪背弃师门出逃，还盼同门尽遭毒手",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:褚万里",
+      "was": "四大护卫中最先赶到者，以软索卷剑又掷还，追问段誉下落",
+      "description": "四大护卫之一，使软索",
+      "foreshadow": "最先赶到，以软索卷剑又掷还，追问段誉下落",
+      "arrives_with": "portent:褚万里赶到峰顶",
+      "evidence": {
+        "ref": "chunk:19",
+        "quote": "那最先赶到的护卫褚万里"
+      },
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:辛双清",
+      "was": "无量剑西宗掌门，出家道姑，本届比剑落败",
+      "description": "无量剑西宗掌门，出家道姑，本届比剑已处下风",
+      "foreshadow": "本届比剑落败",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "开篇时第四场尚在进行，落败定局稍后才成",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:过彦之",
+      "was": "伏牛派掌门首徒，披麻戴孝远来寻师叔共报师仇",
+      "description": "伏牛派掌门首徒，披麻戴孝远来寻师叔共报师仇",
+      "foreshadow": "",
+      "arrives_with": "portent:过彦之登门求见",
+      "evidence": {
+        "ref": "chunk:36",
+        "quote": "虎牢关过彦之过大爷求见王爷"
+      },
+      "basis": "远道而来，后文才登门求见",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:进喜儿",
+      "was": "钟家多年的老仆，奉命去北庄迎客，因一句奉承惹恼岳老三",
+      "description": "钟家多年的老仆",
+      "foreshadow": "奉命去北庄迎客，因一句奉承惹恼岳老三",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:郁光标",
+      "was": "无量剑东宗男弟子，押段誉入小屋，扬言多说一句便掌嘴",
+      "description": "无量剑东宗男弟子",
+      "foreshadow": "押段誉入小屋，扬言多说一句便掌嘴",
+      "arrives_with": "portent:郁光标押人上崖",
+      "evidence": {
+        "ref": "chunk:19",
+        "quote": "那两人一个叫郁光标"
+      },
+      "basis": "开篇时在剑湖宫，后来才到高崖",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:钟万仇",
+      "was": "马脸丑陋的谷主，醋意极重，恨透段正淳而迁怒一切姓段者",
+      "description": "马脸丑陋的谷主，醋意极重，恨透段正淳而迁怒一切姓段者",
+      "foreshadow": "",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:钟灵",
+      "was": "十六岁的钟姓少女，养着毒貂，身手灵便，与段誉结伴同行",
+      "description": "十六岁的钟姓少女，养着毒貂，身手灵便",
+      "foreshadow": "与段誉结伴同行",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "开篇时她已伏在梁上，结伴是后事",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:钱光胜",
+      "was": "无量剑东宗男弟子，与同门挟持段誉下山并开门关人",
+      "description": "无量剑东宗男弟子",
+      "foreshadow": "与同门挟持段誉下山并开门关人",
+      "arrives_with": "portent:钱光胜押人上崖",
+      "evidence": {
+        "ref": "chunk:19",
+        "quote": "一个叫钱光胜"
+      },
+      "basis": "开篇时在剑湖宫，后来才到高崖",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:阿洪",
+      "was": "神农帮大汉，奉命捉拿钟灵，反被她一拳打翻",
+      "description": "神农帮大汉",
+      "foreshadow": "奉命捉拿钟灵，反被她一拳打翻",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:阿胜",
+      "was": "神农帮大汉，奉帮主之命反扭段誉双手",
+      "description": "神农帮大汉",
+      "foreshadow": "奉帮主之命反扭段誉双手",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:马五德",
+      "was": "普洱富商兼老武师，好客重义，本事平常",
+      "description": "普洱富商兼老武师，好客重义，本事平常",
+      "foreshadow": "",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:高昇泰",
+      "was": "长须持铁笛的中年高人，内力烫笛逼退叶二娘，救回左家幼儿",
+      "description": "长须持铁笛的中年高人",
+      "foreshadow": "内力烫笛逼退叶二娘，救回左家幼儿",
+      "arrives_with": "portent:宽袍客赶到峰顶",
+      "evidence": {
+        "ref": "chunk:19",
+        "quote": "那宽袍客微微一笑"
+      },
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:高智昇",
+      "was": "当年平乱的头号功臣，高昇泰的亡父",
+      "description": "当年平乱的头号功臣，高昇泰的亡父",
+      "foreshadow": "",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:黄眉僧",
+      "was": "长眉高僧，为救段誉赴谷挑战，自断足趾以争先手",
+      "description": "长眉高僧",
+      "foreshadow": "为救段誉赴谷挑战，自断足趾以争先手",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "chr:龚光杰",
+      "was": "左子穆的中年弟子，比剑得胜后迁怒于段誉并动手",
+      "description": "左子穆的中年弟子，正在场中比剑",
+      "foreshadow": "比剑得胜后迁怒于段誉并动手",
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "段誉发笑与挨打都在开篇之后",
+      "by": "claude-subagent"
+    }
+  ],
+  "items": [
+    {
+      "id": "itm:七弦琴",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:修罗刀",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:判官笔",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:大水晶",
+      "portable": false,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "嵌作石室窗子，取不下来",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:大环刀",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:大蒲团",
+      "portable": false,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "供人下跪的陈设，同蒲团之例",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:小蒲团",
+      "portable": false,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "供人叩头的陈设，同蒲团之例",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:小铁槌",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:小铁锤",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "只悬在铁钉上，提起即可取走",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:小铜镜",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:帛卷",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:折扇",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:护身皮甲",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:拂尘",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:断肠散",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "须吞服方才发作，拿在手里并不伤人",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:断肠散解药",
+      "portable": true,
+      "hazard": null,
+      "use": {
+        "effect": "解毒",
+        "potency": 2
+      },
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "专解断肠散之毒的服药",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:方刀",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:无量玉璧",
+      "portable": false,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "山中崖壁奇石，无从携带",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:木制摇篮",
+      "portable": false,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "石室里的家具陈设",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:木婉清的瓷瓶",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:木婉清的长剑",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:板斧",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:梨木桌子",
+      "portable": false,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "堂屋里的家具陈设",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:毒信笺",
+      "portable": true,
+      "hazard": "剧毒",
+      "use": null,
+      "arrives_with": "portent:神农帮射来毒信",
+      "evidence": {
+        "ref": "chunk:1",
+        "quote": "他们用箭射过来一封信"
+      },
+      "basis": "开篇时信尚在厅外，后由弟子取进厅来，封皮信纸皆抹剧毒",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:熟铜棍",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:牛腿",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:玉像",
+      "portable": false,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "真人大小的白玉像，无从搬走",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:王昌龄集",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:盛白粉的小木盒",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "用途不明，不敢定为药用",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:盛胭脂的小木盒",
+      "portable": true,
+      "hazard": null,
+      "use": {
+        "effect": "疗伤",
+        "potency": 2
+      },
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "止血收口的外敷灵药",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:盛黄粉的小木盒",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "只知呛鼻，用途不明",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:短刀",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:短箭",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "原描述未写毒字，拾取亦不伤人",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:石几棋局",
+      "portable": false,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "刻在石几上的残局，带不走",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:碧玉",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:秘制蛇药",
+      "portable": true,
+      "hazard": null,
+      "use": {
+        "effect": "解毒",
+        "potency": 2
+      },
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "可外敷内服，善克蛇毒",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:粉红色手帕",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:纸片",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:绸包",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:花鞋",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:药箱",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:莽牯朱蛤",
+      "portable": false,
+      "hazard": "剧毒",
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "活的毒物带不走，号称万毒之王，近身即受毒害",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:薄刀",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:通天草",
+      "portable": true,
+      "hazard": null,
+      "use": {
+        "effect": "解毒",
+        "potency": 2
+      },
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "浓煎服下可解貂毒，亦能稍缓他苦",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:金创药",
+      "portable": true,
+      "hazard": null,
+      "use": {
+        "effect": "疗伤",
+        "potency": 2
+      },
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "敷上后伤处数日便好了大半，是可敷的疗伤药",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:钟夫人的长剑",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:钢抓",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:钢斧",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:铁拐杖",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:铁木鱼",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:铁杆软索",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:铁杖",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:铁笛",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:铁铲",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:铜镜",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "石桌上那一面可以拿起带走",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:镶宝石的长剑",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:长剑",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:闪电貂",
+      "portable": false,
+      "hazard": "有毒",
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "活物灵兽且咬人带毒，伸手去抓即遭噬咬",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:阴阳和合散",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:青石棋局",
+      "portable": false,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "刻在大青石上的棋盘，搬不动",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:面幕",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:鳄嘴剪",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:鳄尾鞭",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:黄杨木梳",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:黄金算盘",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:黄金钿盒",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "",
+      "by": "claude-subagent"
+    },
+    {
+      "id": "itm:黑玫瑰",
+      "portable": true,
+      "hazard": null,
+      "use": null,
+      "arrives_with": null,
+      "evidence": null,
+      "basis": "坐骑可牵可骑，随人而去",
+      "by": "claude-subagent"
+    }
+  ]
+}

@@ -1,12 +1,14 @@
 """
 [INPUT]: 依赖 domain/ports 的 WorldReader / WorldProjector / WorldSeeder，依赖 domain/aggregates 的 PlayerState / evolve，
-         依赖 domain/models 的本体与 WorldBlueprint，依赖 domain/snapshot 的视图，依赖 app.errors 的 ProjectionError
+         依赖 domain/models 的本体与 WorldBlueprint，依赖 domain/lore 的 Fact，依赖 domain/snapshot 的视图，依赖 app.errors 的 ProjectionError
 [OUTPUT]: 对外提供 InMemoryWorldGraph —— 图谱三端口的进程内实现（快照含 P1 的 era / lead / persona / facts / hostile_ahead / 物性）
 [POS]: persistence 的零依赖图谱：正典是一份 WorldBlueprint 的索引，每个平行世界的覆盖层就是一个 PlayerState——
        投影直接复用领域的 evolve 折叠（投影与聚合根同构，无第二套状态机：熟练度、气血、悟性都原样投进快照）；
        下落不明的物品没有持有者，因而不出现在任何快照里；后来才到场（arrives_with）的人与物 P1 不进任何场景；
        用掉的东西（PlayerState.consumed）不进 items / 行囊；出口的 hostile_ahead 读覆盖层里对玩家敌视且未被制住的去处在场者；
-       人设只给外显部分（PersonaView），见闻在知情人之一在场时进快照，labels 把 fact:<slug> 映射为见闻正文；
+       人设只给外显部分（PersonaView），见闻在知情人之一在场、或玩家已知（PlayerState.known_facts）且其主体或 unlock 目标
+       在场（此地、在场者、可见之物）时进快照，known 标明已知，主体与知情人去重保序（与 Neo4j 的 MERGE 同口径）；
+       labels 把 fact:<slug> 映射为见闻正文；
        与 Neo4jWorldGraph 同守一份契约（tests/test_world_graph.py 双实现共跑，快照逐字段相等）
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -15,6 +17,7 @@ from collections.abc import Iterable, Sequence
 
 from app.domain.aggregates import PlayerState, evolve
 from app.domain.events import EventEnvelope
+from app.domain.lore import Fact
 from app.domain.models import Attitude, Character, CharacterStatus, WorldBlueprint
 from app.domain.ports import WorldProjector, WorldReader, WorldSeeder
 from app.domain.snapshot import (
@@ -115,6 +118,14 @@ class InMemoryWorldGraph(WorldReader, WorldProjector, WorldSeeder):
             st.attitude_of(c.id) is Attitude.HOSTILE and c.id not in st.subdued for c in self._present(location_id)
         )
 
+    @staticmethod
+    def _fact_here(fact: Fact, st: PlayerState, here: set[str], scene: set[str]) -> bool:
+        """见闻进场的两条路：知情人之一在场；或玩家在此世界已知它，且其主体或 unlock 目标在场（线人不在也用得上）。"""
+        if here & set(fact.knower_ids):
+            return True
+        anchors = {*fact.subject_ids, *([fact.unlock.target_id] if fact.unlock else [])}
+        return fact.id in st.known_facts and bool(anchors & scene)
+
     async def local_snapshot(self, player_id: str) -> LocalSnapshot:
         if player_id not in self._overlays:
             raise ProjectionError(f"图谱中没有 {player_id} 的覆盖层")
@@ -137,6 +148,7 @@ class InMemoryWorldGraph(WorldReader, WorldProjector, WorldSeeder):
         wanted = set(st.skills) | {s for c in present for s in c.skills}
         wanted |= {a.id for a in self._arts.values() if inventory & set(a.acquisition.items)}
         here = {c.id for c in present}
+        scene = {loc.id, *here, *(i.id for i in items)}  # 此地、在场者、看得见的物（地上 / 人手 / 行囊）
 
         snapshot = LocalSnapshot(
             player_id=player_id,
@@ -169,8 +181,12 @@ class InMemoryWorldGraph(WorldReader, WorldProjector, WorldSeeder):
             player_aptitude=st.aptitude,
             player_hp=st.hp,
             facts=[
-                FactView(id=f.id, text=f.text, subject_ids=f.subject_ids, knower_ids=f.knower_ids, unlock=f.unlock)
-                for f in self._facts.values() if here & set(f.knower_ids)
+                FactView(
+                    id=f.id, text=f.text, unlock=f.unlock, known=f.id in st.known_facts,
+                    # 去重保序：Neo4j 的 MERGE 把重复的 ABOUT / KNOWS_FACT 边合成一条，两边才逐字段相等
+                    subject_ids=tuple(dict.fromkeys(f.subject_ids)), knower_ids=tuple(dict.fromkeys(f.knower_ids)),
+                )
+                for f in self._facts.values() if self._fact_here(f, st, here, scene)
             ],
         )
         return snapshot.model_copy(update={"labels": await self.labels(snapshot.referenced_ids())})

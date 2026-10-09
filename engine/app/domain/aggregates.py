@@ -6,7 +6,8 @@
 [OUTPUT]: 对外提供 PlayerState（不可变状态值：practice 熟练度之和、aptitude 悟性、hp 气血、came_from 来路、fled_from 逃离过的险地、
           focus 近来打过交道的人与物（至多 FOCUS_SIZE 个，新者在前）与 focus_fresh 上一个主动作是否正与它打交道、attitude_causes 人情的缘由、
           threads 心事线索（至多 6 条）、known_facts 已知见闻、consumed 用掉之物、recent_approaches 近来用过的手段（至多 RECENT_SIZE 个）、
-          attempts 对每个对象出过几次有赌注的招（FortuneResolver 的种子），mastery / vitality / inventory 现算）、FOCUS_SIZE、RECENT_SIZE、
+          attempts 对每个对象出过几次有赌注的招（FortuneResolver 的种子）、taken_from 物品最初从谁手里到你身上，
+          mastery / vitality / inventory 现算）、FOCUS_SIZE、RECENT_SIZE、
           evolve(state, event) 纯函数折叠、Player 聚合根（apply / from_history / replay / spawn / ensure_alive / mastery / decide）
 [POS]: domain 的一致性边界：一位玩家的平行世界就是一条事件流，世界在这条流上相对原著的全部偏离（位置、行囊、武学火候、气血、
        被制住之人、人情冷暖、物品易手）都是 PlayerState 的字段。没有状态表——当前状态只能由 evolve 从头折叠事件流算出；
@@ -15,7 +16,9 @@
        焦点（focus）与恩怨缘由（attitude_causes）同样只由现有事件折叠：选项跟着剧情走、叙事知道仇从何来，都不需要新的事件；
        焦点「不新鲜」的判据认 HealthChanged.source=="rest"（服药的气血回升不算走开）。
        P1 的四种新事件各有折叠：Parleyed / Maneuvered 进焦点、手段与尝试次数，心事线索由 threads.fold 开合；
-       FactLearned 记入已知见闻；ItemConsumed 记入 consumed，行囊派生时把它排除（易手覆盖照旧，用掉之物从此不在任何人身上）。
+       FactLearned 记入已知见闻；ItemConsumed 记入 consumed，行囊派生时把它排除（易手覆盖照旧，用掉之物从此不在任何人身上）；
+       ItemTransferred 第一次到你手上时记下来路 taken_from（此后转手再拿回来也不改）：从物主手里拿来的东西再还给他，
+       只是易手，不是物归原主——经第三人转一道手也洗不白。
        内存图谱投影（infrastructure/persistence/memory_graph.py）复用同一个 evolve，投影与真相因此同构
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -82,6 +85,7 @@ class PlayerState:
     consumed: frozenset[str] = frozenset()  # 用掉之物：从此不在行囊、不在任何地方
     recent_approaches: tuple[Approach, ...] = ()  # 近来出招用过的手段，新者在前、至多 RECENT_SIZE 个
     attempts: Mapping[str, int] = field(default_factory=dict)  # 对象 → 出过几次有赌注的招（出手 / 交涉 / 暗取）
+    taken_from: Mapping[str, str] = field(default_factory=dict)  # 物品 → 它最初从谁那里到你手上（物归原主据此辨认偷来、讨来、夺来的）
 
     @property
     def skills(self) -> frozenset[str]:
@@ -181,7 +185,7 @@ def evolve(state: PlayerState | None, event: DomainEvent) -> PlayerState:
         state = replace(state, focus=_refocus(state.focus, engaged), focus_fresh=True)
     elif state.focus_fresh and _moves_on(event):
         state = replace(state, focus_fresh=False)
-    if (threads := fold_threads(state.threads, event, state.player_id)) != state.threads:
+    if (threads := fold_threads(state.threads, event, state.player_id, state.attitudes)) != state.threads:
         state = replace(state, threads=threads)
     if attempt := _attempt(event):
         target, approach = attempt
@@ -195,8 +199,11 @@ def evolve(state: PlayerState | None, event: DomainEvent) -> PlayerState:
         case Moved(from_location_id=origin, to_location_id=destination, fleeing=fleeing):
             fled = state.fled_from | {origin} if fleeing else state.fled_from
             return replace(state, location_id=destination, came_from=origin, fled_from=fled)
-        case ItemTransferred(item_id=item, to_holder=holder):
-            return replace(state, item_holders={**state.item_holders, item: holder})
+        case ItemTransferred(item_id=item, from_holder=giver, to_holder=holder):
+            provenance = state.taken_from
+            if holder == state.player_id and item not in provenance:  # 只记最初的来路：转手第三人再拿回来，洗不掉偷来的底子
+                provenance = {**provenance, item: giver}
+            return replace(state, item_holders={**state.item_holders, item: holder}, taken_from=provenance)
         case SkillPracticed(skill_id=skill, proficiency_gained=gained):
             return replace(state, practice={**state.practice, skill: state.practice.get(skill, 0) + gained})
         case HealthChanged(delta=delta):

@@ -9,3 +9,112 @@
 [丢弃] 物品「钢锥」既无可落地的物主也无可落地的所在
 [丢弃] 物品「钓鱼杆」既无可落地的物主也无可落地的所在
 [丢弃] 物品「玉镯」既无可落地的物主也无可落地的所在
+[审计] 关系已审 129/129 条（开篇 96、将至 33、后文 0）
+[审计] 人物已审 67/67 位，物品已审 67/67 件
+[审计] 「云中鹤—刀白凤」仇敌 结于将至（claude-subagent）
+[审计] 「云中鹤—左子穆」仇敌 结于将至（claude-subagent）
+[审计] 「云中鹤—木婉清」仇敌 结于将至（claude-subagent）
+[审计] 「云中鹤—钟万仇」仇敌 结于将至（claude-subagent）：云中鹤到万劫谷后扬言夺其妻产，开篇之后才结怨
+[审计] 「云中鹤—钟灵」仇敌 结于将至（claude-subagent）：云中鹤掳走钟灵是后几回的事
+[审计] 「傅思归—叶二娘」仇敌 结于将至（claude-subagent）
+[审计] 「古笃诚—叶二娘」仇敌 结于将至（claude-subagent）
+[审计] 「叶二娘—左子穆」仇敌 结于将至（claude-subagent）
+[审计] 「叶二娘—木婉清」仇敌 结于将至（claude-subagent）
+[审计] 「司空玄—段誉」仇敌 结于将至（claude-subagent）：逼段誉服毒挟其求援是后来之事
+[审计] 「司空玄—钟灵」仇敌 结于将至（claude-subagent）：放貂伤人与下令活埋都在开篇之后
+[审计] 「岳老三—钟万仇」仇敌 结于将至（claude-subagent）：开篇时岳老三是应邀助拳的盟友，为辈分要杀钟万仇是第九回之事
+[审计] 「左子穆—木婉清」仇敌 结于将至（claude-subagent）
+[审计] 「巴天石—云中鹤」仇敌 结于将至（claude-subagent）：两人绕屋比拼轻功是后来的事，开篇时尚未交手
+[审计] 「干光豪—段誉」仇敌 结于将至（claude-subagent）：段誉偷听之后才被他追杀
+[审计] 「木婉清—段誉」情侣 结于将至（claude-subagent）：段誉见她真容后才依誓相许
+[审计] 「朱丹臣—云中鹤」仇敌 结于将至（claude-subagent）
+[审计] 「段延庆—木婉清」仇敌 结于将至（claude-subagent）：擒下木婉清关进石屋是后来之事
+[审计] 「段延庆—段誉」仇敌 结于将至（claude-subagent）：段延庆后来才擒下段誉下药囚禁，开篇时两人素未谋面
+[审计] 「段正淳—岳老三」仇敌 结于将至（claude-subagent）
+[审计] 「段誉—岳老三」师徒 结于将至（claude-subagent）：岳老三赌输后才当众磕头拜师，事在开篇之后数回
+[审计] 「段誉—钟灵」情侣 结于将至（claude-subagent）：比剑后才与钟姑娘相识，同被活埋时方生情愫
+[审计] 「甘宝宝—司空玄」仇敌 结于将至（claude-subagent）：女儿被扣之后才扬言报复
+[审计] 「秋水妹—段誉」主仆 结于将至（claude-subagent）：段誉坠谷后才对玉像叩首认主
+[审计] 「符圣使—干光豪」仇敌 结于将至（claude-subagent）
+[审计] 「符圣使—葛光佩」仇敌 结于将至（claude-subagent）
+[审计] 「符圣使—辛双清」主仆 结于将至（claude-subagent）
+[审计] 「葛光佩—段誉」仇敌 结于将至（claude-subagent）：撞破私奔之后才要杀他
+[审计] 「钟万仇—段誉」仇敌 结于将至（claude-subagent）：段誉到万劫谷后才被他迁怒
+[审计] 「高昇泰—叶二娘」仇敌 结于将至（claude-subagent）
+[审计] 「高昇泰—岳老三」仇敌 结于将至（claude-subagent）
+[审计] 「黄眉僧—段延庆」仇敌 结于将至（claude-subagent）：黄眉僧为救段誉上门挑战在第九回前后，开篇时未结怨
+[审计] 「龚光杰—段誉」仇敌 结于将至（claude-subagent）：段誉旁观比剑时失笑才惹恼对方，结仇在开篇之后
+[审计] 「云中鹤」后来才到场：portent:云中鹤登上峰顶，出处 chunk:18（claude-subagent）
+[审计] 「云中鹤」拆出后文剧情：叶二娘仅提及其外号（claude-subagent）
+[审计] 「五叶」拆出后文剧情：判断凶手多半出自姑苏慕容（claude-subagent）
+[审计] 「傅思归」后来才到场：portent:傅思归赶到峰顶，出处 chunk:19（claude-subagent）
+[审计] 「傅思归」拆出后文剧情：闻段誉遇害便悲愤地抡棍扑打叶二娘（claude-subagent）
+[审计] 「刀白凤」拆出后文剧情：终为众人安危返回大理（claude-subagent）
+[审计] 「古笃诚」后来才到场：portent:古笃诚赶到峰顶，出处 chunk:19（claude-subagent）
+[审计] 「古笃诚」拆出后文剧情：专攻下盘，挨了一腿仍扑上再战（claude-subagent）
+[审计] 「叶二娘」后来才到场：portent:叶二娘登上峰顶，出处 chunk:18（claude-subagent）
+[审计] 「容子矩」后来才到场：portent:容子矩重伤撞进厅来，出处 ev:1#0（claude-subagent）
+[审计] 「岳老三」后来才到场：portent:岳老三到北庄，出处 chunk:7（claude-subagent）
+[审计] 「岳老三」拆出后文剧情：无端下手杀仆（claude-subagent）
+[审计] 「左山山」后来才到场：portent:左山山被掳上峰顶，出处 chunk:18（claude-subagent）
+[审计] 「左山山」拆出后文剧情：被叶二娘抢来当玩物（claude-subagent）
+[审计] 「巴天石」后来才到场：portent:巴司空入府复命，出处 chunk:31（claude-subagent）
+[审计] 「巴天石」拆出后文剧情：暗中跟踪查出万劫谷所在（claude-subagent）
+[审计] 「干光豪」拆出后文剧情：出厅查探后回报神农帮约七八十人封山（claude-subagent）
+[审计] 「平婆婆」后来才到场：portent:平婆婆围堵大屋，出处 chunk:9（claude-subagent）
+[审计] 「慧真」后来才到场：portent:少林二僧送信，出处 chunk:36（claude-subagent）
+[审计] 「慧观」后来才到场：portent:少林二僧送信，出处 chunk:36（claude-subagent）
+[审计] 「木婉清」拆出后文剧情：向段誉自报姓名，独斗四敌杀一伤三，肩头中锥后携他骑马突围（claude-subagent）
+[审计] 「朱丹臣」后来才到场：portent:朱丹臣赶到峰顶，出处 chunk:18（claude-subagent）
+[审计] 「朱丹臣」拆出后文剧情：守住一角，与同伴合围众恶人（claude-subagent）
+[审计] 「来福儿」拆出后文剧情：与进喜儿同去北庄，回谷禀明同伴遇害经过（claude-subagent）
+[审计] 「段延庆」后来才到场：portent:青袍客坐于江畔，出处 chunk:29（claude-subagent）
+[审计] 「段正明」后来才到场：portent:皇上驾临王府，出处 chunk:25（claude-subagent）
+[审计] 「段正明」拆出后文剧情：喜爱木婉清的率真，饶过侄儿出走之罪（claude-subagent）
+[审计] 「玄悲」后来才到场：portent:夜宿身戒寺，出处 ev:37#0（claude-subagent）
+[审计] 「瑞婆婆」后来才到场：portent:瑞婆婆围堵大屋，出处 chunk:9（claude-subagent）
+[审计] 「瑞婆婆」拆出后文剧情：率众追拿黑衣女郎（claude-subagent）
+[审计] 「甘宝宝」拆出后文剧情：听到来客姓段时神色异样（claude-subagent）
+[审计] 「破嗔」后来才到场：portent:随师入谷对弈，出处 chunk:34（claude-subagent）
+[审计] 「破嗔」拆出后文剧情：在段誉与师父之间暗中传递棋着（claude-subagent）
+[审计] 「破疑」拆出后文剧情：随师赴谷，替师父裹伤（claude-subagent）
+[审计] 「秋水妹」拆出后文剧情：段誉认定玉像即是她，并视绸包为她所留（claude-subagent）
+[审计] 「秦红棉」后来才到场：portent:秦红棉现身王府，出处 chunk:27（claude-subagent）
+[审计] 「符圣使」后来才到场：portent:符圣使降临高崖，出处 chunk:19（claude-subagent）
+[审计] 「符圣使」拆出后文剧情：下令擒杀叛徒（claude-subagent）
+[审计] 「范骅」拆出后文剧情：献计从地底掘道潜入谷中救出世子（claude-subagent）
+[审计] 「葛光佩」拆出后文剧情：与干光豪背弃师门出逃，还盼同门尽遭毒手（claude-subagent）
+[审计] 「褚万里」后来才到场：portent:褚万里赶到峰顶，出处 chunk:19（claude-subagent）
+[审计] 「褚万里」拆出后文剧情：最先赶到，以软索卷剑又掷还，追问段誉下落（claude-subagent）
+[审计] 「辛双清」拆出后文剧情：本届比剑落败（claude-subagent）
+[审计] 「过彦之」后来才到场：portent:过彦之登门求见，出处 chunk:36（claude-subagent）
+[审计] 「进喜儿」拆出后文剧情：奉命去北庄迎客，因一句奉承惹恼岳老三（claude-subagent）
+[审计] 「郁光标」后来才到场：portent:郁光标押人上崖，出处 chunk:19（claude-subagent）
+[审计] 「郁光标」拆出后文剧情：押段誉入小屋，扬言多说一句便掌嘴（claude-subagent）
+[审计] 「钟灵」拆出后文剧情：与段誉结伴同行（claude-subagent）
+[审计] 「钱光胜」后来才到场：portent:钱光胜押人上崖，出处 chunk:19（claude-subagent）
+[审计] 「钱光胜」拆出后文剧情：与同门挟持段誉下山并开门关人（claude-subagent）
+[审计] 「阿洪」拆出后文剧情：奉命捉拿钟灵，反被她一拳打翻（claude-subagent）
+[审计] 「阿胜」拆出后文剧情：奉帮主之命反扭段誉双手（claude-subagent）
+[审计] 「高昇泰」后来才到场：portent:宽袍客赶到峰顶，出处 chunk:19（claude-subagent）
+[审计] 「高昇泰」拆出后文剧情：内力烫笛逼退叶二娘，救回左家幼儿（claude-subagent）
+[审计] 「黄眉僧」拆出后文剧情：为救段誉赴谷挑战，自断足趾以争先手（claude-subagent）
+[审计] 「龚光杰」拆出后文剧情：比剑得胜后迁怒于段誉并动手（claude-subagent）
+[审计] 「大水晶」不可携带（claude-subagent）
+[审计] 「大蒲团」不可携带（claude-subagent）
+[审计] 「小蒲团」不可携带（claude-subagent）
+[审计] 「断肠散解药」可解毒（药力 2）（claude-subagent）
+[审计] 「无量玉璧」不可携带（claude-subagent）
+[审计] 「木制摇篮」不可携带（claude-subagent）
+[审计] 「梨木桌子」不可携带（claude-subagent）
+[审计] 「毒信笺」剧毒；后来才出现：portent:神农帮射来毒信，出处 chunk:1（claude-subagent）
+[审计] 「玉像」不可携带（claude-subagent）
+[审计] 「盛胭脂的小木盒」可疗伤（药力 2）（claude-subagent）
+[审计] 「石几棋局」不可携带（claude-subagent）
+[审计] 「秘制蛇药」可解毒（药力 2）（claude-subagent）
+[审计] 「莽牯朱蛤」不可携带；剧毒（claude-subagent）
+[审计] 「通天草」可解毒（药力 2）（claude-subagent）
+[审计] 「金创药」可疗伤（药力 2）（claude-subagent）
+[审计] 「闪电貂」不可携带；有毒（claude-subagent）
+[审计] 「青石棋局」不可携带（claude-subagent）
+[审计] ⚠「岳老三」的 T=0 描述撞上后文：牵涉开篇之后才结下的关系 岳老三—钟万仇（仇敌，将至）

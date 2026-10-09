@@ -3,7 +3,8 @@
          依赖 app.domain.combat / social / covert 的三路赌注，依赖 app.domain.aggregates 的 Player，依赖 InMemoryWorldGraph，依赖 tests/world 的 WORLD
 [OUTPUT]: 裁决的性质测试：200 条随机意图序列（随机动作 × 手段 × 所图 × 指称 × 话题 × 随机提议，含别的路线的结局与离谱的扣减）在 WORLD 上逐招重放，
           每一招都守住——定案的结局恒在可裁区间里且等于 settle_any 的定案；确定之事（寻常的交谈 / 取物 / 修习，以及移动、静观、赠物、服药、调息、天道）没有赌注；
-          人情阶梯每次至多一档，例外只有直落敌视（翻脸、出手、被窃察觉）与物归原主直升信赖；交涉与暗中永不产出 PlayerDied、永不伤人，
+          人情阶梯每次至多一档，例外只有直落敌视（翻脸、出手、被窃察觉）与物归原主直升信赖（且那件东西不是从物主本人手里拿来的）；
+          暗取差了两境以上只有失手、东西绝不到手；威逼从不图结交 / 化解 / 求艺，这三种所图如愿时人情不降；交涉与暗中永不产出 PlayerDied、永不伤人，
           也永不把人推上信赖；没有赌注的举动不产出 Parleyed / Maneuvered / SkillExecuted
 [POS]: tests 的不变量网：单测钉的是例子，这里钉的是「无论大模型提议什么、玩家怎么出招」都成立的东西
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -14,12 +15,14 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from app.domain.aggregates import Player
+from app.domain.approach import UNCOERCIBLE
 from app.domain.combat import CombatOutcome, CombatProposal, Stakes
 from app.domain.covert import CovertStakes
 from app.domain.events import (
     DomainEvent,
     EventEnvelope,
     HealthChanged,
+    ItemTransferred,
     Maneuvered,
     Parleyed,
     PlayerDied,
@@ -132,12 +135,25 @@ async def test_two_hundred_random_sequences_keep_every_rail() -> None:
             else:
                 seen_routes.add(type(at_stake).__name__)
                 assert outcome in at_stake.admissible and outcome == settle_any(at_stake, proposal).outcome, label
-            # 人情阶梯：每次至多一档；例外只有直落敌视与物归原主直升信赖
+            # 人情阶梯：每次至多一档；例外只有直落敌视与物归原主直升信赖——而且那件东西不是从物主本人手里拿来的
+            returned = {e.item_id for e in events if isinstance(e, ItemTransferred) and e.from_holder == pid}
             for e in events:
                 if isinstance(e, RelationChanged):
                     before = state.attitude_of(e.character_id)
                     exempt = e.attitude is Attitude.HOSTILE or (e.basis == TRUST_RESTORED and e.attitude is Attitude.TRUSTED)
                     assert abs(e.attitude.rank - before.rank) <= 1 or exempt, label
+                    if e.basis == TRUST_RESTORED:
+                        assert any(state.taken_from.get(item) != e.character_id for item in returned), label
+            # 暗取差了两境以上：东西绝不到手
+            if isinstance(at_stake, CovertStakes) and at_stake.margin <= -2:
+                assert at_stake.admissible == (CovertOutcome.CAUGHT,), label
+                assert not any(isinstance(e, ItemTransferred) for e in events), label
+            # 威逼图不来交情、和解与真传；交涉如愿而人情反降的，只能是威逼得逞
+            if isinstance(at_stake, SocialStakes):
+                assert not (at_stake.approach is Approach.FORCE and at_stake.aim in UNCOERCIBLE), label
+                if outcome is SocialOutcome.GRANTED and at_stake.aim in UNCOERCIBLE:
+                    assert all(e.attitude.rank >= state.attitude_of(e.character_id).rank
+                               for e in events if isinstance(e, RelationChanged)), label
             # 交涉与暗中永不致死、永不伤人（WORLD 里没有险物），也永不把人推上信赖
             if isinstance(at_stake, SocialStakes | CovertStakes):
                 assert not any(isinstance(e, PlayerDied | HealthChanged) for e in events), label

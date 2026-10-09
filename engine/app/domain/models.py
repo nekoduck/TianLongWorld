@@ -5,7 +5,7 @@
           图谱节点 Location / Character（true_name 本名为主键 + titles 称号 + aliases 别名 + foreshadow 后文剧情 + arrives_with 后来才到场）/
           MartialArt / Item（portable 可携、hazard 险性、use 用法 ItemUse、arrives_with）、Remedy 功效、
           武学的获取要求 Acquisition 与修炼要求 Practice、关系边 CharacterRelation（带 era）、
-          原著蓝图 WorldBlueprint（含 personas / facts 掌故；引用完整性 + 根基无环 + 掌故闸门的最后一道关）
+          原著蓝图 WorldBlueprint（含 personas / facts 掌故；引用完整性 + 根基无环 + 关系边无自环且一对人物至多一条 + 掌故闸门的最后一道关）
 [POS]: domain 的世界本体：原著解析管道的产物形状、Neo4j 图谱的节点与边的来源、裁决规则读取的事实；
        这里只有"世界是什么"，没有"世界此刻怎样"——后者属于事件流（events.py）与聚合根（aggregates.py）。
        语义本体对齐：人物的主键是本名而不是江湖上最响的那个称呼（段延庆不叫「恶贯满盈」）；武学把"门径从何而来"（获取）
@@ -343,9 +343,16 @@ def _integrity_errors(bp: WorldBlueprint) -> list[str]:
     for item in bp.items:
         need(item.owner_id, EntityKind.CHARACTER, item.id)
         need(item.location_id, EntityKind.LOCATION, item.id)
+    pairs: set[frozenset[str]] = set()
     for rel in bp.relations:
         need(rel.source_id, EntityKind.CHARACTER, "关系边")
         need(rel.target_id, EntityKind.CHARACTER, "关系边")
+        pair = frozenset((rel.source_id, rel.target_id))
+        if len(pair) == 1:
+            errors.append(f"关系边自环：{rel.source_id}")
+        elif pair in pairs:
+            errors.append(f"同一对人物至多一条关系边：{rel.source_id} — {rel.target_id}")
+        pairs.add(pair)
 
     cycle = prerequisite_cycle({art.id: art.practice.skills for art in bp.martial_arts})
     if cycle:

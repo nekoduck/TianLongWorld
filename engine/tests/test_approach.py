@@ -2,7 +2,8 @@
 [INPUT]: 依赖 app.domain.approach 的 MOVES / Route / Row / cell_of / row_of / normalize / infer_aim / AIMS，依赖 app.domain.intent，
          依赖 app.domain.models 的 Attitude，依赖 app.domain.rules 的 normalized / ground，依赖 tests/test_rules 的 scene / act
 [OUTPUT]: 兼容表的单测：整张 (动作, 手段) → 路线表逐格照 PROPOSAL_v2 §3.3 核对（含表外格）、TAKE 分地上之物与他人之物两行、
-          normalize（表外手段退回寻常、所图不配置空、话题落不了地置空、幂等）、所图缺省推断（说了的照说 → 格内隐含 → 带话题打探 → 敌视戒备化解 → 结交）、
+          normalize（表外手段退回寻常、所图不配置空、他人之物以格子写明的所图为准、话题落不了地置空、幂等）、
+          所图缺省推断（说了的照说 → 格内隐含 → 威逼或带话题打探 → 敌视戒备化解 → 结交）、
           rules.normalized 按此情此景落地话题与判定物在谁手
 [POS]: tests 的「招」词汇基线：表是封闭的——改表就改这里的每一格
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -73,7 +74,7 @@ def test_take_splits_into_two_rows() -> None:
         (PlayerIntent(action_type=ActionType.MOVE, target_entity="南下", approach=P.STEALTH), False, P.PLAIN, None),
         (PlayerIntent(action_type=ActionType.TALK, target_entity="段誉", approach=P.STEALTH), False, P.PLAIN, None),
         (PlayerIntent(action_type=ActionType.TAKE, target_entity="玉佩", approach=P.GUILE), False, P.PLAIN, None),
-        (PlayerIntent(action_type=ActionType.TAKE, target_entity="无量剑", approach=P.GUILE), True, P.GUILE, None),
+        (PlayerIntent(action_type=ActionType.TAKE, target_entity="无量剑", approach=P.GUILE), True, P.GUILE, Aim.SEIZE),
         (PlayerIntent(action_type=ActionType.LEARN, skill_used="一阳指", approach=P.LEVERAGE), False, P.PLAIN, None),
         (PlayerIntent(action_type=ActionType.TALK, target_entity="段誉", aim=Aim.ESCAPE), False, P.PLAIN, None),
         (PlayerIntent(action_type=ActionType.TALK, target_entity="段誉", aim=Aim.PROBE), False, P.PLAIN, Aim.PROBE),
@@ -122,6 +123,7 @@ async def test_the_scene_decides_what_grounds_and_who_holds() -> None:
     probe = act(ActionType.TALK, target_entity="左子穆", topic="段誉", approach=P.GUILE)
     assert normalized(probe, state, snap).topic is None
     sword = act(ActionType.TAKE, target_entity="无量剑", approach=P.STEALTH)
-    assert normalized(sword, state, snap) is sword  # 剑在左子穆手中：他人之物那一行有潜行
+    assert normalized(sword, state, snap).approach is P.STEALTH  # 剑在左子穆手中：他人之物那一行有潜行
+    assert normalized(sword, state, snap).aim is Aim.SEIZE  # 格子写明了所图：偷取即夺物
     jade = act(ActionType.TAKE, target_entity="玉佩", approach=P.STEALTH)
     assert normalized(jade, state, snap).approach is P.PLAIN  # 玉佩在地上：地上之物只有寻常

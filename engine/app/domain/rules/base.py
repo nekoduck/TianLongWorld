@@ -2,7 +2,7 @@
 [INPUT]: 依赖 domain/intent 的 PlayerIntent / Aim，依赖 domain/events 的 DomainEvent，依赖 domain/models 的 Tier / Attitude，
          依赖 domain/approach 的 Route，依赖 domain/stakes 的 AnyStakes / Ruling，依赖 domain/progression 的 effective_tier，
          依赖 domain/snapshot 的 LocalSnapshot / CharacterView / SkillView；PlayerState 仅作类型标注（避免与 aggregates 成环）
-[OUTPUT]: 对外提供 Rejection（驳回：code + reason + unlock 怎样才行）/ Approval（获准：指称已落地，route 走哪一路、aim 所图、topic 落了地的话题）/ Verdict、
+[OUTPUT]: 对外提供 Rejection（驳回：code + reason + unlock 怎样才行 + target_id / subject_id 落了地的对象与标的）/ Approval（获准：指称已落地，route 走哪一路、aim 所图、topic 落了地的话题）/ Verdict、
           resolve()（名称 → 实体的唯一匹配）、ground()（话题 → 实体或见闻 id）、
           skill_tier() / player_tier() / best_skill()（火候折算后的境界与看家本领）、Rule 抽象（adjudicate / stakes 钩子返回三路赌注之一 / consequences 收三路定案之一）、
           present()（指称落到在场之人）、menace()（在场、敌视且行动自如的仇人）、names() / listed() 渲染助手
@@ -38,6 +38,8 @@ class Rejection:
     code: str
     reason: str
     unlock: str = ""  # 怎样才行（「信赖」……）：随 ActionFailed 入账，供心事线索与选项提示
+    target_id: str | None = None  # 落了地的对象（不肯传功的师父、物在其手的人）：随 ActionFailed 入账，心事线索按它立键
+    subject_id: str | None = None  # 落了地的标的（所求的武学、所取之物）
 
 
 @dataclass(frozen=True, slots=True)

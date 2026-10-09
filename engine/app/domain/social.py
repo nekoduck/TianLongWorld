@@ -156,7 +156,7 @@ def _up(stakes: SocialStakes, ceiling: Attitude = CAP) -> Attitude:
 
 def effects(stakes: SocialStakes, ruling: SocialRuling, player_id: str) -> list[DomainEvent]:
     """
-    定案 → 事件。每次交涉入账一条 Parleyed（心事线索靠它折叠），再按所图与结局附上：
+    定案 → 事件。每次交涉入账一条 Parleyed（带所图的标的 subject_id，心事线索靠它折叠与立名），再按所图与结局附上：
       如愿：打探 → FactLearned（领域预先选定、知情人正是此人的那条见闻）；讨要 → ItemTransferred（他 → 你）；
             结交 / 化解 → 升一档（至多友善）；求艺 → 升一档（恰够上传功门槛，不传功）；威逼得逞 → 他照办却降一档（不低于戒备）：畏而不服；
       松动：升一档（至多友善；求艺至多到门槛下一档）；威逼与诡计只换来口风，不升人情；
@@ -164,7 +164,8 @@ def effects(stakes: SocialStakes, ruling: SocialRuling, player_id: str) -> list[
     """
     o, aim, approach, npc = ruling.outcome, stakes.aim, stakes.approach, stakes.npc_id
     events: list[DomainEvent] = [
-        Parleyed(npc_id=npc, aim=aim, approach=approach, outcome=o, leverage_ids=stakes.leverage_ids)
+        Parleyed(npc_id=npc, aim=aim, approach=approach, outcome=o, leverage_ids=stakes.leverage_ids,
+                 subject_id=stakes.subject_id)
     ]
     regard, cause = stakes.attitude, ""
     if o is S.GRANTED:

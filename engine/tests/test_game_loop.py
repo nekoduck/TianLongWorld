@@ -69,7 +69,7 @@ async def test_the_logic_deadline_storyline(container: Container) -> None:
     await say(container, pid, "去攀上")
     resolved, _ = await say(container, pid, "以北冥神功攻击左子穆")
     assert resolved.facts[0] == "阿星以北冥神功向左子穆出手——将其制住。"  # 技高一筹，胜负已定，不劳地下城主
-    assert not any("辛双清" in fact for fact in resolved.facts)  # 「敌人之敌」暂停：仇敌边多是后文的恩怨，不再翻转态度
+    assert "辛双清对阿星生出好感（你出手教训其仇家左子穆）。" in resolved.facts  # 开篇的「敌人之敌」：辛双清升一档
     for text in ("拿无量剑", "去南下"):
         await say(container, pid, text)
     resolved, _ = await say(container, pid, "把玉佩交还段正淳")
@@ -209,7 +209,7 @@ async def test_a_flight_is_narrated_where_the_fight_happened(settings: Settings)
         await say(container, pid, "北上")  # 回到仇人跟前：在场者的人物行写明恩怨，说书人不必自己编仇从何来
         back_home = llm.calls[-1][1].split("<truth_snapshot>")[1]
         assert "- 龚光杰｜无量剑东宗｜三流｜性情狠辣｜对你敌视｜恩怨：遭你出手相攻｜行动自如" in back_home
-        assert "- 左子穆｜无量剑东宗｜三流｜性情中庸｜对你敌视｜恩怨：师徒龚光杰受你攻击｜" in back_home
+        assert "- 左子穆｜无量剑东宗｜三流｜性情中庸｜对你敌视｜恩怨：你打伤其得意门徒龚光杰｜" in back_home
     finally:
         await container.aclose()
 

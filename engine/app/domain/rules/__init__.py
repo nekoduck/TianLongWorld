@@ -15,7 +15,7 @@
        地下城主的提议经 stakes.settle_any 钳进区间后才成为事件——大模型在这里有一票，但只能投给区间里的候选。
        交与暗两路的定案经 parley.settled 落为事件（Parleyed / Maneuvered 及其附带）；险物不论经哪一路到手，都追加一次留一口气的伤。
        每种动作一条 Rule（开闭：新动作 = 新 Rule + 注册一行；新的模糊动作 = 覆写 stakes 钩子），options 生成器复用 adjudicate 过滤出合法行为。
-       驳回入账为 ActionFailed，带上 unlock（怎样才行）与玩家当时的所图、手段
+       驳回入账为 ActionFailed，带上 unlock（怎样才行）、玩家当时的所图与手段、落了地的对象与标的（target_id / subject_id）
 [PROTOCOL]: 变更时更新此头部，然后检查 rules/CLAUDE.md
 """
 
@@ -146,6 +146,8 @@ def decide(
                 unlock=verdict.unlock,
                 aim=intent.aim,
                 approach=intent.approach,
+                target_id=verdict.target_id,
+                subject_id=verdict.subject_id,
             )
         ]
     rule = RULES[intent.action_type]

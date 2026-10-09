@@ -1,6 +1,6 @@
 """
 [INPUT]: 依赖 app.infrastructure.persistence 的 InMemoryWorldGraph / Neo4jWorldGraph，依赖 app.infrastructure.cypher 的 compile_blueprint / render_script，
-         依赖 app.domain 的 events / models / lore / intent / outcomes / snapshot，依赖 tests/world 的 WORLD，
+         依赖 app.domain 的 events / models / lore（Fact / FactUnlock）/ intent / outcomes / snapshot，依赖 tests/world 的 WORLD，
          依赖 tests/conftest 的 NEO4J_* 环境变量
 [OUTPUT]: 图谱契约测试：同一组用例在内存实现与真实 Neo4j（设置 TLBB_TEST_NEO4J_URI 时）上共跑，另有"双实现快照逐字段相等"的同构证明
 [POS]: tests 的投影正确性：正典只读、覆盖层随事件演化（熟练度在 KNOWS_SKILL 上做加法、气血钳位）、投影幂等可重试、
@@ -8,7 +8,9 @@
        P1 视图（自带的 LORE 蓝图 = WORLD + 后来才到场者 + 三种物性 + 将至的师徒 + 人设 + 五条见闻）：羁绊的 era / lead、外显人设、
        知情人在场的见闻及其正文作 label、物品的 portable / hazard / use、arrives_with 的人与物不进任何场景、出口的 hostile_ahead
        （已故、未到、被制住者不算）、USE 一回合（ItemConsumed）后物品不回地上也不回正典持有者、抹去重放连同用掉的记录一起重建、
-       掌故编译成参数化 Cypher 且 foreshadow 一字不入图，以及双实现在 P1 旅程每个版本与每处正典切片上逐字段相等
+       掌故编译成参数化 Cypher 且 foreshadow 一字不入图，以及双实现在 P1 旅程每个版本与每处正典切片上逐字段相等；
+       已知的见闻（INFORMED 蓝图 = LORE + 三位线人的三件事）：线人不在而主体或 unlock 目标在场（地上、行囊、在场者）时照样进快照
+       且 known=True、没打听过的平行世界看不到、抹去重放一并清掉 LEARNED；越过闸门的重复主体 / 知情人去重保序，两实现同口径
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -40,7 +42,7 @@ from app.domain.events import (
     SkillPracticed,
 )
 from app.domain.intent import Aim, Approach
-from app.domain.lore import FactUnlock
+from app.domain.lore import Fact, FactUnlock
 from app.domain.models import (
     Acquisition,
     Attitude,
@@ -483,5 +485,121 @@ async def test_memory_and_neo4j_agree_on_the_p1_views() -> None:
             assert await neo.local_snapshot(q) == await memory.local_snapshot(q), where
         ids = ["fact:东西宗相争", "fact:容子矩来意", "chr:容子矩", "itm:毒信笺", p]
         assert await neo.labels(ids) == await memory.labels(ids)
+    finally:
+        await neo.close()
+
+
+# ============================================================
+#  已知的见闻：线人不在，主体或 unlock 目标在场时照样进快照（known=True）；重复 id 与 MERGE 同口径
+# ============================================================
+INFORMED = WorldBlueprint.model_validate({
+    **LORE.model_dump(),
+    "characters": [
+        *LORE.model_dump()["characters"],
+        {"id": "chr:东宗信使", "true_name": "东宗信使", "faction": "无量剑东宗", "tier": Tier.THIRD, "location_id": "loc:大理城"},
+    ],
+    "items": [
+        *LORE.model_dump()["items"],
+        {"id": "itm:蛇毒酒", "name": "蛇毒酒", "kind": "毒物", "location_id": "loc:无锡城", "hazard": "蛇毒"},
+    ],
+    "facts": [
+        *LORE.model_dump()["facts"],
+        {"id": "fact:玉佩来历", "text": "这块玉佩是段家信物", "subject_ids": ["itm:玉佩"], "knower_ids": ["chr:段正淳"],
+         "sources": ["chunk:2"]},  # 主体是物：玉佩在地上或在行囊里即在场
+        {"id": "fact:无锡毒酒", "text": "段誉听说无锡城里有一坛蛇毒酒", "subject_ids": ["chr:段誉"], "knower_ids": ["chr:段誉"],
+         "unlock": {"kind": "HAZARD", "target_id": "itm:蛇毒酒"}, "sources": ["chunk:2"]},  # 只有 unlock 目标会在场
+        {"id": "fact:左子穆好名", "text": "左子穆把剑湖宫比剑看得极重", "subject_ids": ["chr:左子穆"], "knower_ids": ["chr:东宗信使"],
+         "unlock": {"kind": "MOTIVE", "target_id": "chr:左子穆"}, "sources": ["chunk:3"]},  # 心事：把柄在本人面前用
+    ],
+})
+
+
+def informed_journey(pid: str) -> list[DomainEvent]:
+    """在大理城从三位线人处得知三件事，再去线人都不在的地方：主体或 unlock 目标在场的那几件随身带着。"""
+    return [
+        PlayerSpawned(player_id=pid, name="阿星", location_id="loc:大理城"),
+        FactLearned(fact_id="fact:玉佩来历", source_id="chr:段正淳"),
+        FactLearned(fact_id="fact:无锡毒酒", source_id="chr:段誉"),
+        FactLearned(fact_id="fact:左子穆好名", source_id="chr:东宗信使"),
+        Moved(from_location_id="loc:大理城", to_location_id="loc:无量山", exit_label="北上"),
+        ItemTransferred(item_id="itm:玉佩", from_holder="loc:无量山", to_holder=pid),
+        Moved(from_location_id="loc:无量山", to_location_id="loc:大理城", exit_label="南下"),
+        Moved(from_location_id="loc:大理城", to_location_id="loc:无锡城", exit_label="东去"),
+    ]
+
+
+def _facts(snap: LocalSnapshot) -> dict[str, bool]:
+    return {f.id: f.known for f in snap.facts}
+
+
+async def test_learned_facts_follow_their_subjects_not_the_informant(graph: Graph) -> None:
+    await graph.seed(INFORMED, reset=True)
+    p = pid()
+    story = envelopes(p, informed_journey(p))
+
+    async def at(version: int) -> LocalSnapshot:
+        await graph.project(p, story[:version])
+        return await graph.local_snapshot(p)
+
+    told = {"fact:玉佩来历", "fact:无锡毒酒", "fact:左子穆好名"}
+    assert _facts(await at(1)) == dict.fromkeys(told, False)  # 线人都在场：可打探，尚未知
+    assert _facts(await at(4)) == dict.fromkeys(told, True)
+    assert _facts(await at(5)) == {  # 无量山：三位线人都不在
+        "fact:东西宗相争": False, "fact:左子穆心事": False, "fact:断肠草有毒": False,
+        "fact:玉佩来历": True,  # 主体玉佩躺在地上
+        "fact:左子穆好名": True,  # 主体兼心事的主人左子穆在场：借势的筹码
+    }
+    snap = await at(8)
+    assert _facts(snap) == {
+        "fact:乔峰降龙": False,  # 知情人乔峰在场
+        "fact:玉佩来历": True,  # 玉佩在行囊里
+        "fact:无锡毒酒": True,  # 主体段誉不在，unlock 目标蛇毒酒在地上
+    }
+    assert snap.labels["fact:无锡毒酒"] == "段誉听说无锡城里有一坛蛇毒酒" and snap.labels["itm:蛇毒酒"] == "蛇毒酒"
+    q = pid()  # 平行世界：没打听过的人在无锡城只看得到知情人在场的那一件
+    await graph.project(q, envelopes(q, [PlayerSpawned(player_id=q, name="阿星", location_id="loc:无锡城")]))
+    assert _facts(await graph.local_snapshot(q)) == {"fact:乔峰降龙": False}
+
+
+async def test_forget_clears_learned_facts(graph: Graph) -> None:
+    await graph.seed(INFORMED, reset=True)
+    p = pid()
+    history = envelopes(p, informed_journey(p))
+    await graph.project(p, history)
+    before = await graph.local_snapshot(p)
+    await graph.forget(p)
+    await graph.project(p, history[:1])  # 抹去后只重放到落脚：得知的记录一并抹去
+    assert _facts(await graph.local_snapshot(p)) == {"fact:玉佩来历": False, "fact:无锡毒酒": False, "fact:左子穆好名": False}
+    await graph.forget(p)
+    await graph.project(p, history)
+    assert await graph.local_snapshot(p) == before
+
+
+async def test_duplicate_fact_ids_collapse_like_merge(graph: Graph) -> None:
+    """闸门拒收重复的主体 / 知情人；越过闸门的旧蓝图也不许两套实现分叉：内存去重保序，与 Neo4j 的 MERGE 同口径。"""
+    dup = Fact.model_construct(
+        id="fact:重复", text="左子穆与辛双清不和", subject_ids=("chr:左子穆", "chr:辛双清", "chr:左子穆"),
+        knower_ids=("chr:龚光杰", "chr:龚光杰"), unlock=None, sources=("ev:1",),
+    )
+    await graph.seed(WorldBlueprint.model_construct(**{**dict(WORLD), "facts": (dup,)}), reset=True)
+    p = pid()
+    await graph.project(p, envelopes(p, [PlayerSpawned(player_id=p, name="阿星", location_id="loc:无量山")]))
+    (fact,) = (await graph.local_snapshot(p)).facts
+    assert fact.subject_ids == ("chr:左子穆", "chr:辛双清") and fact.knower_ids == ("chr:龚光杰",)
+
+
+@pytest.mark.neo4j
+async def test_memory_and_neo4j_agree_on_learned_facts() -> None:
+    neo = await _neo4j()
+    memory = InMemoryWorldGraph()
+    try:
+        await neo.seed(INFORMED, reset=True)
+        await memory.seed(INFORMED)
+        p = pid()
+        story = envelopes(p, informed_journey(p))
+        for upto in range(1, len(story) + 1):
+            await neo.project(p, story[:upto])
+            await memory.project(p, story[:upto])
+            assert await neo.local_snapshot(p) == await memory.local_snapshot(p), f"第 {upto} 版快照分叉"
     finally:
         await neo.close()

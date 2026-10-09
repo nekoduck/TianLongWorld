@@ -3,7 +3,7 @@
          依赖 app.domain.models 的 Attitude / Era / RelationKind，依赖 tests/test_rules 的 scene / act / recast
 [OUTPUT]: 名声的单测：受害者敌视（basis 交手）、与之休戚与共的在场目睹者敌视且缘由写明称谓（上首见徒弟挨打是「你打伤其得意门徒」，反之是「师父」）、
           开篇的仇家升一档（敌人之敌，至多友善，敌视者只升到戒备）、将至 / 后文的羁绊一概不动、被制住的目睹者与不在场者不动、已是那一档的不重复入账；
-          快照只有对方那头的边时把上首翻过来
+          快照只有对方那头的边时把上首翻过来；亲族不分长幼，两头都称「至亲」
 [POS]: tests 的人情涟漪基线：T=0 的人不提前记起未来的恩怨
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -84,3 +84,15 @@ async def test_a_one_sided_bond_is_read_from_the_witness_side() -> None:
     assert master is not None and disciple is not None
     assert kinship(master, disciple) == (RelationKind.MENTOR, "得意门徒")
     assert kinship(disciple, master) == (RelationKind.MENTOR, "师父")
+
+
+async def test_kin_are_simply_kin_whichever_way_the_edge_runs() -> None:
+    """亲族不分长幼：蓝图的亲族边里有父子，也有夫妻（钟万仇→甘宝宝）、兄弟，边的方向说不清谁是长辈——两头都称「至亲」。"""
+    state, snap = await scene("loc:大理城")
+    son, father = snap.character("chr:段誉"), snap.character("chr:段正淳")
+    assert son is not None and father is not None
+    assert kinship(son, father) == (RelationKind.KIN, "至亲") and kinship(father, son) == (RelationKind.KIN, "至亲")
+    hit_father = changes(decide(act(ActionType.ATTACK, target_entity="段正淳"), state, snap))
+    assert hit_father["chr:段誉"] == (Attitude.HOSTILE, "你打伤其至亲段正淳", "亲族")
+    hit_son = changes(decide(act(ActionType.ATTACK, target_entity="段誉"), state, snap))
+    assert hit_son["chr:段正淳"] == (Attitude.HOSTILE, "你打伤其至亲段誉", "亲族")

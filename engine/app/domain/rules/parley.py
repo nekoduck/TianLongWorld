@@ -9,8 +9,9 @@
        定案后的事件也由它们产出——规则只负责把指称落了地的意图翻成纯数值的输入。
        筹码（leverage_ids）由领域确定性选出，大模型不提议：借势 = 在场、行动自如、对你友善以上、与他有开篇羁绊的靠山 + 已知的 LEVERAGE 见闻；
        言辞 / 人情 = 已知的 MOTIVE 见闻（知其所好）；威逼 = 已知的 LEVERAGE 见闻（把柄）；套话没有筹码。
-       见闻只认快照里的（知情人之一在场），已知而知情人不在场的见闻这一回合不作筹码。
-       打探的见闻：此人是知情人、你尚未得知、unlock 的目标落得了地（在名称表里）；有话题则只取牵涉话题的那几条；按 id 取第一条
+       见闻只认快照里的：筹码只取 known=True 者（玩家已知，图谱把主体或 unlock 目标在场的已知见闻带进快照——从甲处听来的把柄，
+       甲不在场照样能用在乙身上）；打探只取 known=False 且此人正是知情人者（他就站在你面前）、unlock 的目标落得了地（在名称表里）；
+       有话题则只取牵涉话题的那几条；按 id 取第一条
 [PROTOCOL]: 变更时更新此头部，然后检查 rules/CLAUDE.md
 """
 
@@ -54,15 +55,11 @@ def _patrons(npc: CharacterView, state: PlayerState, snap: LocalSnapshot) -> lis
     return out
 
 
-def _known(snap: LocalSnapshot, state: PlayerState) -> list[FactView]:
-    return [f for f in snap.facts if f.id in state.known_facts]
-
-
 def leverage(npc: CharacterView, approach: Approach, state: PlayerState, snap: LocalSnapshot) -> tuple[str, ...]:
     kinds = _LEVER_KINDS.get(approach, frozenset())
     facts = [
-        f.id for f in _known(snap, state)
-        if f.unlock is not None and f.unlock.kind in kinds and (f.unlock.target_id == npc.id or npc.id in f.subject_ids)
+        f.id for f in snap.facts
+        if f.known and f.unlock is not None and f.unlock.kind in kinds and (f.unlock.target_id == npc.id or npc.id in f.subject_ids)
     ]
     patrons = _patrons(npc, state, snap) if approach is Approach.LEVERAGE else []
     return tuple(sorted({*facts, *patrons}))
@@ -71,7 +68,7 @@ def leverage(npc: CharacterView, approach: Approach, state: PlayerState, snap: L
 def fact_to_learn(npc: CharacterView, topic: str | None, state: PlayerState, snap: LocalSnapshot) -> FactView | None:
     candidates = [
         f for f in snap.facts
-        if npc.id in f.knower_ids and f.id not in state.known_facts
+        if not f.known and npc.id in f.knower_ids and f.id not in state.known_facts
         and (f.unlock is None or f.unlock.target_id in snap.labels)
     ]
     if topic:

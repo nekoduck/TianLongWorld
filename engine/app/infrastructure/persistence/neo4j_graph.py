@@ -9,11 +9,13 @@
        KNOWS_SKILL {proficiency}（所学及熟练度之和——SkillPracticed 在边上做加法，与 evolve 的 reduce 同构；加法不幂等，
        故检查点在 Player 写锁下读取；旧引擎留下的无熟练度边按上抛口径读作 LEGACY_MASTERY_POINTS）、
        SUBDUED（制住之人）、(:Character)-[:REGARDS {attitude}]->(:Player)（人情）、(:Item)-[:HELD_BY {world}]->(持有者)（易手之物）、
-       (:Item)-[:CONSUMED {world}]->(:Player)（用掉之物：HELD_BY 原样留着，快照据此滤掉——只删 HELD_BY 会让它回到正典持有者手里）。
+       (:Item)-[:CONSUMED {world}]->(:Player)（用掉之物：HELD_BY 原样留着，快照据此滤掉——只删 HELD_BY 会让它回到正典持有者手里）、
+       (:Player)-[:LEARNED {world}]->(:Fact)（得知的见闻）。
        物品此刻的持有者 = 本世界的 HELD_BY，否则正典的 canon_holder——覆盖层可整体抹去并从事件流重放重建。
        P1 视图：在场口径排除 arrives_with（后来才到场者 P1 不进任何场景）；羁绊带 era 与 lead（startNode 即上首）；
        出口的 hostile_ahead 是去处在场者里有没有对本世界玩家 REGARDS 敌视且未被 SUBDUED 的人；人设读 persona JSON 的外显部分；
-       见闻经 KNOWS_FACT 取知情人在场者，ABOUT / UNLOCKS 还原主体与解锁；labels 把 fact:<slug> 映射为见闻正文。
+       见闻 = 经 KNOWS_FACT 取知情人在场者 ∪ 经 LEARNED 取已知且 ABOUT / UNLOCKS 指向此地、在场者或可见之物者（known 标明已知），
+       ABOUT / UNLOCKS 还原主体与解锁；labels 把 fact:<slug> 映射为见闻正文。
        每种事件一个投影函数（开闭）；投影在单个写事务内推进检查点，版本不超过检查点的事件被跳过（幂等，可安全重试）
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -29,6 +31,7 @@ from app.domain.events import (
     LEGACY_MASTERY_POINTS,
     DomainEvent,
     EventEnvelope,
+    FactLearned,
     HealthChanged,
     ItemConsumed,
     ItemTransferred,
@@ -147,12 +150,20 @@ async def _consumed(tx: _Tx, pid: str, e: ItemConsumed) -> None:
     )
 
 
+async def _learned(tx: _Tx, pid: str, e: FactLearned) -> None:
+    """得知的见闻记成本世界的 LEARNED 边：线人走了，主体或 unlock 目标在场时它照样进快照（known=True）。"""
+    await tx.run(
+        "MATCH (p:Player {id: $pid}) MATCH (f:Fact {id: $fact}) MERGE (p)-[:LEARNED {world: $pid}]->(f)",
+        pid=pid, fact=e.fact_id,
+    )
+
+
 async def _died(tx: _Tx, pid: str, e: PlayerDied) -> None:
     await tx.run("MATCH (p:Player {id: $pid}) SET p.alive = false, p.death_cause = $cause", pid=pid, cause=e.cause)
 
 
 async def _nothing(tx: _Tx, pid: str, e: DomainEvent) -> None:
-    """Conversed / ActionFailed / Parleyed / FactLearned / Maneuvered：只是历史或只进聚合（心事、已知见闻），不改变图谱的快照。"""
+    """Conversed / ActionFailed / Parleyed / Maneuvered：只是历史或只进聚合（心事线索），不改变图谱的快照。"""
 
 
 _PROJECTORS: dict[str, _Projector] = {
@@ -167,7 +178,7 @@ _PROJECTORS: dict[str, _Projector] = {
     "Conversed": _nothing,
     "ActionFailed": _nothing,
     "Parleyed": _nothing,
-    "FactLearned": _nothing,
+    "FactLearned": _learned,
     "ItemConsumed": _consumed,
     "Maneuvered": _nothing,
 }
@@ -228,13 +239,20 @@ RETURN i {.id, .name, .aliases, .kind, .description, .portable, .hazard, .use} A
 """
 
 _Q_FACTS = """
-MATCH (k:Character)-[:KNOWS_FACT]->(f:Fact) WHERE k.id IN $chars
+CALL () {
+    MATCH (k:Character)-[:KNOWS_FACT]->(f:Fact) WHERE k.id IN $chars RETURN f
+    UNION
+    MATCH (:Player {id: $pid})-[:LEARNED {world: $pid}]->(f:Fact)
+    WHERE EXISTS { MATCH (f)-[:ABOUT|UNLOCKS]->(a) WHERE a.id IN $scene }
+    RETURN f
+}
 WITH DISTINCT f
 OPTIONAL MATCH (f)-[u:UNLOCKS]->(t)
 RETURN f.id AS id, f.text AS text,
        COLLECT { MATCH (f)-[:ABOUT]->(s) RETURN s.id } AS subject_ids,
        COLLECT { MATCH (w:Character)-[:KNOWS_FACT]->(f) RETURN w.id } AS knower_ids,
-       CASE WHEN u IS NULL THEN null ELSE {kind: u.kind, target_id: t.id} END AS unlock
+       CASE WHEN u IS NULL THEN null ELSE {kind: u.kind, target_id: t.id} END AS unlock,
+       EXISTS { MATCH (:Player {id: $pid})-[:LEARNED {world: $pid}]->(f) } AS known
 """
 
 _ART = "a {.id, .name, .aliases, .tier, .kind, .faction, .description, .acquisition, .practice} AS a"
@@ -330,7 +348,7 @@ class Neo4jWorldGraph(WorldReader, WorldProjector, WorldSeeder):
 
     async def forget(self, player_id: str) -> None:
         await self._driver.execute_query(
-            "MATCH ()-[r:HELD_BY|CONSUMED {world: $pid}]->() DELETE r", pid=player_id, database_=self._db
+            "MATCH ()-[r:HELD_BY|CONSUMED|LEARNED {world: $pid}]->() DELETE r", pid=player_id, database_=self._db
         )
         await self._driver.execute_query(
             "MATCH (p:Player {id: $pid}) DETACH DELETE p", pid=player_id, database_=self._db
@@ -405,7 +423,8 @@ async def _snapshot_tx(tx: _Tx, player_id: str) -> LocalSnapshot:
         )
         async for r in await tx.run(_Q_ITEMS, loc=loc["id"], pid=player_id, chars=present)
     ]
-    facts = [FactView(**r.data()) async for r in await tx.run(_Q_FACTS, chars=present)]
+    scene = [loc["id"], *present, *(i.id for i in items)]  # 此地、在场者、看得见的物（地上 / 人手 / 行囊）
+    facts = [FactView(**r.data()) async for r in await tx.run(_Q_FACTS, pid=player_id, chars=present, scene=scene)]
 
     inventory = [i.id for i in items if i.holder_id == player_id]
     practice = {row["id"]: int(row["points"] or 0) for row in head["practice"]}

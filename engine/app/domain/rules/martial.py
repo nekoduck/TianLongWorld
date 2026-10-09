@@ -254,7 +254,7 @@ def _teacher(
     在场且通晓此功、肯教你的人（人情 rank 够得上 required_regard）。玩家点名的师父优先：被拒时说的是他，肯教时也是他；他不肯而旁人肯，由肯教的人传；
     没点名而人人不肯时，驳回说的是交情最深的那位——离肯教最近的人。返回 (那位师父, 驳回)：肯教时驳回为 None，无人可教时师父为 None。
     驳回理由照实写人情：敌视者写明结怨的缘由（PlayerState.attitude_causes），戒备者是提防，漠然者只是素无交情——你们也许刚说过话，并非素不相识；
-    友善而功高者是交情尚浅。unlock 写明要到哪一档人情才肯传。
+    友善而功高者是交情尚浅。unlock 写明要到哪一档人情才肯传，target_id / subject_id 是那位师父与那门武学（心事线索按它们立键）。
     """
     masters = _masters(art, snap)
     if not masters:
@@ -276,7 +276,7 @@ def _teacher(
             reason = f"{who.name}不肯将{art.name}传给素无交情之人。"
         case _:
             reason = f"{who.name}与你交情尚浅，{art.name}非信赖之人不传。"
-    return who, Rejection("UNWILLING", reason, unlock=need.value)
+    return who, Rejection("UNWILLING", reason, unlock=need.value, target_id=who.id, subject_id=art.id)
 
 
 __all__ = ["AttackRule", "LearnRule", "required_regard", "retreat", "strike", "strike_stakes"]

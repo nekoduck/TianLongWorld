@@ -5,7 +5,7 @@
           以及菜单的验收指标：世界不变菜单逐字不变 100%、上回合的焦点在场即被提到 ≥80%、仇人在侧必有出路 100%、
           调息按伤势加权（安然无恙 0、轻伤 ≤50%、重伤及以上且无仇人 100%）、why ≤12 字；重放回合 1 段誉不再生好感、回合 11 不再「素不相识」
 [POS]: tests 的零费用回归基线：29 回合真实 Gemini 实录只把事件流入库（无叙事、无密钥），逐版本折叠聚合、投影内存图谱、
-       在每个回合边界重算快照与菜单——改选项算法或改蓝图之后都在这里重算一遍指标（P1 审计改蓝图后重定基线）
+       在每个回合边界重算快照与菜单——改选项算法或改蓝图之后都在这里重算一遍指标（P1 审计让段延庆后来才到场，样本门槛随之重定：焦点在眼前 ≥4 回合、仇人在侧 ≥3 回合）
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -153,6 +153,7 @@ async def test_the_menu_follows_whom_you_just_dealt_with() -> None:
     """
     上回合的焦点（focus[0]）仍在眼前，菜单就提到他：≥80%（旧算法按版本轮换，回合 1 刚打完龚光杰，菜单给的是左子穆）。
     「在眼前」指在场之人或不在你行囊里的可见之物——揣进怀里的通天草是你的东西，不是眼前的对象。
+    P1 审计重定基线：段延庆后来才到场（arrives_with），实录回合 22~28 他已不在澜沧江畔，可统计的回合从 8 降到 4（回合 1、5、6、7），比例不变。
     """
     turns = [t for t in await replay() if t.state.alive]
 
@@ -162,14 +163,15 @@ async def test_the_menu_follows_whom_you_just_dealt_with() -> None:
 
     present = [t for t in turns if t.state.focus and in_view(t, t.state.focus[0])]
     mentioned = [t for t in present if any(t.state.focus[0] in _subjects(o, t) for o in t.menu)]
-    assert len(present) >= 5 and len(mentioned) / len(present) >= 0.8
+    assert len(present) >= 4 and len(mentioned) / len(present) >= 0.8
     first = turns[1]  # 回合 1：一拳打向龚光杰，重伤
     assert first.state.focus[0] == "chr:龚光杰" and any(o.intent.target_entity == "龚光杰" for o in first.menu)
 
 
 async def test_a_way_out_whenever_a_foe_is_present() -> None:
+    """仇人在侧必有出路且脱身席居首。P1 审计重定基线：段延庆后来才到场，仇人在侧的回合从 7 降到 3（回合 1、6、7）。"""
     turns = [t for t in await replay() if t.state.alive and _foes(t.snap) and t.snap.exits]
-    assert len(turns) >= 5
+    assert len(turns) >= 3
     for t in turns:
         assert t.menu[0].intent.action_type is ActionType.MOVE and t.menu[0].why == "仇人在侧，先脱身"
 
@@ -198,7 +200,7 @@ async def test_every_option_says_why_in_a_few_words() -> None:
 
 
 async def test_replaying_turn_one_no_longer_befriends_duan_yu() -> None:
-    """实录回合 1：一拳打向龚光杰，段誉沿后文才结下的仇敌边（掌掴）生出好感。如今「敌人之敌」暂停，涟漪只剩同门与师徒。"""
+    """实录回合 1：一拳打向龚光杰，段誉沿仇敌边（掌掴）生出好感。审计把这条边定为「将至」——比剑时段誉失笑才结的仇，T=0 还不存在，名声只认开篇羁绊。"""
     _, envelopes = recorded()
     assert any(isinstance(e.event, RelationChanged) and e.event.character_id == "chr:段誉" for e in envelopes[:8])
     state, snap = await state_at(1)

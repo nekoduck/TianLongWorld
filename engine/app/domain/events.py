@@ -3,8 +3,9 @@
          依赖 domain/intent 的 ActionType / Approach / Aim，依赖 domain/combat 的 CombatOutcome，依赖 domain/outcomes 的 SocialOutcome / CovertOutcome
 [OUTPUT]: 对外提供 不可变领域事件 DomainEvent 基类及 PlayerSpawned / Moved（fleeing 标明夺路而逃）/ ItemTransferred / SkillPracticed /
           SkillExecuted（approach 手段）/ HealthChanged（source：blow 伤人 / rest 调息 / item 服药）/ Conversed（topic_id 话题）/
-          RelationChanged（basis 关系称谓或缘由类别）/ ActionFailed（unlock 怎样才行、aim / approach 当时的所图与手段）/ PlayerDied /
-          Parleyed 交涉 / FactLearned 得知见闻 / ItemConsumed 用掉随身之物 / Maneuvered 暗中取物、AnyEvent 判别联合、EVENT_ADAPTER（JSONB 编码）、
+          RelationChanged（basis 关系称谓或缘由类别）/ ActionFailed（unlock 怎样才行、aim / approach 当时的所图与手段、
+          target_id / subject_id 落了地的对象与标的）/ PlayerDied / Parleyed 交涉（subject_id 所图的标的）/ FactLearned 得知见闻 /
+          ItemConsumed 用掉随身之物 / Maneuvered 暗中取物、AnyEvent 判别联合、EVENT_ADAPTER（JSONB 编码）、
           decode_event()（JSONB 解码：先经上抛器把旧账升级为现行词汇）、EventEnvelope（流内版本 + 事件 id + 记录时间）
 [POS]: domain 的事实词汇：世界此刻的一切都由这些事件经纯函数折叠而来；事件一经写入永不修改，
        新增事件类型只需在此加一个类并挂进 AnyEvent（开闭），时间戳只在信封上，事件本体保持确定性以便裁决可单测。
@@ -118,6 +119,8 @@ class ActionFailed(DomainEvent):
     unlock: str = ""  # 怎样才行（「信赖」「略有小成」……）：供心事线索与选项提示
     aim: Aim | None = None
     approach: Approach = Approach.PLAIN
+    target_id: str | None = None  # 落了地的对象（不肯传功的师父、物在其手的人）：心事线索按 id 立键；旧账没有它，不开线索
+    subject_id: str | None = None  # 落了地的标的（所求的武学、所取之物）
 
 
 class PlayerDied(DomainEvent):
@@ -127,7 +130,10 @@ class PlayerDied(DomainEvent):
 
 
 class Parleyed(DomainEvent):
-    """交涉一场：对谁、图什么、凭什么手段、结局如何。leverage_ids 是领域从已知见闻里按 unlock 边确定性选出的筹码，大模型不提议。"""
+    """
+    交涉一场：对谁、图什么、凭什么手段、结局如何。leverage_ids 是领域从已知见闻里按 unlock 边确定性选出的筹码，大模型不提议；
+    subject_id 是所图的标的（求艺之武学 art:、讨要之物 itm:、打探之见闻 fact:），没有标的（结交、化解、无可打探）为 None。
+    """
 
     type: Literal["Parleyed"] = "Parleyed"
     npc_id: str
@@ -135,6 +141,7 @@ class Parleyed(DomainEvent):
     approach: Approach
     outcome: SocialOutcome
     leverage_ids: tuple[str, ...] = ()
+    subject_id: str | None = None
 
 
 class FactLearned(DomainEvent):

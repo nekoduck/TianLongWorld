@@ -1,7 +1,7 @@
 """
 [INPUT]: 依赖 app.config 的 Settings，依赖 infrastructure/knowledge_extractor 的 load_corpus / LLMKnowledgeExtractor / CachedExtractor / SeedingPipeline，
          依赖 infrastructure/graph_linter 的 GraphHealer / LLMPlacementOracle / lint / heal_brief / ingest_placements / HEALER_SYSTEM，
-         依赖 infrastructure/canon_audit 的 Library / audit_export / ingest_audit / apply_audit / canonize_audit / audit_lines 与 lore_gate 的 lore_export / ingest_lore / canonize_lore，
+         依赖 infrastructure/canon_audit 的 Library / audit_export / ingest_audit / canonize_audit / unbacked_audit / one_line 与 lore_gate 的 lore_export / ingest_lore / canonize_lore，
          依赖 infrastructure/cypher 的 compile_blueprint / render_script，依赖 infrastructure/persistence/neo4j_graph 的 Neo4jWorldGraph，
          依赖 infrastructure/llm/factory 的 build_llm 与 budget 的 CallBudget（抽取职责，自愈同用，只在 --use-llm 时装配），依赖 domain/models 的 WorldBlueprint
 [OUTPUT]: 对外提供 命令行入口 main()：`python -m app.seed extract --use-llm [--max-chunks N] [--apply] [--reset] [--allow-partial]`、
@@ -18,8 +18,10 @@
        extract 与 assemble 组装之后依次自动套用 healing.json 的安放、audit.json 的 T=0 审计、lore.json 的人设与见闻（零费用、确定性），
        新的推断与撰写只由 heal / audit / lore 经 --export / --ingest 交给子代理——audit 与 lore 根本没有大模型这条路；
        heal 为蓝图里下落不明的孤儿物品推断安放：配了真实大模型就问它，离线时只套缓存，export / ingest 让子代理或人工作答（自愈重建蓝图后照缓存补回审计与掌故）；
-       audit 出 T=0 审计的分批题面、收作答过闸后写回蓝图（刚过闸的结论直接套用）；lore 以一地为中心（默认剑湖宫·练武厅走两跳）出人设与见闻的题面、收作答过闸后写回；
-       两者不带参数即按缓存重新套用，只换 report.txt 里自己那几节；
+       audit 出 T=0 审计的分批题面、收作答过闸后写回蓝图（与播种同一个新鲜度判据，只豁免这一批刚重答的人物）；
+       lore 以一地为中心（默认剑湖宫·练武厅走两跳）出人设与见闻的题面、收作答过闸后写回；两者不带参数即按缓存重新套用，只换 report.txt 里自己那几节（每条折成一行）；
+       蓝图带着审计痕迹而审计缓存用不上（缺失、损坏、口径或指纹不符）时，audit 与 heal 拒绝并指路 assemble——免得把审过的描述当原描述；
+       有审计缓存时套用顺带读证据库，撞上后文的 T=0 描述在 [审计] 里标 ⚠；
        写回蓝图而不是直接改图——蓝图是正典，Neo4j 只是它的投影（--apply 时经同一个 seeder MERGE 进去）；
        export / ingest 让大模型之外的抽取器接手：export 导出抽取铁律与待抽的块，ingest 把外部抽取器的产出经同一道闸门写入缓存；
        apply 把 blueprint.json 写进 Neo4j。抽取与写图分离：重新播种无需重新读书，蓝图可以人工审阅后再落图。
@@ -41,12 +43,12 @@ from app.errors import ExtractionError
 from app.infrastructure.canon_audit import (
     EVIDENCE_VERSION,
     Library,
-    apply_audit,
     audit_export,
-    audit_lines,
     canonize_audit,
     ingest_audit,
     load_audit,
+    one_line,
+    unbacked_audit,
 )
 from app.infrastructure.cypher import compile_blueprint, render_script
 from app.infrastructure.graph_linter import (
@@ -96,10 +98,20 @@ def _library(settings: Settings, version: str = EVIDENCE_VERSION) -> Library:
 
 
 def _canonize(settings: Settings, blueprint: WorldBlueprint) -> tuple[WorldBlueprint, list[str], list[str]]:
-    """自愈之后依次套用审计缓存与掌故缓存（零费用、确定性、从不抛错）：掌故依赖审计定下的 era 与物性，所以在后。"""
-    audited, audit = canonize_audit(blueprint, _audit_cache(settings))
+    """
+    自愈之后依次套用审计缓存与掌故缓存（零费用、确定性、从不抛错）：掌故依赖审计定下的 era 与物性，所以在后。
+    有审计缓存时另读证据库，把撞上后文的 T=0 描述标 ⚠。
+    """
+    cache = _audit_cache(settings)
+    audited, audit = canonize_audit(blueprint, cache, lib=_library(settings) if cache.exists() else None)
     lored, lore = canonize_lore(audited, _lore_cache(settings))
     return lored, audit, lore
+
+
+def _refuse_unbacked(settings: Settings, blueprint: WorldBlueprint) -> None:
+    """已审的蓝图却没有可用的审计缓存：再审计或再套用都会把审过的描述当原描述、旧结论撤不掉——拒绝并指路 assemble。"""
+    if reason := unbacked_audit(blueprint, _audit_cache(settings)):
+        raise SystemExit(reason)
 
 
 def _write_blueprint(settings: Settings, blueprint: WorldBlueprint) -> None:
@@ -231,6 +243,8 @@ async def heal(
 ) -> WorldBlueprint:
     blueprint = _load_blueprint(settings)
     cache = _healing_cache(settings)
+    if export_dir is None:  # 自愈之后要重新套用审计缓存
+        _refuse_unbacked(settings, blueprint)
     if export_dir is not None:
         blueprint = (await GraphHealer(None, cache).heal(blueprint)).blueprint  # 缓存已能安放的不再出题
         orphans = lint(blueprint)
@@ -256,7 +270,7 @@ async def heal(
     result = await GraphHealer(oracle, cache, retry_null=retry_null).heal(blueprint)
     if isinstance(oracle, LLMPlacementOracle) and oracle.halted is not None:
         print(f"自愈模型不可用（{oracle.halted}）：尚无答案的孤儿这次没有问成，改用 heal --export / --ingest 交给子代理")
-    healed, audited, lored = _canonize(settings, result.blueprint)  # 自愈重建蓝图时不带掌故：按缓存补回
+    healed, audited, lored = _canonize(settings, result.blueprint)  # 安放改了所在：审计与掌故按缓存重新核验套用（指纹不符即作废）
     _write_blueprint(settings, healed)
     _rewrite_sections(settings, {"自愈": [*result.healed, *result.unresolved], "审计": audited, "掌故": lored})
     print(f"自愈完成：生效的安放 {len(result.placements)} 条，仍下落不明 {len(lint(healed))} 件；已写回蓝图与 seed.cypher")
@@ -275,7 +289,7 @@ def _with_sections(text: str, sections: Mapping[str, Sequence[str]]) -> str:
     """把报告里给出的分节换成新内容，没给出的分节与其余各节原样保留。"""
     lines = [ln for ln in text.splitlines() if ln != "（无异常）"]
     managed = {t: [ln for ln in lines if ln.startswith(f"[{t}] ")] for t in _SECTIONS}
-    managed |= {t: [f"[{t}] {line}" for line in new] for t, new in sections.items()}
+    managed |= {t: [f"[{t}] {one_line(line)}" for line in new] for t, new in sections.items()}  # 一条一行：换行拆不开分节
     rest = [ln for ln in lines if not any(ln.startswith(f"[{t}] ") for t in _SECTIONS)]
     tail = next((i for i, ln in enumerate(rest) if ln.startswith("[抽取失败] ")), len(rest))
     return "\n".join([*rest[:tail], *(ln for t in _SECTIONS for ln in managed[t]), *rest[tail:]]) or "（无异常）"
@@ -297,6 +311,9 @@ def audit(
 ) -> WorldBlueprint:
     blueprint = _load_blueprint(settings)
     cache = _audit_cache(settings)
+    _refuse_unbacked(settings, blueprint)
+    keep: set[str] = set()
+    lib: Library | None = None
     try:
         book, notes = load_audit(cache, blueprint)
         if export_dir is not None:
@@ -310,15 +327,17 @@ def audit(
                 print("  本地没有原著：题面列不出原文块与后文事件，arrives_with 过不了闸门")
             return blueprint
         if ingest_file is not None:
-            fresh, notes = ingest_audit(blueprint, ingest_file.read_text(encoding="utf-8"), cache, by or "", _library(settings, version))
+            lib = _library(settings, version)
+            fresh, notes = ingest_audit(blueprint, ingest_file.read_text(encoding="utf-8"), cache, by or "", lib)
             book, _ = load_audit(cache, blueprint)
+            keep = {v.id for v in fresh.characters}
             print(f"已入审计缓存 {len(fresh)} 条（作答者 {by}）；缓存共 {len(book)} 条")
             for note in notes:
                 print(f"  {note}")
     except ExtractionError as exc:
         raise SystemExit(str(exc)) from exc
-    if ingest_file is not None:  # 刚过闸的结论直接套用（重答过的人物，蓝图里还是上一版结论的样子）
-        bp, audited = apply_audit(blueprint, book), audit_lines(blueprint, book)
+    if ingest_file is not None:  # 与播种同一个新鲜度判据，只豁免这一批刚重答的人物（蓝图里还是上一版结论的样子）
+        bp, audited = canonize_audit(blueprint, cache, keep=keep, lib=lib)
         bp, lored = canonize_lore(bp, _lore_cache(settings))
     else:
         bp, audited, lored = _canonize(settings, blueprint)
