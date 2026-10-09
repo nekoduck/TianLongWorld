@@ -6,7 +6,7 @@
          依赖 domain/aggregates 的 PlayerState，依赖 domain/snapshot 的 LocalSnapshot，依赖 app.errors 的 LLMError
 [OUTPUT]: 对外提供 Resolution（提议 ResolutionOutput | Proposal | CombatProposal | None + 出处：规则 / 地下城主 / 气运）、
           Resolver 抽象（resolve(env, scene, state, intent, said)）、CanonicalResolver（空提议，领域取确定性裁决）、
-          GM_SYSTEMS 与 gm_system()（推理层：四步推理顺序 + 与闸门逐条一致的法则 + 每路一段路数 + 示例）、
+          GM_SYSTEMS 与 gm_system()（推理层：四步推理顺序 + 与闸门逐条一致的法则 + 每路一段路数 + 只有〈〉占位的格式示例）、example()（格式示例：缺省为占位，测试填实值证明过得了闸门）、
           LLMResolutionAgent（语义物理引擎的神经层：简报 → 结构化推演 → 宽容解析 → 事实预筛；重采样、时间预算、失灵兜底）、
           FortuneResolver（点选回合的确定性气运：canonical 60% / 好一格 25% / 差一格 15%，绝不比 canonical 更重地落进 GRAVE）、
           fortune_seed()、GRAVE、ODDS
@@ -106,7 +106,7 @@ class CanonicalResolver(Resolver):
 
 
 # ============================================================
-#  推理层 —— 系统提示：四步推理顺序 + 闸门法则（与 domain/resolution 逐条一致）+ 每路一段路数 + 示例
+#  推理层 —— 系统提示：四步推理顺序 + 闸门法则（与 domain/resolution 逐条一致）+ 每路一段路数 + 占位格式示例
 # ============================================================
 _HEAD = (
     "你是《天龙八部》文字世界的地下城主，语义物理引擎的推理层。世界引擎已把这一举的绝对事实写进简报："
@@ -137,10 +137,11 @@ _LAWS: tuple[str, ...] = (
     "新建：clock 写新名称（至多十二字，如「钟灵的戒心」），kind 取疑心 / 敌意 / 危机 / 进展，anchor、maximum（4 迫在眉睫、6、8 长线），"
     "steps 写初始进度（至少 1），consequence 写满则如何（至多三十字）。推进 / 回退：clock 写 <clocks> 里已有时钟的名称，steps 一到三格；销毁：这件事已化解。"
     "一回合每只至多动一次。",
-    "时钟推进到满即坍缩，按种类硬结算：疑心——挂处之人敌视你、名望 −5；敌意——挂处之人敌视你（剑拔弩张）；"
+    "时钟推进到满即坍缩，按种类硬结算：疑心——挂处之人敌视你、名望 −5；敌意——挂处之人敌视你并出手，你受创三十（留一口气；他已被你制住则无从出手）；"
     "危机——你受创三十（留一口气），挂在此地或你身上则被迫脱身；进展——挂处之人人情升一档（至多友善，已够则名望 +3）。",
     "等价交换：欠的格数 = 结局比确定性裁决好几格 +（得手 / 如愿 / 无痕 / 败露时）舒适区差距 strain，<physics> 已逐条算好。"
     "付的格数 = 旁人人情一档一格 + 凶险时钟（疑心 / 敌意 / 危机）本回合新添的格数 + 名望五点一格 +（暗取）气血十点一格。"
+    "凶险时钟只有满了还会有后果才算代价：挂在已被你制住之人身上的敌意时钟，满了他也无从出手，不算。"
     "付不够的，引擎补到对象身上的凶险时钟（出手「某某的旧恨」、交涉「某某的戒心」、暗取「某某的疑心」），挂不上则折名望，补满了当场坍缩——"
     "所以在 cost 里自己算清，挑合情合理的代价。",
     "new_facts 至多三条微观事实：每条一行中文、至多四十字，不写英文、数字与任何标记；只写推演冒出来的细节（一个神色、一处痕迹、一句传言），"
@@ -170,15 +171,35 @@ _WAYS: dict[Route, str] = {
         "不写气血与人情，action_trigger 写「无」。眼前的时钟与这一举无涉，就什么也别动。"
     ),
 }
+# 格式示例只示字段顺序与写法：内容一律是〈〉占位——具体的人名、结局与措辞写进示例，模型就会照抄（实测：时钟名与满则如何一字不差），
+# 推演便被示例锚死。example() 供测试把占位换成实值，证明这个格式填对了过得了闸门
+_SLOTS: dict[str, str] = {
+    "collision": "〈双方境界、性情、态度、伤势、手段如何相撞，谁压过谁几分〉",
+    "severity": "〈爆炸或暗流〉",
+    "cost": "〈好过确定性裁决几格、越出舒适区几格，欠几格，拿什么付〉",
+    "convergence": "〈动哪只时钟、满了坍缩成什么，收敛到哪一种结局〉",
+    "key": "〈可用属性键〉", "value": "〈相对变化〉",
+    "clock": "〈时钟名称〉", "kind": "〈疑心、敌意、危机或进展〉", "anchor": "〈可挂之处〉", "maximum": "〈4、6 或 8〉",
+    "steps": "〈格数〉", "consequence": "〈满了会如何〉",
+    "fact": "〈简报里的人与物冒出来的一个细节〉", "trigger": "〈无、交手、脱身或死亡判定〉",
+}
+_TEMPLATE = (
+    '{{"collision": "{collision}", "severity": "{severity}", "cost": "{cost}", "convergence": "{convergence}", '
+    '"deltas": [{{"key": "{key}", "value": {value}}}], '
+    '"clock_mutations": [{{"op": "新建", "clock": "{clock}", "kind": "{kind}", "anchor": "{anchor}", "maximum": {maximum}, '
+    '"steps": {steps}, "consequence": "{consequence}"}}], '
+    '"new_facts": ["{fact}"], "action_trigger": "{trigger}"}}'
+)
+
+
+def example(**values: object) -> str:
+    """格式示例：缺省全是〈〉占位（进系统提示）；测试传入实值，得到一份可以过闸的推演。"""
+    return _TEMPLATE.format(**{**_SLOTS, **values})
+
+
 _EXAMPLE = (
-    "示例（出手，可裁结局为轻伤、重伤，确定性裁决重伤，对手狠辣；轻伤比确定性裁决好一格，欠一格代价，以一只敌意时钟付）：\n"
-    '{"collision": "你徒手不入流，对方三流且狠辣，高下已分，但你见机得早。", "severity": "暗流", '
-    '"cost": "轻伤好过重伤一格，欠一格：他记恨在心，挂一只敌意时钟一格。", '
-    '"convergence": "新建「龚光杰的杀意」一格，收敛为轻伤。", '
-    '"deltas": [{"key": "气血", "value": -18}], '
-    '"clock_mutations": [{"op": "新建", "clock": "龚光杰的杀意", "kind": "敌意", "anchor": "龚光杰", "maximum": 4, "steps": 1, '
-    '"consequence": "拔剑寻你拼命"}], '
-    '"new_facts": ["龚光杰剑尖上挑着你的一片衣角"], "action_trigger": "无"}'
+    "格式示例（只示字段顺序与写法，〈〉里的内容全要你按简报自己推；deltas 与 clock_mutations 可写零到多条，结局、量级、代价与措辞各凭此景，"
+    "不要套用任何固定写法）：\n" + example()
 )
 _JSON_RULE = "只输出符合 schema 的 JSON 对象，不要解释。"
 

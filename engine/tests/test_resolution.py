@@ -16,7 +16,6 @@
 
 import asyncio
 import json
-import re
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -33,6 +32,7 @@ from app.application.resolution_agent import (
     LLMResolutionAgent,
     Resolution,
     Resolver,
+    example,
 )
 from app.domain import rules
 from app.domain.aggregates import Player, PlayerState
@@ -261,16 +261,24 @@ async def test_the_system_prompt_teaches_the_reasoning_order_and_the_gate_and_it
     assert order == sorted(order)
     for law in ("推出的结局不在可裁结局里，整份推演作废", "「暗流」只许软结局", "暗流必须新建或推进至少一只时钟",
                 "暗取可付至多二十点代价", "爆炸在 −10 ~ +5 之间", "只降不升、每人至多 −1、至多两人", "悬着的总数至多六只、每个挂处至多两只",
-                "疑心——挂处之人敌视你、名望 −5", "名望五点一格", "不得夹带状态变化", "「死亡判定」只在可裁结局含毙命时可写"):
+                "疑心——挂处之人敌视你、名望 −5", "名望五点一格", "不得夹带状态变化", "「死亡判定」只在可裁结局含毙命时可写",
+                "敌意——挂处之人敌视你并出手，你受创三十", "挂在已被你制住之人身上的敌意时钟，满了他也无从出手，不算"):
         assert law in system, law
     assert "旗鼓相当" in system and "永不动武" in GM_SYSTEMS[Route.SOCIAL] and "永不动武" in GM_SYSTEMS[Route.COVERT]
     assert system.endswith("只输出符合 schema 的 JSON 对象，不要解释。")
 
-    example = re.search(r"\n(\{.*\})\n", system)
-    assert example is not None
+    # 格式示例只有〈〉占位：实测模型照抄了具体示例的时钟名与满则如何，推演被锚死在示例那一幕上
+    assert example() in system and "〈" in example()
+    for route, prompt in GM_SYSTEMS.items():
+        assert not any(c.name in prompt for c in WORLD.characters), route  # 系统提示里没有任何一个具体的人
+    filled = example(
+        collision="你徒手不入流，对方三流且狠辣。", severity="暗流", cost="轻伤好过重伤一格，挂一只敌意时钟一格。",
+        convergence="新建一只敌意时钟，收敛为轻伤。", key="气血", value=-18, clock=GRUDGE, kind="敌意", anchor="龚光杰",
+        maximum=4, steps=1, consequence="拔剑寻你拼命", fact="龚光杰剑尖上挑着你的一片衣角", trigger="无",
+    )
     env, snap, state = await gong()
-    ruled = settle(env, ResolutionOutput.model_validate_json(example.group(1)), state, snap)
-    assert ruled.adopted and ruled.outcome is Out.MINOR_WOUND  # 示例本身过得了闸门：好一格的代价由它自己的时钟付清
+    ruled = settle(env, ResolutionOutput.model_validate_json(filled), state, snap)
+    assert ruled.adopted and ruled.outcome is Out.MINOR_WOUND  # 这个格式照简报填对了，过得了闸门：好一格的代价由它自己的时钟付清
     assert [type(e) for e in ruled.events] == [ClockStarted, FactEmerged] and not any("代价" in n for n in ruled.notes)
 
 

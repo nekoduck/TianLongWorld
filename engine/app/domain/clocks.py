@@ -27,7 +27,7 @@ CONSEQUENCE_CHARS = 30
 
 class ClockKind(StrEnum):
     SUSPICION = "疑心"  # 某人对你起疑：满则识破，翻脸，名声受损
-    ENMITY = "敌意"  # 某人的怒火或杀意：满则剑拔弩张
+    ENMITY = "敌意"  # 某人的怒火或杀意：满则敌视你并出手伤你（已被制住则无从出手）
     PERIL = "危机"  # 局势或环境的险恶逼近：满则受创，被迫脱身
     PROGRESS = "进展"  # 有利的暗流（一段交情、一桩图谋）：满则如愿以偿的那一步
 

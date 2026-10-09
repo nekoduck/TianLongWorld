@@ -15,9 +15,10 @@
          结局由属性变化推出（制住 → 得手、所图得成 → 如愿 / 无痕、对方人情跌落 → 碰壁 / 翻脸 / 被察觉……），推出的结局须在 rules 圈出的可裁区间里，
          出界即整份推演作废、取确定性裁决——越级取胜依旧不在区间里，大模型说得再动听也写不进账；
          量级：声明「暗流」就只许软结局并必须挂上或推进一只时钟（没挂就由领域按路线补挂），硬结局与时钟坍缩一律是「爆炸」；
-         等价交换：结局好过确定性裁决几格、或越出舒适区还要得手，就得付同样多格的代价（名望、旁人的人情、暗取时的气血、凶险时钟净添的格数——回退与销毁扣回），
-                   付不够的由领域补成对象身上一只凶险时钟的格数——补满了它当场坍缩；
-         时钟：只挂在眼前之物上、总数与每个挂处都有上限、一次推进至多三格、一回合每只至多动一次（补代价除外），满格即按种类坍缩为硬结算（翻脸、剑拔弩张、受创脱身、交情更进一步）；
+         等价交换：结局好过确定性裁决几格、或越出舒适区还要得手，就得付同样多格的代价（名望、旁人的人情、暗取时的气血、凶险时钟净添的格数——回退与销毁扣回；
+                   只算满了还会有后果的时钟：挂在已被制住之人身上的敌意时钟他无从出手，不算），付不够的由领域补成对象身上一只凶险时钟的格数
+                   （对象已被制住就折名望）——补满了它当场坍缩；
+         时钟：只挂在眼前之物上、总数与每个挂处都有上限、一次推进至多三格、一回合每只至多动一次（补代价除外），满格即按种类坍缩为硬结算（疑心翻脸、敌意出手伤你、危机受创脱身、交情更进一步；伤人都留一口气，且算上这一回合已受的伤）；
          微观事实：至多三条一行中文、不得夹带改变属性 / 归属 / 生死 / 位置的字眼，点了名的场景实体随事件入图。
        交涉永不伤人、暗中与交涉永不致死，这两条旧铁律在新闸门里照样成立。没有大模型（离线、点选、保险丝熔断）时，
        规则或气运的结局经 output_for 变成同形的推演输出走同一道闸门——等价交换对谁都一样
@@ -463,7 +464,7 @@ def _nearest_soft(env: Envelope, wanted: Outcome) -> Outcome | None:
 _STATE_WORDS = re.compile(
     r"死了|身死|毙命|气绝|断气|昏死|杀了|杀死|夺下|夺得|夺走|抢走|偷走|到手|交给|送给|学会|传授|传给|离开了|来到|逃到|擒住|制住"
 )
-_JUNK = re.compile(r"[A-Za-z0-9０-９<>`{}\[\]\n\r\t]")
+_JUNK = re.compile(r"[A-Za-z0-9０-９<>〈〉`{}\[\]\n\r\t]")  # 〈〉是系统提示格式示例的占位：照抄进来的一律不收
 
 
 def _fact(text: str, notes: list[str]) -> str | None:
@@ -496,8 +497,11 @@ def fact_id(text: str) -> str:
 class _Clocks:
     """一回合里的时钟账：在快照里的那几只 + 本回合新挂的；每只至多被动一次。"""
 
-    def __init__(self, state: PlayerState, snap: LocalSnapshot, names: Mapping[str, str]) -> None:
+    def __init__(
+        self, state: PlayerState, snap: LocalSnapshot, names: Mapping[str, str], subdued: frozenset[str] = frozenset()
+    ) -> None:
         self.state, self.names = state, names
+        self.subdued = subdued  # 这一回合定案之后被制住的人（含这一招得手制住的对手）
         self.scene = {c.id: c for c in snap.clocks}
         self.anchors = {snap.location.id, state.player_id, *(c.id for c in snap.characters), *(i.id for i in snap.items)}
         self.active = len(state.clocks)
@@ -510,6 +514,13 @@ class _Clocks:
     @property
     def threat_ticks(self) -> int:
         return max(0, self.threat_net)
+
+    def pays(self, kind: ClockKind, anchor_id: str) -> bool:
+        """
+        这只时钟的格数算不算代价：只有凶险、且满了还会有后果的才算。敌意满了是挂处之人出手伤你——
+        他若已被你制住（含这一招刚制住），满了也无从出手，挂多少格都是空头账。疑心满了至少折名望，危机满了你受创，都算。
+        """
+        return kind.threat and not (kind is ClockKind.ENMITY and anchor_id in self.subdued)
 
     def _again(self, clock: NarrativeClock, cause: str, notes: list[str]) -> bool:
         """一回合每只至多动一次（新建、推进、回退、销毁都算）；唯一的例外是领域补代价时推进同名的那只。"""
@@ -536,7 +547,7 @@ class _Clocks:
         self.touched.add(cid)
         self.events.append(ClockStarted(clock=clock, cause=cause))
         self.moved = True
-        if kind.threat:
+        if self.pays(kind, anchor_id):
             self.threat_net += clock.progress
 
     def advance(self, clock: NarrativeClock, steps: int, cause: str, notes: list[str]) -> None:
@@ -557,14 +568,14 @@ class _Clocks:
                 self.scene[clock.id] = moved
         if steps > 0:
             self.moved = True
-        if clock.kind.threat:
+        if self.pays(clock.kind, clock.anchor_id):
             self.threat_net += min(steps, clock.remaining)  # 坍缩那一下只算到满格为止
 
     def clear(self, clock: NarrativeClock, cause: str, notes: list[str]) -> None:
         if self._again(clock, cause, notes):
             return
         self.touched.add(clock.id)
-        if clock.kind.threat:
+        if self.pays(clock.kind, clock.anchor_id):
             self.threat_net -= clock.progress
         self.events.append(ClockCleared(clock_id=clock.id, name=clock.name, cause=cause))
         self.scene.pop(clock.id, None)
@@ -572,6 +583,9 @@ class _Clocks:
 
     def apply(self, m: ClockMutation, notes: list[str]) -> None:
         if m.op is ClockOp.START:
+            if "〈" in m.clock + m.consequence:
+                notes.append(f"时钟「{m.clock}」照抄了格式示例的占位，作罢")
+                return
             anchor = self.names.get(m.anchor or "")
             if anchor not in self.anchors or anchor is None:
                 notes.append(f"时钟「{m.clock}」的挂处「{m.anchor}」不在眼前")
@@ -601,11 +615,19 @@ def _default_clock(env: Envelope, regard_shift: int, *, cost: bool) -> tuple[str
     return f"{who}的戒心", ClockKind.SUSPICION, 4, "看穿你的用心"
 
 
-def _collapse(clock: NarrativeClock, state: PlayerState, snap: LocalSnapshot) -> tuple[list[DomainEvent], bool, bool]:
-    """坍缩表：满格的暗流按种类落为硬结算。返回（事件, 是否被迫脱身, 是否剑拔弩张）。"""
+def _collapse(
+    clock: NarrativeClock, state: PlayerState, snap: LocalSnapshot, hp: int, subdued: frozenset[str]
+) -> tuple[list[DomainEvent], bool, bool]:
+    """
+    坍缩表：满格的暗流按种类落为硬结算。hp 是这一回合此前已结算的气血（伤人都在它上面留一口气），
+    subdued 是定案之后被制住的人。返回（事件, 是否被迫脱身, 是否剑拔弩张）。
+      疑心：挂处之人敌视你、名望 −5；敌意：挂处之人敌视你并出手，你受创三十——已被制住的人无从出手，只剩敌视；
+      危机：你受创三十，挂在此地或你身上即被迫脱身；进展：挂处之人人情升一档（至多友善，已够则名望 +3）。
+    """
     cause = f"{clock.name}满了" + (f"：{clock.consequence}" if clock.consequence else "")
     who = snap.character(clock.anchor_id)
     regard = state.attitude_of(clock.anchor_id)
+    hurt = min(COLLAPSE_HURT, max(0, hp - 1))
     match clock.kind:
         case ClockKind.SUSPICION | ClockKind.ENMITY if who is not None:
             events: list[DomainEvent] = []
@@ -613,9 +635,10 @@ def _collapse(clock: NarrativeClock, state: PlayerState, snap: LocalSnapshot) ->
                 events.append(RelationChanged(character_id=who.id, attitude=Attitude.HOSTILE, cause=cause, basis=clock.kind.value))
             if clock.kind is ClockKind.SUSPICION:
                 events.append(RenownChanged(delta=-COLLAPSE_RENOWN, cause=cause))
+            elif who.id not in subdued and hurt:
+                events.append(HealthChanged(delta=-hurt, cause=cause, source_id=who.id, source="blow"))
             return events, False, clock.kind is ClockKind.ENMITY
         case ClockKind.PERIL:
-            hurt = min(COLLAPSE_HURT, max(0, state.hp - 1))
             hit: list[DomainEvent] = [HealthChanged(delta=-hurt, cause=cause, source_id=None)] if hurt else []
             return hit, clock.anchor_id in (snap.location.id, state.player_id), False
         case ClockKind.PROGRESS if who is not None and regard.rank < CAP.rank:
@@ -684,7 +707,8 @@ def settle(env: Envelope, output: ResolutionOutput, state: PlayerState, snap: Lo
             events.append(RelationChanged(character_id=who, attitude=regard.step(-1), cause="看不惯你的作为", basis="代价"))
             bystanders += 1
 
-    clocks = _Clocks(state, snap, names)
+    subdued = state.subdued | ({env.target_id} if outcome is CombatOutcome.SUCCESS and env.target_id else set())
+    clocks = _Clocks(state, snap, names, frozenset(subdued))
     for m in output.clock_mutations:
         clocks.apply(m, notes)
     target_shift = (typed.regard or {}).get(env.target_id or "", 0)
@@ -699,8 +723,9 @@ def settle(env: Envelope, output: ResolutionOutput, state: PlayerState, snap: Lo
         name, kind, size, then = _default_clock(env, target_shift, cost=True)
         anchor = env.target_id if snap.character(env.target_id) else snap.location.id
         before = len(clocks.events)
-        clocks.start(name, kind, anchor, size, shortfall, then, "代价", notes)
-        if len(clocks.events) == before:  # 挂不上（时钟已满）：折成名望
+        if clocks.pays(kind, anchor):  # 挂上了也没有后果的（对象已被制住）不挂，直接折名望
+            clocks.start(name, kind, anchor, size, shortfall, then, "代价", notes)
+        if len(clocks.events) == before:  # 挂不上（时钟已满，或挂了也是空头账）：折成名望
             renown_change = max(-20, renown_change - shortfall * RENOWN_UNIT)
         notes.append(f"等价交换：代价欠 {shortfall} 格，由领域补足")
 
@@ -710,8 +735,10 @@ def settle(env: Envelope, output: ResolutionOutput, state: PlayerState, snap: Lo
 
     flee = trigger is ActionTrigger.FLEE
     confront = trigger is ActionTrigger.CONFRONT or outcome is SocialOutcome.FALLOUT
+    left = max(0, state.hp + hp)  # 这一回合路线已结算的气血：坍缩伤人在它上面留一口气
     for clock in clocks.collapsed:
-        fallout, forced, hostile = _collapse(clock, state, snap)
+        fallout, forced, hostile = _collapse(clock, state, snap, left, clocks.subdued)
+        left += sum(e.delta for e in fallout if isinstance(e, HealthChanged))
         events += fallout
         flee, confront = flee or forced, confront or hostile
         severity = Severity.BLAST

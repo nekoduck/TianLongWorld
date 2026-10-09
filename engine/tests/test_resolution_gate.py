@@ -432,6 +432,8 @@ async def test_clocks_hang_only_on_what_is_in_view() -> None:
         ("loc:无量山", 1), ("itm:无量剑", 1), (PID, 1)]
     far = await gate("静观", out(mutations=(start("乔峰的疑心", "乔峰"), start("大理的风声", "大理城"), start("x", "不存在"))))
     assert not got.notes and not only(far.events, ClockStarted) and len(far.notes) == 3
+    copied = await gate("静观", out(mutations=(start("〈时钟名称〉", "左子穆"), start("左子穆的戒心", "左子穆", then="〈满了会如何〉"))))
+    assert not only(copied.events, ClockStarted) and len(copied.notes) == 2  # 照抄格式示例的占位，一只也挂不上
 
 
 async def test_a_clock_advances_rewinds_and_clears() -> None:
@@ -493,7 +495,9 @@ async def test_the_clock_caps_hold() -> None:
         (K.SUSPICION, "chr:左子穆", (), [RelationChanged, RenownChanged], False, T.NONE),
         (K.SUSPICION, "chr:左子穆", (RelationChanged(character_id="chr:左子穆", attitude=Attitude.HOSTILE, cause="c"),),
          [RenownChanged], False, T.NONE),
-        (K.ENMITY, "chr:左子穆", (), [RelationChanged], False, T.CONFRONT),
+        (K.ENMITY, "chr:左子穆", (), [RelationChanged, HealthChanged], False, T.CONFRONT),
+        (K.ENMITY, "chr:左子穆", (RelationChanged(character_id="chr:左子穆", attitude=Attitude.HOSTILE, cause="c"),),
+         [HealthChanged], False, T.CONFRONT),  # 早已敌视你的人，敌意满了照样出手——这只时钟不是空头账
         (K.PERIL, "loc:无量山", (), [HealthChanged], True, T.FLEE),
         (K.PERIL, PID, (), [HealthChanged], True, T.FLEE),
         (K.PERIL, "chr:左子穆", (), [HealthChanged], False, T.NONE),
@@ -521,7 +525,7 @@ async def test_a_full_clock_collapses_by_its_kind(
             case RenownChanged():
                 assert e.delta == (-5 if kind.threat else 3)
             case HealthChanged():
-                assert e.delta == -COLLAPSE_HURT and e.source_id is None
+                assert e.delta == -COLLAPSE_HURT and e.source_id == (anchor if kind is K.ENMITY else None)
 
 
 async def test_a_peril_collapse_forces_flight_through_decide_and_never_kills() -> None:
@@ -570,10 +574,34 @@ async def test_overreaching_wins_owe_their_strain_too() -> None:
         owed("chr:左子穆", "左子穆", "疑心", 1)]
     exposed = await gate("暗取·略逊", out(deltas={"所图": 1, "人情:左子穆": -1}))
     assert exposed.outcome is C.EXPOSED and only(exposed.events, ClockStarted) == [owed("chr:左子穆", "左子穆", "疑心", 2)]
-    subdued = await gate("出手·相当", out(deltas={"制住:左子穆": 1}))
-    assert only(subdued.events, ClockStarted) == [owed("chr:左子穆", "左子穆", "旧恨", 1)]
+    subdued = await gate("出手·相当", out(deltas={"制住:左子穆": 1}))  # 得手即制住：他身上的旧恨满了也无从出手，代价折成名望
+    assert not only(subdued.events, ClockStarted) and [e.delta for e in only(subdued.events, RenownChanged)] == [-5]
     lucky = await gate("出手·略逊", out(deltas={"气血": -10}))  # 相持好过轻伤一格；出手的气血在气血带里，不算代价
     assert lucky.outcome is Out.STALEMATE and only(lucky.events, ClockStarted) == [owed("chr:左子穆", "左子穆", "旧恨", 1)]
+
+
+async def test_only_clocks_that_still_bite_pay_the_debt() -> None:
+    """
+    实测定位的空头账：出手之后对手本就敌视你，从前敌意时钟满了什么也不发生，挂上去却算付了代价。
+    如今敌意满了是他出手伤你，所以挂在他身上照样是代价；只有他被这一招制住时，那只敌意时钟才是空头账、不算付。
+    """
+    paid = await gate("出手·略逊", out(UNDER, {"气血": -10}, (start("左子穆的杀意", "左子穆", K.ENMITY),)))
+    assert paid.outcome is Out.STALEMATE and [e.cause for e in only(paid.events, ClockStarted)] == ["推演"]  # 好一格，自挂一格付清
+    hollow = await gate("出手·相当", out(deltas={"制住:左子穆": 1}, mutations=(start("左子穆的杀意", "左子穆", K.ENMITY),)))
+    assert hollow.outcome is Out.SUCCESS
+    assert [e.cause for e in only(hollow.events, ClockStarted)] == ["推演"]  # 他挂上了，却不算付
+    assert [e.delta for e in only(hollow.events, RenownChanged)] == [-5]  # 欠的一格折成名望
+    watched = await gate("出手·相当", out(deltas={"制住:左子穆": 1}, mutations=(start("左子穆的戒心", "左子穆", K.SUSPICION),)))
+    assert not only(watched.events, RenownChanged)  # 疑心满了至少折名望：挂在被制住的人身上照样算付
+
+
+async def test_a_collapse_strike_leaves_a_breath_after_this_turns_wound() -> None:
+    ripe = clock("chr:左子穆", "左子穆的杀意", K.ENMITY, progress=3, then="拔剑相向")
+    hostile = RelationChanged(character_id="chr:左子穆", attitude=Attitude.HOSTILE, cause="c")
+    weak = HealthChanged(delta=-60, cause="c", source_id=None)  # 只剩四十点
+    got = await gate("出手·略逊", out(deltas={"气血": -15}, mutations=(move(Op.ADVANCE, "左子穆的杀意"),)), weak, hostile, *hung(ripe))
+    assert got.outcome is Out.MINOR_WOUND and got.hp_change == -15
+    assert [e.delta for e in only(got.events, HealthChanged)] == [-24]  # 40 − 15 之后留一口气：至多扣到 1
 
 
 async def test_a_debt_on_a_ripe_clock_collapses_it_on_the_spot() -> None:
@@ -605,7 +633,8 @@ async def test_facts_are_screened_and_name_their_subjects() -> None:
         FactEmerged(fact_id=fact_id(keep[2]), text=keep[2], subject_ids=()),
     ]
     assert fact_id(keep[2]) == "emg:" + hashlib.sha1(keep[2].encode()).hexdigest()[:10]
-    for bad in ("龚光杰死了", "你来到崖边", "左子穆把无量剑交给你", "无量剑到手", "风声abc", "第3把剑", "<b>风</b>", "风" * 41):
+    for bad in ("龚光杰死了", "你来到崖边", "左子穆把无量剑交给你", "无量剑到手", "风声abc", "第3把剑", "<b>风</b>", "风" * 41,
+                "〈简报里的人与物冒出来的一个细节〉"):
         assert not only((await gate("静观", out(facts=(bad,)))).events, FactEmerged), bad
 
 
