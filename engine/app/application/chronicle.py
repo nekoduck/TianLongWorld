@@ -1,9 +1,9 @@
 """
-[INPUT]: 依赖 domain/events 的全部领域事件，依赖 domain/combat 的 CombatOutcome，依赖 domain/outcomes 的 SocialOutcome / CovertOutcome，
+[INPUT]: 依赖 domain/events 的全部领域事件，依赖 domain/ambient 的 Activity / ActivityKind，依赖 domain/combat 的 CombatOutcome，依赖 domain/outcomes 的 SocialOutcome / CovertOutcome，
          依赖 domain/intent 的 ActionType / Approach，依赖 domain/models 的 Attitude / EntityKind / kind_of，
          依赖 domain/snapshot 的 LocalSnapshot / CharacterView
 [OUTPUT]: 对外提供 describe(event, labels, player_name) —— 一条领域事件的确定性白描（一句话；不出声的事件为空串，调用方一律滤掉；
-          含时钟四事件、微观事实 FactEmerged 与名望 RenownChanged）；
+          含时钟四事件、微观事实 FactEmerged、名望 RenownChanged 与世界心跳七事件）；
           titled(character) —— 「段延庆（恶贯满盈）」式的称呼；known_arts(snapshot) —— 「北冥神功（略有小成）」式的武学与火候
 [POS]: application 的事实渲染器：把事件与快照翻成人话。describe 供三处消费——回合结果帧里的 facts、叙事 Prompt 里的 <settled_facts>、
        长线记忆的向量语料。它只读事件与名称表，不经大模型：记忆里存的是这里的白描而非大模型的散文，幻觉因此进不了记忆；
@@ -13,6 +13,9 @@
        语义物理引擎的六条事件：时钟挂上「暗流：钟灵的戒心（1/4）」、推进「…渐深（3/4）」/ 回退「…稍解（1/4）」、
        坍缩「…满了：识破你的手脚」、化解「…烟消云散」、微观事实照录原文、名望「某某的名声更响了 / 坏了几分（缘由）」；
        时钟事件自带名称与进度，这里从不回查时钟表、从不露 clk: id；零步的推进与零点的名望不出声。
+       世界心跳的七条事件里只有人群溃散出声「某某惊惶四散，一哄而逃。」（人群名取名称表：快照的 labels 覆盖 swm: id）；
+       时间流逝、交手的往事、痕迹、消息的生成与扩散、风化、顺手牵羊一律空串——它们经快照被感知（此地的痕迹、传到此地的消息），
+       不被宣告：别处发生的事玩家本不该知道，白描一旦写出就进了 turn_resolved、<settled_facts> 与记忆，成了全知视角。
        titled / known_arts 是称呼与火候的唯一写法：状态栏、叙事 Hard Prompt 与地下城主的战况简报共用，三处说法不会各执一词
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -20,8 +23,10 @@
 from collections.abc import Mapping
 
 from app.domain.combat import CombatOutcome
+from app.domain.ambient import Activity, ActivityKind
 from app.domain.events import (
     ActionFailed,
+    ActivityStarted,
     ClockAdvanced,
     ClockCleared,
     ClockCollapsed,
@@ -30,8 +35,11 @@ from app.domain.events import (
     DomainEvent,
     FactEmerged,
     FactLearned,
+    FactTokenSpawned,
     HealthChanged,
     ItemConsumed,
+    ItemDecayed,
+    ItemPilfered,
     ItemTransferred,
     Maneuvered,
     Moved,
@@ -40,8 +48,11 @@ from app.domain.events import (
     PlayerSpawned,
     RelationChanged,
     RenownChanged,
+    RumorSpread,
     SkillExecuted,
     SkillPracticed,
+    TimePassed,
+    TraceLeft,
 )
 from app.domain.intent import ActionType, Approach
 from app.domain.models import Attitude, EntityKind, kind_of
@@ -78,6 +89,7 @@ _COVERT = {
 _ACTION = {
     ActionType.MOVE: "前往他处",
     ActionType.OBSERVE: "静观",
+    ActionType.THINK: "沉思",
     ActionType.TALK: "与人交谈",
     ActionType.ATTACK: "出手",
     ActionType.TAKE: "取物",
@@ -168,6 +180,11 @@ def describe(event: DomainEvent, labels: Mapping[str, str], player_name: str) ->
         case RenownChanged(delta=delta, cause=cause):
             why = f"（{cause}）" if cause else ""
             return f"{me}的名声{'更响了' if delta > 0 else '坏了几分'}{why}。"
+        # 世界心跳：只有眼前人群的溃散出声；其余经快照被感知、不被宣告——别处发生的事，玩家本不该知道
+        case ActivityStarted(activity=Activity(kind=ActivityKind.ROUT, participants=crowd)):
+            return f"{'、'.join(name(s) for s in crowd)}惊惶四散，一哄而逃。"
+        case TimePassed() | ActivityStarted() | TraceLeft() | FactTokenSpawned() | RumorSpread() | ItemDecayed() | ItemPilfered():
+            return ""
     raise TypeError(f"未知的领域事件：{type(event).__name__}")
 
 

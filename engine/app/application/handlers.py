@@ -1,31 +1,38 @@
 """
 [INPUT]: 依赖 application/bus 的命令、回合消息与 CommandHandler，依赖 application/intent_parser 的 IntentParser，
          依赖 application/adjudication 的 AdjudicationSlot，依赖 application/options 的 OptionGenerator，
-         依赖 application/narrator 的 Narrator / NarrationRequest / hooks，依赖 application/projections 的 ProjectionCoordinator，
+         依赖 application/narrator 的 Narrator / NarrationRequest / ShortTermMemory / hooks / recollect，依赖 application/projections 的 ProjectionCoordinator，
          依赖 application/chronicle 的 describe / known_arts，依赖 application/status 的 bonds / pursuits / clocks / renown / referenced，
+         依赖 application/world_clock 的 WorldClock，依赖 domain/heartbeat 的 Atlas（缺省的空地理），
          依赖 domain/aggregates 的 Player，依赖 domain/events 的 Moved，
-         依赖 domain/ports 的 EventStore / WorldReader / NarrativeMemory / MemoryRecord，依赖 domain/rules 的 envelope / player_tier，
+         依赖 domain/ports 的 EventStore / WorldReader / NarrativeMemory / MemoryRecord，依赖 domain/rules 的 command / envelope / player_tier，
          依赖 app.errors 的 OptionExpiredError / ProjectionError / UnknownPlayerError / WorldNotSeededError
-[OUTPUT]: 对外提供 TurnPipeline（一回合的完整生命周期）与四个命令处理器 SpawnPlayerHandler / ResumePlayerHandler / SubmitTextHandler /
+[OUTPUT]: 对外提供 TurnPipeline（一回合的完整生命周期；构造参数 clock 缺省为空地理上的 WorldClock）与四个命令处理器 SpawnPlayerHandler / ResumePlayerHandler / SubmitTextHandler /
           ChooseOptionHandler，以及 register_handlers()（把它们挂上总线）
 [POS]: application 的 CQRS 游戏环路：
        命令侧（持玩家锁，串行）：重放事件流 → 自愈投影 → 局部快照 → [Parse] 解析意图（选项点选不经大模型）→
+                                 rules.command 定下这一招花几刻（Command.time_cost：驳回一刻、同一处所之内走动一刻、换处所四刻、调息修习八刻）→
                                  [Validate] rules.envelope 圈出物理边界（出手 / 交涉 / 暗中三路的可裁区间，或结果已定之事 FIXED；驳回为 None）→
                                  [Resolve] 一席裁决（AdjudicationSlot）：自由文本在胜负未定或此景挂着时钟时请地下城主推演（语义物理引擎：
                                  属性碰撞 → 量级 → 代价 → 时钟与收敛 → ResolutionOutput），点选只在胜负未定时由气运确定性取值，其余谁也不请 →
                                  [Event] Player.decide 携提议定案（resolution.settle 过闸：推出结局、钳位、补足代价、时钟坍缩；再经 settle_any 落成路线事件）
-                                 → 追加事件（乐观并发：属性变化、时钟四事件、微观事实、名望一并入账）→ 同步投影图谱（时钟与事实挂上覆盖层）；
+                                 → 世界心跳 WorldClock.advance（余波：交手的往事与痕迹、人群溃散、公开之事成为消息 → TimePassed → 消息沿路扩散 → 黎明的风化与顺手牵羊；
+                                   死者没有心跳）→ 定案与心跳一并追加（乐观并发：属性变化、时钟四事件、微观事实、名望、时间与余波同一批入账；
+                                   静观、沉思也写事件——只有 TimePassed）→ 同步投影图谱（时钟、事实、活动、痕迹、消息挂上覆盖层）；
        查询侧（无锁）：新快照 → 记忆召回 → 推送结果白描（空串白描滤掉：服药那条 HealthChanged 不出声）→
                        [Options] 先算菜单，「标签（why）」作端倪经 NarrationRequest.hooks 交给说书人 → [Render] 叙事流式渲染 ∥ 记忆写入 → 推送终帧。
        大模型在命令侧解析意图、在物理边界里推演，在查询侧只渲染；领域的定案隔在中间——它说什么都越不过闸门，更改不了已入账的结果。
        推演交给叙事的只有入账之物：微观事实（FactEmerged）、时钟的挂上 / 推进 / 坍缩、名望经 describe 白描成 turn_resolved.facts 与 <settled_facts>，
        新快照的 clocks / emerged 进 <clocks> / <emerged>；没有散文旁路，结局作废的推演一个字也到不了叙事。
        重伤夺路而逃（Moved.fleeing）的回合，渲染用的新快照已是逃抵之地，交手前的快照经 NarrationRequest.fled 一并交给渲染器；
+       定案里有 Moved（含夺路而逃）的回合，出发前的快照与那条 Moved 的此行所为经 recollect 成为短期记忆（NarrationRequest.recollection），
+       说书人据此写出预期落差；NarrationRequest.motivation 恒取 PlayerState.motivation（最近一次移动的此行所为）；
+       投胎与续前缘（含 quiet 续接）不走时间——它们不是玩家的命令；
        记忆召回分两路、原话优先：原话 + 玩家名一路，焦点实体（PlayerState.focus）+ 在场者本名一路，各多取一倍再按字面去重（调息两次就是两条一模一样的白描）；
        续前缘（resume）与出手共用玩家锁，续上的必是落账之后的局面；quiet 续接不复述此景、不调大模型，只下发选项与状态（断线重连、选项过期）；
        在场者的恩怨缘由（PlayerState.attitude_causes）经 NarrationRequest.causes 交给渲染器；死者的伤势栏写「气绝」；
        状态栏的人情（bonds）与心事（pursuits）两栏：status.referenced 列出要取名的 id，快照没有的名字一回合只向 reader.labels 取一次；
-       眼前的暗流（clocks，快照召回的时钟）与名望（renown，聚合的语义标签）随状态栏下发
+       眼前的暗流（clocks，快照召回的时钟）、名望（renown，聚合的语义标签）与时辰（time，快照的 time_label，死者停在最后时刻）随状态栏下发
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -54,15 +61,17 @@ from app.application.bus import (
 )
 from app.application.chronicle import describe, known_arts
 from app.application.intent_parser import IntentParser
-from app.application.narrator import NarrationRequest, Narrator, hooks
+from app.application.narrator import NarrationRequest, Narrator, ShortTermMemory, hooks, recollect
 from app.application.options import ActionOption, OptionGenerator
 from app.application.projections import ProjectionCoordinator
+from app.application.world_clock import WorldClock
+from app.domain import rules
 from app.domain.aggregates import Player
 from app.domain.events import EventEnvelope, Moved
+from app.domain.heartbeat import Atlas
 from app.domain.intent import PlayerIntent
 from app.domain.models import EntityKind, entity_id
 from app.domain.ports import EventStore, MemoryRecord, NarrativeMemory, WorldReader
-from app.domain.rules import envelope, player_tier
 from app.domain.snapshot import LocalSnapshot
 from app.errors import OptionExpiredError, ProjectionError, UnknownPlayerError, WorldNotSeededError
 
@@ -85,6 +94,7 @@ class TurnPipeline:
         slot: AdjudicationSlot,
         options: OptionGenerator,
         narrator: Narrator,
+        clock: WorldClock | None = None,
         recall_k: int = 4,
     ) -> None:
         self._store = store
@@ -95,6 +105,7 @@ class TurnPipeline:
         self._slot = slot
         self.options = options
         self._narrator = narrator
+        self._clock = clock if clock is not None else WorldClock(Atlas())  # 空 Atlas：时间照走，消息只留在发源地
         self._recall_k = recall_k
         # 弱引用：锁只在有协程持有或等待时存活，长跑进程不会为每位来过的玩家攒下一把锁
         self._locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
@@ -159,16 +170,23 @@ class TurnPipeline:
             player.ensure_alive()
             before = await self.snapshot(player)
             intent, said = await source(player, before)  # [Parse]
-            env = envelope(intent, player.state, before)  # [Validate] 获准之举的物理边界（三路赌注或结果已定），驳回为 None
+            command = rules.command(intent, player.state, before)  # 这一招花几刻：驳回一刻，同一处所之内走动一刻
+            env = rules.envelope(intent, player.state, before)  # [Validate] 获准之举的物理边界（三路赌注或结果已定），驳回为 None
             # [Resolve] 一席裁决：文本在胜负未定或挂着时钟时请地下城主推演、点选在胜负未定时交给气运，其余谁也不请；它们只提议，失灵即空提议
             resolution = await self._slot.resolve(env, before, player.state, intent, said, clicked=clicked)
-            events = player.decide(intent, before, resolution.proposal if resolution else None)  # 领域过闸定案
+            decided = player.decide(intent, before, resolution.proposal if resolution else None)  # 领域过闸定案
+            # 世界心跳：余波 → 时间 → 扩散 → 生态，与定案一并原子追加——静观、沉思也花时间；死者没有心跳
+            events = [*decided, *self._clock.advance(command, before, player.state, decided)]
             envelopes = await self._store.append(player_id, events, player.version) if events else []  # [Event]
             for stamped in envelopes:
                 player.apply(stamped.event)
             await self._coordinator.publish(player_id, envelopes)
-        fled = before if any(isinstance(e, Moved) and e.fleeing for e in events) else None  # 交手现场留给叙事
-        async for message in self._render(player, envelopes, intent, said, labels=before.labels, fled=fled):
+        moved = next((e for e in decided if isinstance(e, Moved)), None)
+        fled = before if moved is not None and moved.fleeing else None  # 交手现场留给叙事
+        recollection = recollect(before, moved.motivation) if moved is not None else None  # 跨进新地方：出发前眼中所见与此行所为
+        async for message in self._render(
+            player, envelopes, intent, said, labels=before.labels, fled=fled, recollection=recollection
+        ):
             yield message
 
     # ============================================================
@@ -183,6 +201,7 @@ class TurnPipeline:
         *,
         labels: dict[str, str],
         fled: LocalSnapshot | None = None,
+        recollection: ShortTermMemory | None = None,
     ) -> AsyncIterator[TurnMessage]:
         first_new = envelopes[0].version if envelopes else player.version + 1
         snap = await self.snapshot(player)
@@ -209,6 +228,8 @@ class TurnPipeline:
                 fled=fled,
                 causes=causes,
                 hooks=hooks(offered),
+                recollection=recollection,
+                motivation=state.motivation,
             )
             async for chunk in self._narrator.narrate(request):  # [Render] 流式
                 parts.append(chunk)
@@ -254,7 +275,8 @@ def _completed(
         status=PlayerStatus(
             name=state.name,
             location=snap.location.name,
-            tier=player_tier(state, snap).value,
+            time=snap.time_label,  # 死者照写最后时刻：他的世界停在那一刻
+            tier=rules.player_tier(state, snap).value,
             health=state.vitality.value if state.alive else DEAD,
             alive=state.alive,
             death_cause=state.death_cause,

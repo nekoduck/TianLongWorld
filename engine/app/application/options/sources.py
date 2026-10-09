@@ -61,8 +61,8 @@ class ActionOption(BaseModel):
 
     @staticmethod
     def digest(intent: PlayerIntent) -> str:
-        """意图哈希：id 与措辞变体都由它确定——同一个意图永远同一个 id、同一句话。"""
-        return hashlib.sha1(intent.model_dump_json().encode()).hexdigest()[:8]
+        """意图哈希：id 与措辞变体都由它确定——同一个意图永远同一个 id、同一句话。此行所为（motivation）不是这一招本身，不进哈希。"""
+        return hashlib.sha1(intent.model_dump_json(exclude={"motivation"}).encode()).hexdigest()[:8]
 
     @classmethod
     def of(cls, category: OptionCategory, label: str, intent: PlayerIntent, why: str = "") -> ActionOption:

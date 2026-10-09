@@ -38,6 +38,7 @@ class Row(StrEnum):
     LEARN = "LEARN"
     MOVE = "MOVE"
     OBSERVE = "OBSERVE"
+    THINK = "THINK"
     USE = "USE"
     REST = "REST"
     INVALID = "INVALID"
@@ -88,6 +89,7 @@ MOVES: dict[Row, dict[Approach, Cell]] = {
     },
     Row.MOVE: {_P.PLAIN: Cell(_R.FIXED, manner="撂话离场")},
     Row.OBSERVE: {_P.PLAIN: _FIXED},
+    Row.THINK: {_P.PLAIN: _FIXED},  # 沉思：只花时间（PROPOSAL_v2 之后添的一行）
     Row.USE: {_P.PLAIN: _FIXED},
     Row.REST: {_P.PLAIN: _FIXED},
     Row.INVALID: {_P.PLAIN: _FIXED},

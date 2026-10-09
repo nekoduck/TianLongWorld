@@ -5,7 +5,7 @@
          依赖 domain/combat 的 CombatProposal，依赖 domain/social / covert 的 SocialStakes / CovertStakes，
          依赖 domain/events 的 ActionFailed / DomainEvent，依赖 domain/intent 的 ActionType / PlayerIntent，依赖 domain/snapshot 的 LocalSnapshot；
          PlayerState 仅作类型标注（避免与 aggregates 成环）
-[OUTPUT]: 对外提供 门面 adjudicate()（合法性：规整 + 指称落地 + 物理/逻辑双重校验）、stakes()（胜负未定之事的可裁区间：出手 / 交涉 / 暗中三路之一）、
+[OUTPUT]: 对外提供 门面 adjudicate()（合法性：规整 + 指称落地 + 物理/逻辑双重校验）、command()（命令耗时：意图 + time_cost，驳回只花一刻）、stakes()（胜负未定之事的可裁区间：出手 / 交涉 / 暗中三路之一）、
           envelope()（任一获准之举的物理边界：三路赌注或结果已定之事）、decide()（合法性 + 推演过闸 + 定案 → 事件）、normalized()（按此情此景规整意图）、RULES 注册表，
           并原样转出 Rejection / Approval / Verdict / Rule / resolve / ground / skill_tier / player_tier / best_skill / retreat /
           required_regard / TRUST_RESTORED 与各条 Rule——拆包之前从 app.domain.rules 能导入的一切，拆包之后照样能导入
@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING
 
 from app.domain.approach import normalize
 from app.domain.combat import CombatProposal
+from app.domain.commands import Command, time_cost
 from app.domain.covert import CovertStakes
 from app.domain.events import ActionFailed, DomainEvent, Moved, RelationChanged
 from app.domain.intent import ActionType, PlayerIntent
@@ -47,7 +48,16 @@ from app.domain.rules.base import (
 )
 from app.domain.rules.martial import AttackRule, LearnRule, retreat
 from app.domain.rules.parley import required_regard, settled
-from app.domain.rules.physical import InvalidRule, MoveRule, ObserveRule, RestRule, TakeRule, UseRule, handled
+from app.domain.rules.physical import (
+    InvalidRule,
+    MoveRule,
+    ObserveRule,
+    RestRule,
+    TakeRule,
+    ThinkRule,
+    UseRule,
+    handled,
+)
 from app.domain.rules.talk import TRUST_RESTORED, GiveRule, TalkRule
 from app.domain.snapshot import LocalSnapshot
 from app.domain.social import SocialStakes
@@ -71,11 +81,13 @@ __all__ = [
     "Rule",
     "TakeRule",
     "TalkRule",
+    "ThinkRule",
     "UseRule",
     "Verdict",
     "_retreat",
     "adjudicate",
     "best_skill",
+    "command",
     "decide",
     "envelope",
     "ground",
@@ -92,6 +104,7 @@ _retreat = retreat  # 拆包前的旧名：脱身席的注释与用例以它指�
 
 RULES: dict[ActionType, Rule] = {
     ActionType.OBSERVE: ObserveRule(),
+    ActionType.THINK: ThinkRule(),
     ActionType.MOVE: MoveRule(),
     ActionType.TALK: TalkRule(),
     ActionType.ATTACK: AttackRule(),
@@ -140,6 +153,19 @@ def envelope(intent: PlayerIntent, state: PlayerState, snap: LocalSnapshot) -> E
         return None
     at_stake = RULES[verdict.intent.action_type].stakes(verdict, state, snap)
     return envelope_of(at_stake, state, snap, target_id=verdict.target)
+
+
+def command(intent: PlayerIntent, state: PlayerState, snap: LocalSnapshot) -> Command:
+    """
+    裁定一条命令花多少刻（domain/commands 的封闭表）：驳回只花一刻；移动看去处与此地是否同一处所。
+    意图按此情此景规整后装进 Command——世界心跳据 time_cost 走动。
+    """
+    verdict = adjudicate(intent, state, snap)
+    if isinstance(verdict, Rejection):
+        return Command(intent=normalized(intent, state, snap), time_cost=time_cost(intent.action_type, approved=False))
+    there = next((e.to_name for e in snap.exits if e.to_id == verdict.target), None)
+    action = verdict.intent.action_type
+    return Command(intent=verdict.intent, time_cost=time_cost(action, here=snap.location.name, there=there))
 
 
 def _after(route: list[DomainEvent], extras: tuple[DomainEvent, ...]) -> list[DomainEvent]:

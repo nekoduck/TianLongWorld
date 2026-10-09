@@ -215,7 +215,7 @@ def _apply(
         lines.append(_describe(bp, healed, placement))
     blueprint = WorldBlueprint(  # 重新过一遍蓝图闸门：自愈不能让本体不自洽
         locations=bp.locations, characters=bp.characters, martial_arts=bp.martial_arts,
-        items=tuple(items), relations=bp.relations, personas=bp.personas, facts=bp.facts,  # 安放只添持有者，掌故原样带过
+        items=tuple(items), relations=bp.relations, personas=bp.personas, facts=bp.facts, swarms=bp.swarms,  # 安放只添持有者，掌故原样带过
     )
     return blueprint, applied, lines, rejected
 

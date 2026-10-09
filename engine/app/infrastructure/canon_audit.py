@@ -543,7 +543,7 @@ def apply_audit(bp: WorldBlueprint, book: AuditBook) -> WorldBlueprint:
     )
     return WorldBlueprint(
         locations=bp.locations, characters=characters, martial_arts=bp.martial_arts, items=items,
-        relations=relations, personas=bp.personas, facts=bp.facts,
+        relations=relations, personas=bp.personas, facts=bp.facts, swarms=bp.swarms,
     )
 
 

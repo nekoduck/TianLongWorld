@@ -7,14 +7,18 @@
           target_id / subject_id 落了地的对象与标的）/ PlayerDied / Parleyed 交涉（subject_id 所图的标的）/ FactLearned 得知见闻 /
           ItemConsumed 用掉随身之物 / Maneuvered 暗中取物、
           语义物理引擎的六种事件 ClockStarted / ClockAdvanced（负为回退）/ ClockCollapsed（满格坍缩）/ ClockCleared（销毁）/
-          FactEmerged（推演出的微观事实）/ RenownChanged（名望涨落）、AnyEvent 判别联合、EVENT_ADAPTER（JSONB 编码）、
+          FactEmerged（推演出的微观事实）/ RenownChanged（名望涨落）、
+          世界心跳的七种事件 TimePassed（时间走了几刻）/ ActivityStarted / TraceLeft / FactTokenSpawned / RumorSpread（消息又传到几处）/
+          ItemDecayed（露天无主之物朽坏）/ ItemPilfered（遗落之物被人顺手拿走），Moved.motivation 此行所为、AnyEvent 判别联合、EVENT_ADAPTER（JSONB 编码）、
           decode_event()（JSONB 解码：先经上抛器把旧账升级为现行词汇）、EventEnvelope（流内版本 + 事件 id + 记录时间）
 [POS]: domain 的事实词汇：世界此刻的一切都由这些事件经纯函数折叠而来；事件一经写入永不修改，
        新增事件类型只需在此加一个类并挂进 AnyEvent（开闭），时间戳只在信封上，事件本体保持确定性以便裁决可单测。
        词汇演进靠上抛（upcast）而不是改历史：废弃的 SkillLearned（"获得即学会"）在读出时折算为一次 SkillPracticed，
        旧的「受挫」折算为「轻伤」，旧账里 cause=="调息疗伤" 而没有 source 的气血回升读作 source="rest"——账本里的字节永远是当年写下的样子。
        一切新字段都有缺省值，旧账照读；唯一需要上抛的是 HealthChanged.source。
-       地下城主推演出的时钟、微观事实与名望涨落，经领域闸门（resolution.py）定案后才写成这里的事件——大模型从不直接落账
+       地下城主推演出的时钟、微观事实与名望涨落，经领域闸门（resolution.py）定案后才写成这里的事件——大模型从不直接落账。
+       世界心跳的事件由 application/world_clock 按 domain/heartbeat 的纯函数算出：时间、余波与生态同样是入账的事实，不是读取时的幻象；
+       痕迹的消散与活动的了结是时间的纯函数，不另写事件
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -26,10 +30,12 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
+from app.domain.ambient import Activity, EnvironmentalTrace, FactToken
 from app.domain.clocks import NarrativeClock
 from app.domain.combat import CombatOutcome
 from app.domain.intent import ActionType, Aim, Approach
-from app.domain.models import Attitude, Remedy
+from app.domain.commands import TICKS_PER_DAY
+from app.domain.models import Attitude, Material, Remedy
 from app.domain.outcomes import CovertOutcome, SocialOutcome
 
 
@@ -51,6 +57,7 @@ class Moved(DomainEvent):
     to_location_id: str
     exit_label: str
     fleeing: bool = False  # 重伤后夺路而逃（而非自行离去）：出发地从此是逃离过的险地；旧账缺省即自行离去
+    motivation: str = Field(default="", max_length=24)  # 此行所为：跨进新地方时与眼前所见对照（短期记忆）；旧账缺省为空
 
 
 class ItemTransferred(DomainEvent):
@@ -235,6 +242,65 @@ class RenownChanged(DomainEvent):
     cause: str
 
 
+# ============================================================
+#  世界心跳 —— 时间流逝与它带来的余波：活动、痕迹、消息、日常生态
+# ============================================================
+class TimePassed(DomainEvent):
+    """
+    时间走了 ticks 刻（一条命令的 time_cost）。折叠时 tick 累加，到期的痕迹消散、已结束且没了痕迹的活动一同抹去——
+    消散不另写事件：它是时间的纯函数，两套图谱各按同一条规则剪枝。
+    """
+
+    type: Literal["TimePassed"] = "TimePassed"
+    ticks: int = Field(ge=1, le=TICKS_PER_DAY)
+
+
+class ActivityStarted(DomainEvent):
+    """此地开始了一件事（交手、人群溃散）：同 id 再起即覆盖（人群再受惊，溃散的时辰往后延）。"""
+
+    type: Literal["ActivityStarted"] = "ActivityStarted"
+    activity: Activity
+
+
+class TraceLeft(DomainEvent):
+    """此地留下一道痕迹：几刻之后自行消散。"""
+
+    type: Literal["TraceLeft"] = "TraceLeft"
+    trace: EnvironmentalTrace
+
+
+class FactTokenSpawned(DomainEvent):
+    """一件公开发生的事成了一枚消息：此刻只有发源地知道，此后随时间沿路传开（RumorSpread）。"""
+
+    type: Literal["FactTokenSpawned"] = "FactTokenSpawned"
+    token: FactToken
+
+
+class RumorSpread(DomainEvent):
+    """消息又传到了几处（按先后）：那里的人从此知道这件事。"""
+
+    type: Literal["RumorSpread"] = "RumorSpread"
+    token_id: str
+    location_ids: tuple[str, ...] = Field(min_length=1)
+
+
+class ItemDecayed(DomainEvent):
+    """露天的无主之物按物料朽坏：它从此不在任何地方（与用掉之物一样折进 consumed）。"""
+
+    type: Literal["ItemDecayed"] = "ItemDecayed"
+    item_id: str
+    material: Material
+
+
+class ItemPilfered(DomainEvent):
+    """无主或遗落在地的东西被此地的人顺手拿走：持有者的一次易手，与玩家无涉（不进焦点、不记来路、不了结心事）。"""
+
+    type: Literal["ItemPilfered"] = "ItemPilfered"
+    item_id: str
+    from_holder: str
+    to_holder: str
+
+
 AnyEvent = Annotated[
     PlayerSpawned
     | Moved
@@ -255,7 +321,14 @@ AnyEvent = Annotated[
     | ClockCollapsed
     | ClockCleared
     | FactEmerged
-    | RenownChanged,
+    | RenownChanged
+    | TimePassed
+    | ActivityStarted
+    | TraceLeft
+    | FactTokenSpawned
+    | RumorSpread
+    | ItemDecayed
+    | ItemPilfered,
     Field(discriminator="type"),
 ]
 

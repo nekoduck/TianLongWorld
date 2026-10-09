@@ -1,17 +1,22 @@
 """
 [INPUT]: 依赖 domain/ports 的 WorldReader / WorldProjector / WorldSeeder，依赖 domain/aggregates 的 PlayerState / evolve，
+         依赖 domain/ambient 的 ActivityKind / ActivityState，
          依赖 domain/models 的本体与 WorldBlueprint，依赖 domain/lore 的 Fact，依赖 domain/snapshot 的视图，依赖 app.errors 的 ProjectionError
 [OUTPUT]: 对外提供 InMemoryWorldGraph —— 图谱三端口的进程内实现（快照含 P1 的 era / lead / persona / facts / hostile_ahead / 物性，
-          以及语义物理引擎的 clocks / emerged）
+          语义物理引擎的 clocks / emerged，以及世界心跳的 tick / activities / traces / swarms / rumors）
 [POS]: persistence 的零依赖图谱：正典是一份 WorldBlueprint 的索引，每个平行世界的覆盖层就是一个 PlayerState——
        投影直接复用领域的 evolve 折叠（投影与聚合根同构，无第二套状态机：熟练度、气血、悟性都原样投进快照）；
        下落不明的物品没有持有者，因而不出现在任何快照里；后来才到场（arrives_with）的人与物 P1 不进任何场景；
        用掉的东西（PlayerState.consumed）不进 items / 行囊；出口的 hostile_ahead 读覆盖层里对玩家敌视且未被制住的去处在场者；
        人设只给外显部分（PersonaView），见闻在知情人之一在场、或玩家已知（PlayerState.known_facts）且其主体或 unlock 目标
        在场（此地、在场者、可见之物）时进快照，known 标明已知，主体与知情人去重保序（与 Neo4j 的 MERGE 同口径）；
-       labels 把 fact:<slug> 映射为见闻正文；
+       labels 把 fact:<slug> 映射为见闻正文、swm:<名> 映射为人群名；
        叙事时钟与微观事实同样由 evolve 折叠（PlayerState.clocks / emerged，后者至多 EMERGED_MAX 条、重提即刷新）：时钟挂在此地、
-       在场者、可见之物或玩家自己身上才进快照，微观事实的主体与 {此地, 在场者, 可见之物} 有交集才进快照；抹去重放随覆盖层一并重建；
+       在场者、可见之物或玩家自己身上才进快照，微观事实的主体与 {此地, 在场者, 可见之物} 有交集才进快照；
+       世界心跳同样由 evolve 折叠（tick、activities、traces、tokens；TimePassed 按 ambient.elapse 剪掉消散的痕迹与随之了结的往事，
+       朽坏之物折进 consumed、顺手拿走之物只改持有者）：快照的 tick 即 PlayerState.tick，此地的活动（state 按 tick 现算）、
+       此地 remaining ≥ 1 的痕迹、蓝图里落在此地的人群（routed = 有一个把它算作参与者、此刻进行中的溃散逃离活动）、
+       reached 含此地的消息——全局的事件流不进快照；抹去重放随覆盖层一并重建；
        与 Neo4jWorldGraph 同守一份契约（tests/test_world_graph.py 双实现共跑，快照逐字段相等）
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -19,11 +24,13 @@
 from collections.abc import Iterable, Sequence
 
 from app.domain.aggregates import PlayerState, evolve
+from app.domain.ambient import ActivityKind, ActivityState
 from app.domain.events import EventEnvelope
 from app.domain.lore import Fact
 from app.domain.models import Attitude, Character, CharacterStatus, WorldBlueprint
 from app.domain.ports import WorldProjector, WorldReader, WorldSeeder
 from app.domain.snapshot import (
+    ActivityView,
     BondView,
     CharacterView,
     EmergedView,
@@ -33,7 +40,10 @@ from app.domain.snapshot import (
     LocalSnapshot,
     LocationView,
     PersonaView,
+    RumorView,
     SkillView,
+    SwarmView,
+    TraceView,
 )
 from app.errors import ProjectionError
 
@@ -51,6 +61,7 @@ class InMemoryWorldGraph(WorldReader, WorldProjector, WorldSeeder):
         self._arts = {x.id: x for x in bp.martial_arts}
         self._items = {x.id: x for x in bp.items}
         self._facts = {x.id: x for x in bp.facts}
+        self._swarms = {x.id: x for x in bp.swarms}
         self._personas = {
             p.character_id: PersonaView(likes=p.likes, dislikes=p.dislikes, worry=p.worry) for p in bp.personas
         }
@@ -100,7 +111,7 @@ class InMemoryWorldGraph(WorldReader, WorldProjector, WorldSeeder):
             if any_id in self._overlays:
                 out[any_id] = self._overlays[any_id][0].name
             elif entity := (self._locations.get(any_id) or self._characters.get(any_id)
-                            or self._arts.get(any_id) or self._items.get(any_id)):
+                            or self._arts.get(any_id) or self._items.get(any_id) or self._swarms.get(any_id)):
                 out[any_id] = entity.name
             elif fact := self._facts.get(any_id):
                 out[any_id] = fact.text  # 见闻的名字就是它的正文
@@ -129,6 +140,14 @@ class InMemoryWorldGraph(WorldReader, WorldProjector, WorldSeeder):
             return True
         anchors = {*fact.subject_ids, *([fact.unlock.target_id] if fact.unlock else [])}
         return fact.id in st.known_facts and bool(anchors & scene)
+
+    @staticmethod
+    def _routed(st: PlayerState, swarm_id: str) -> bool:
+        """人群此刻在溃散逃离：此世有一个把它算作参与者、尚未结束的溃散活动。"""
+        return any(
+            a.kind is ActivityKind.ROUT and swarm_id in a.participants and a.state(st.tick) is ActivityState.ONGOING
+            for a in st.activities
+        )
 
     async def local_snapshot(self, player_id: str) -> LocalSnapshot:
         if player_id not in self._overlays:
@@ -197,6 +216,26 @@ class InMemoryWorldGraph(WorldReader, WorldProjector, WorldSeeder):
             emerged=[
                 EmergedView(id=e.id, text=e.text, subject_ids=e.subject_ids)
                 for e in st.emerged if scene & set(e.subject_ids)
+            ],
+            # 世界心跳：此地的往事、痕迹、人群与传到此地的消息（进行与否、还剩几刻都按此刻的 tick 现算）
+            tick=st.tick,
+            activities=[
+                ActivityView(id=a.id, kind=a.kind, participants=a.participants, state=a.state(st.tick),
+                             started_tick=a.started_tick)
+                for a in st.activities if a.location_id == loc.id
+            ],
+            traces=[
+                TraceView(id=t.id, description=t.description, remaining=t.remaining(st.tick))
+                for t in st.traces if t.location_id == loc.id and t.remaining(st.tick) >= 1
+            ],
+            swarms=[
+                SwarmView(id=s.id, name=s.name, size=s.size, panic_threshold=s.panic_threshold, routine=s.routine,
+                          routed=self._routed(st, s.id))
+                for s in self._swarms.values() if s.location_id == loc.id
+            ],
+            rumors=[
+                RumorView(id=t.id, text=t.text, subject_ids=t.subject_ids, origin_id=t.origin_id, born_tick=t.born_tick)
+                for t in st.tokens if loc.id in t.reached
             ],
         )
         return snapshot.model_copy(update={"labels": await self.labels(snapshot.referenced_ids())})

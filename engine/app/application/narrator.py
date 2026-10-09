@@ -1,7 +1,8 @@
 """
 [INPUT]: 依赖 application/ports 的 LLMClient，依赖 application/chronicle 的 titled / known_arts，依赖 domain/snapshot 的 LocalSnapshot，
          依赖 app.errors 的 LLMError
-[OUTPUT]: 对外提供 NarrationRequest（含夺路逃离的交手现场 fled、在场者的恩怨缘由 causes 与本回合菜单的端倪 hooks）、
+[OUTPUT]: 对外提供 NarrationRequest（含夺路逃离的交手现场 fled、在场者的恩怨缘由 causes、本回合菜单的端倪 hooks、短期记忆 recollection 与此行所为 motivation）、
+          ShortTermMemory 与 recollect()（出发前的快照 + 此行所为 → 短期记忆）、
           hooks()（选项 → 「标签（why）」端倪，至多 HOOKS_MAX 条）、Narrator 抽象（流式 narrate）、hard_prompt()（局部真理快照 → XML 硬约束）、NARRATOR_SYSTEM、
           LLMNarrator（金庸风流式渲染）、TemplateNarrator（离线确定性白描）、FallbackNarrator（主渲染失败时降级为白描）
 [POS]: application 的查询侧渲染器（CQRS 的 Query 侧）：结果已由规则裁定并入账，这里只负责"怎么写"，无权决定"发生了什么"。
@@ -33,6 +34,29 @@ from app.errors import LLMError
 
 logger = logging.getLogger(__name__)
 HOOKS_MAX = 4
+SEEN_MAX = 8
+
+
+@dataclass(frozen=True, slots=True)
+class ShortTermMemory:
+    """
+    跨进新地方那一回合的短期记忆：上一回合眼中所见（刚离开之地的人、人群、痕迹）与此行所为。
+    说书人据此写出预期落差（期待落空、意外撞见）；这些是玩家记得的事，此地的人并不知道。
+    """
+
+    left: str  # 刚离开之地
+    seen: tuple[str, ...] = ()  # 离开前一刻眼中所见，每项一行，至多 SEEN_MAX 行
+    motivation: str = ""  # 此行所为（Moved.motivation）
+
+
+def recollect(before: LocalSnapshot, motivation: str) -> ShortTermMemory:
+    """出发前的快照 → 短期记忆：在场之人（称呼、对你的态度、是否被制住）、人群（人数、此刻在做什么）、尚未消散的痕迹。"""
+    seen = (
+        *(f"{titled(c)}（对你{c.attitude.value}{'，已被你制住' if c.subdued else ''}）" for c in before.characters),
+        *(f"{s.name}约{s.size}人（{s.current_state}）" for s in before.swarms),
+        *(t.description for t in before.traces),
+    )
+    return ShortTermMemory(left=before.location.name, seen=seen[:SEEN_MAX], motivation=motivation)
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +69,8 @@ class NarrationRequest:
     fled: LocalSnapshot | None = None  # 本回合夺路逃离之处（交手的现场）：快照已是逃抵之地，仇人只在这里
     causes: Mapping[str, str] = field(default_factory=dict)  # 在场者本名 → 对你态度的由来（PlayerState.attitude_causes）
     hooks: tuple[str, ...] = ()  # 本回合菜单的端倪「标签（why）」：只许露在场面里，不是结果（handlers 先算菜单、经 hooks(options) 填好）
+    recollection: ShortTermMemory | None = None  # 本回合跨进了新地方：出发前眼中所见与此行所为（短期记忆）
+    motivation: str = ""  # 最近一次移动的此行所为（PlayerState.motivation）：没跨地方的回合也照应得上预期落差
 
 
 class _Offered(Protocol):  # ActionOption 的结构子集：叙事不必认识选项包

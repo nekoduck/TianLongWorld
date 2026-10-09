@@ -1,12 +1,14 @@
 """
-[INPUT]: 依赖 app.config 的 Settings / LLMRole，依赖 domain 的端口与 WorldBlueprint，依赖 application 的总线 / 处理器 / 解析器 / 地下城主与气运 / 一席裁决 / 选项 / 叙事 / 投影，
+[INPUT]: 依赖 app.config 的 Settings / LLMRole，依赖 domain 的端口、WorldBlueprint 与 heartbeat.Atlas，依赖 application 的总线 / 处理器 / 解析器 / 地下城主与气运 / 一席裁决 / 选项 / 叙事 / 投影 / 世界时钟，
          依赖 infrastructure 的事件账本、图谱、记忆与大模型工厂的全部实现
 [OUTPUT]: 对外提供 Container（总线 + 流水线 + 投影协调者 + 播种器 + 关闭钩子）、build_container()（按配置装配整个引擎）
 [POS]: 引擎唯一的组合根（依赖注入）：只有这里知道"端口背后是谁"。四类后端各自二选一（memory / 生产实现），大模型缺席时
        换上离线解析器、规则裁决与白描说书人；意图解析、地下城主与叙事渲染按职责各取一套（模型, 思考档位）、共用一份调用次数保险丝（LLM_CALL_LIMIT）；
        一席裁决（AdjudicationSlot）把地下城主（语义物理引擎 LLMResolutionAgent，canon_names 取正典蓝图的全部名录作事实预筛）交给自由文本回合、
        把气运（FortuneResolver，FORTUNE_ON_CLICK 缺省开，关掉即确定性裁决）交给点选回合；
-       意图守卫豁免原著里撞上禁词的正名（WorldviewGuard.for_canon，Neo4j 后端读入库的 blueprint.json）；其余模块只依赖抽象，互不 new 对方。
+       意图守卫豁免原著里撞上禁词的正名（WorldviewGuard.for_canon，Neo4j 后端读入库的 blueprint.json）；
+       世界时钟（WorldClock）的静态地理 Atlas.of 取同一份正典（memory 后端即种下的蓝图，Neo4j 后端读入库的 blueprint.json，都没有则空 Atlas：
+       时间照走，消息只留在发源地）交给 TurnPipeline；其余模块只依赖抽象，互不 new 对方。
        测试经 blueprint / llm / resolver 参数注入替身，与生产走同一条装配路径
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -24,7 +26,9 @@ from app.application.options import OptionGenerator
 from app.application.ports import LLMClient
 from app.application.projections import ProjectionCoordinator
 from app.application.resolution_agent import CanonicalResolver, FortuneResolver, LLMResolutionAgent, Resolver
+from app.application.world_clock import WorldClock
 from app.config import LLMRole, Settings
+from app.domain.heartbeat import Atlas
 from app.domain.models import WorldBlueprint
 from app.domain.ports import EventStore, WorldProjector, WorldReader, WorldSeeder
 from app.infrastructure.llm.budget import CallBudget
@@ -132,6 +136,8 @@ async def build_container(
         slot=AdjudicationSlot(resolver, FortuneResolver() if settings.fortune_on_click else None),
         options=OptionGenerator(),
         narrator=narrator,
+        # 世界心跳的静态地理（道路、室内、正典物品、常驻之人）取同一份正典：消息沿路传开、黎明的风化与顺手牵羊都据此
+        clock=WorldClock(Atlas.of(canon) if canon is not None else Atlas()),
         recall_k=settings.memory_recall_k,
     )
     bus = register_handlers(CommandBus(), pipeline)

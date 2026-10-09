@@ -1,11 +1,12 @@
 """
 [INPUT]: 依赖 pydantic v2 的 BaseModel / field_validator，依赖 enum 的 StrEnum
-[OUTPUT]: 对外提供 ActionType（含 REST 调息、USE 使用随身之物与 INVALID 的系统指令集）、Approach 手段（寻常 / 武力 / 言辞 / 人情 / 计谋 / 潜行 / 借势）、
-          Aim 所图（制人 / 夺物 / 脱身 / 求艺 / 打探 / 结交 / 化解 / 讨要 / 示警）、PlayerIntent（结构化意图：动作 + 指称 + 手段 + 所图 + 话题）
+[OUTPUT]: 对外提供 ActionType（含 THINK 沉思、REST 调息、USE 使用随身之物与 INVALID 的系统指令集）、Approach 手段（寻常 / 武力 / 言辞 / 人情 / 计谋 / 潜行 / 借势）、
+          Aim 所图（制人 / 夺物 / 脱身 / 求艺 / 打探 / 结交 / 化解 / 讨要 / 示警）、PlayerIntent（结构化意图：动作 + 指称 + 手段 + 所图 + 话题 + 此行所为 motivation）
 [POS]: domain 的命令语言——玩家的华丽描写被降维后的唯一形状。定义在 domain 而非 application：
        裁决规则（rules/）与聚合根消费它，领域层不得反向依赖应用层；application/intent_parser.py 负责产出它。
        手段与所图只是"玩家想怎么做、图什么"的说法：(动作, 手段) 合不合兼容表、所图缺省怎么推断，由 domain/approach.py 规整（rules 门面在裁决前调用）；
-       topic 与其余指称一样保留原话、超长截断、空串置空，落不了地由规则置之不理。
+       topic 与其余指称一样保留原话、超长截断、空串置空，落不了地由规则置之不理；motivation 是此行所为（≤24 字），随 Moved 入账，
+       跨进新地方时与眼前所见对照（短期记忆）。每个动作都花时间：耗时表在 domain/commands.py。
        本模块的枚举与模型不写 docstring（只写 # 注释）：model_json_schema 是意图解析发给大模型的 schema，只许有形状、不许有开发者的话
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -18,11 +19,13 @@ from pydantic import BaseModel, ConfigDict, field_validator
 _REF_CHARS = 24
 _STYLE_CHARS = 24
 _REASON_CHARS = 80
+_MOTIVE_CHARS = 24
 
 
 class ActionType(StrEnum):
     MOVE = "MOVE"  # 沿出口移动（CONNECTS_TO）
-    OBSERVE = "OBSERVE"  # 静观：纯查询，不产生事件
+    OBSERVE = "OBSERVE"  # 静观：不改变世界，只花时间
+    THINK = "THINK"  # 沉思：回想、盘算，不动手也不开口，只花时间
     TALK = "TALK"  # 与在场之人交谈
     ATTACK = "ATTACK"  # 出手（可带武学与兵器）
     TAKE = "TAKE"  # 取物：地上之物，或已被制住之人身上之物
@@ -73,6 +76,7 @@ class PlayerIntent(BaseModel):
     approach: Approach = Approach.PLAIN
     aim: Aim | None = None
     topic: str | None = None  # 话题指称（人 / 物 / 功 / 地 / 见闻），落不了地即置之不理
+    motivation: str = ""  # 此行所为（MOVE 时去找谁、去做什么）：跨进新地方时与眼前所见对照，写出预期落差
 
     @field_validator("target_entity", "item_used", "skill_used", "topic", mode="before")
     @classmethod
@@ -85,6 +89,11 @@ class PlayerIntent(BaseModel):
     @classmethod
     def _style(cls, value: Any) -> str:
         return (str(value).strip() if value is not None else "")[:_STYLE_CHARS]
+
+    @field_validator("motivation", mode="before")
+    @classmethod
+    def _motive(cls, value: Any) -> str:
+        return (str(value).strip() if value is not None else "")[:_MOTIVE_CHARS]
 
     @field_validator("reason", mode="before")
     @classmethod

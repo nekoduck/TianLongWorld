@@ -5,14 +5,18 @@
           及现算的 mastery / vitality、facts 知情人在场或已知而与在场者有涉的见闻（known 标明已知））及其视图 LocationView / ExitView（hostile_ahead 去处有仇人）/
           CharacterView（含称号、persona 外显人设）/ BondView（era 结于何时、lead 本人是关系的上首）/ ItemView（portable / hazard / use）/
           SkillView（获取要求 + 修炼要求）/ PersonaView / FactView / EmergedView（推演出的微观事实）；
-          clocks 挂在眼前之物上的叙事时钟（此地、在场之人、可见之物、玩家自己）、emerged 点了在场者名的微观事实
+          clocks 挂在眼前之物上的叙事时钟（此地、在场之人、可见之物、玩家自己）、emerged 点了在场者名的微观事实；
+          世界心跳的四样此地之物 ActivityView（此地的活动，进行与否按 tick 现算）/ TraceView（尚未消散的痕迹与还剩几刻）/
+          SwarmView（人群与 current_state）/ RumorView（传到此地的消息），tick 与现算的 time_label / daylight；ItemView 另有现算的 material / ownership
 [POS]: domain 的读模型（CQRS 查询侧）：图谱投影在"玩家此刻所在之处"的一个切片。
        裁决规则只凭它判定物理事实（出口、在场者、物品所在），叙事大模型只凭它落笔（Hard Prompt），选项生成器只遍历它的合法边；
        快照之外的世界对这一回合不存在——这是杜绝幻觉的边界。
        P1 的视图字段（era / lead / hostile_ahead / portable / hazard / use / persona / facts）都有缺省值：图谱实现不填也照样构造，
        阶段 B 两套图谱同时填上；人设只给外显部分，后文剧情（foreshadow）永远不进快照。
        语义物理引擎的两样此世之物同样经图谱召回：时钟只召回挂在眼前之物上的（挂在远方之人身上的照样悬着，只是此刻不在场），
-       微观事实只召回点了此地、在场之人或可见之物之名的——地下城主与说书人看到的暗流，永远是眼前的暗流
+       微观事实只召回点了此地、在场之人或可见之物之名的——地下城主与说书人看到的暗流，永远是眼前的暗流。
+       世界心跳同样只给此地的切片：此地的活动（进行中的，与痕迹未散的往事）、此地的痕迹、此地的人群、传到此地的消息——
+       在场之人知道玩家做过什么，只凭 rumors（与亲眼所见）；全局的事件流从不进快照，也就从不进任何提示词（局部认知）
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -21,9 +25,23 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
+from app.domain.ambient import ActivityKind, ActivityState
 from app.domain.clocks import NarrativeClock
+from app.domain.commands import SPAWN_TICK, daylight, time_label
 from app.domain.lore import FactUnlock
-from app.domain.models import Acquisition, Attitude, Disposition, Era, ItemUse, Practice, RelationKind, Tier
+from app.domain.models import (
+    Acquisition,
+    Attitude,
+    Disposition,
+    Era,
+    ItemUse,
+    Material,
+    Ownership,
+    Practice,
+    RelationKind,
+    Tier,
+    ownership,
+)
 from app.domain.progression import MAX_HP, Mastery, Vitality, mastery_of, vitality
 
 
@@ -99,6 +117,17 @@ class ItemView(_Named):
     hazard: str | None = None  # 有毒等险性：取到手即受伤
     use: ItemUse | None = None  # 可服可敷之物的用法
 
+    @property
+    def material(self) -> Material:
+        from app.domain.models import MATERIAL_OF_KIND  # 与 Item.material 同一张表
+
+        return MATERIAL_OF_KIND.get(self.kind, Material.MISC)
+
+    @property
+    def ownership(self) -> Ownership:
+        """此刻的归属样子：随身 / 他持 / 遗落 / 无主。"""
+        return ownership(self.owner_id, self.holder_id)
+
 
 class PersonaView(_View):
     """外显人设：玩家看得出的好恶与心事。"""
@@ -133,6 +162,54 @@ class EmergedView(_View):
     id: str
     text: str
     subject_ids: tuple[str, ...] = ()
+
+    @model_validator(mode="before")
+    @classmethod
+    def _order(cls, data: Any) -> Any:
+        return _canonical(data, {"subject_ids": str})
+
+
+class ActivityView(_View):
+    """此地的一件事：进行中或已结束（由快照那一刻的 tick 现算）。已结束的仍在，是因为它的痕迹还没消散——往事在此地留着形迹。"""
+
+    id: str
+    kind: ActivityKind
+    participants: tuple[str, ...]
+    state: ActivityState
+    started_tick: int
+
+
+class TraceView(_View):
+    """此地一道尚未消散的痕迹：remaining 是还剩几刻（快照那一刻现算，恒 ≥ 1）。"""
+
+    id: str
+    description: str
+    remaining: int
+
+
+class SwarmView(_View):
+    """此地的人群（SwarmNode 的此世样子）：current_state 是平日在做的事（routine），受惊溃散时是「溃散逃离」。"""
+
+    id: str
+    name: str
+    size: int
+    panic_threshold: int
+    routine: str
+    routed: bool = False
+
+    @property
+    def current_state(self) -> str:
+        return ActivityKind.ROUT.value if self.routed else self.routine
+
+
+class RumorView(_View):
+    """传到此地的一枚消息：在场之人知道它——他们知道的玩家所作所为，只有这些（与亲眼所见）。"""
+
+    id: str
+    text: str
+    subject_ids: tuple[str, ...] = ()
+    origin_id: str
+    born_tick: int
 
     @model_validator(mode="before")
     @classmethod
@@ -194,6 +271,11 @@ class LocalSnapshot(_View):
     facts: tuple[FactView, ...] = ()  # 知情人之一在场的见闻 ∪ 已知且主体或 unlock 目标在场的见闻（known 标明已知）
     clocks: tuple[NarrativeClock, ...] = ()  # 挂在此地、在场之人、可见之物或玩家身上的叙事时钟
     emerged: tuple[EmergedView, ...] = ()  # 点了此地、在场之人或可见之物之名的微观事实
+    tick: int = SPAWN_TICK  # 世界时间（一刻十五分钟）：活动的进行与否、痕迹还剩几刻都按它现算
+    activities: tuple[ActivityView, ...] = ()  # 此地的活动：进行中的，与痕迹未散的已结束者
+    traces: tuple[TraceView, ...] = ()  # 此地尚未消散的痕迹
+    swarms: tuple[SwarmView, ...] = ()  # 此地的人群及其此刻的样子
+    rumors: tuple[RumorView, ...] = ()  # 传到此地的消息：在场之人所知的玩家所作所为，只有这些
     labels: dict[str, str] = {}
 
     @model_validator(mode="before")
@@ -205,6 +287,7 @@ class LocalSnapshot(_View):
         return _canonical(data, {
             "exits": lambda e: (_get(e, "to_id"), _get(e, "label")),
             "characters": by_id, "items": by_id, "skills": by_id, "facts": by_id, "clocks": by_id, "emerged": by_id,
+            "activities": by_id, "traces": by_id, "swarms": by_id, "rumors": by_id,
         })
 
     @property
@@ -218,6 +301,15 @@ class LocalSnapshot(_View):
     @property
     def vitality(self) -> Vitality:
         return vitality(self.player_hp)
+
+    @property
+    def time_label(self) -> str:
+        """「第一日·辰正」。"""
+        return time_label(self.tick)
+
+    @property
+    def daylight(self) -> bool:
+        return daylight(self.tick)
 
     def referenced_ids(self) -> set[str]:
         """快照里出现的全部 id（含前置条件指向的远方地点与典籍、物主、羁绊另一端）：labels 必须覆盖它们。"""
@@ -234,6 +326,11 @@ class LocalSnapshot(_View):
         ids |= {c.anchor_id for c in self.clocks}
         for e in self.emerged:
             ids |= set(e.subject_ids)
+        for a in self.activities:
+            ids |= set(a.participants)
+        ids |= {s.id for s in self.swarms}
+        for r in self.rumors:
+            ids |= {r.origin_id, *r.subject_ids}
         return ids
 
     def clocks_on(self, anchor_id: str) -> tuple[NarrativeClock, ...]:

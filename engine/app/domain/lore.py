@@ -2,12 +2,15 @@
 [INPUT]: 依赖 pydantic v2 的 BaseModel / Field；WorldBlueprint 仅作类型标注，Era 在闸门函数体内调用时才取（models 运行期导入本模块，反向只在 TYPE_CHECKING 与函数体里，不成环）
 [OUTPUT]: 对外提供 Persona（外显人设：好恶与心事，每条 ≤16 字、带出处）、FactUnlock（一条见闻解开的那条边：TEACHING / LEVERAGE / HAZARD / MOTIVE）、
           Fact（可经交涉、打探入账的见闻：≤40 字、主体、知情人、出处）、lore_integrity_errors(bp)（人设与见闻的蓝图闸门：
-          悬空引用、重复的人设与见闻、主体或知情人有重复、知情人与主体无涉、unlock 落不到边上；关系边只认开篇的，后来才到场的物品不作主体、不作险物目标）
+          悬空引用、重复的人设与见闻、主体或知情人有重复、知情人与主体无涉、unlock 落不到边上；关系边只认开篇的，后来才到场的物品不作主体、不作险物目标；
+          人群须落在蓝图的地点上、id 即 swm:{名称}、门派须是蓝图里有人的门派）、
+          SwarmNode（人群：一处地方成群出现、没有名姓的人——人数、惊惧阈值、平日在做什么、出处）
 [POS]: domain 的「掌故」本体：原著蓝图里除了人、地、功、物与关系之外，玩家能察觉的脾性与能打听到的事。
        它们属于蓝图（离线由子代理撰写、经闸门入库、provenance 永远是推断），不是运行期的新端口；
        人设只收对玩家可见的外显部分（后文剧情另在 Character.foreshadow，不进任何提示词）；
        见闻的 unlock 必须落在蓝图已有的一条边上——它只是让玩家"知道"那条边，从不凭空造一条边。
-       字数、出处格式由字段约束守住；"不得照抄原文 ≥16 字"需要原著全文，由离线 ingest 闸门守（阶段 B）
+       字数、出处格式由字段约束守住；"不得照抄原文 ≥16 字"需要原著全文，由离线 ingest 闸门守（阶段 B）。
+       人群（SwarmNode）同属掌故：原著写了他们在场，却没给名姓——他们不能攀谈、不能交手，只目睹、传话、受惊溃散（世界心跳）
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -22,6 +25,7 @@ if TYPE_CHECKING:
 
 PERSONA_CHARS = 16
 FACT_CHARS = 40
+SWARM_CHARS = 12
 
 Trait = Annotated[str, Field(min_length=1, max_length=PERSONA_CHARS)]
 Source = Annotated[str, Field(pattern=r"^(ev|chunk):\S+$")]  # "ev:<块号>"（抽取记录里的事件）或 "chunk:<块号>"（原文块）
@@ -63,6 +67,23 @@ class Fact(_Lore):
     subject_ids: tuple[str, ...] = Field(min_length=1)
     knower_ids: tuple[str, ...] = Field(min_length=1)
     unlock: FactUnlock | None = None
+    sources: tuple[Source, ...] = Field(min_length=1)
+
+
+class SwarmNode(_Lore):
+    """
+    人群：一处地方成群出现、没有名姓的人（东宗弟子、观礼宾客）。他们不是人物——不能攀谈、不能交手、不进人情——却是这处地方的一部分：
+    他们目睹，有人群在场的消息走得快；一举的烈度高过他们的惊惧阈值，人群即溃散逃离（domain/heartbeat）。
+    current_state 不在这里：平日在做什么（routine）是正典，溃散与否是平行世界的事，由快照现算（SwarmView）。
+    """
+
+    id: str = Field(pattern=r"^swm:.+")
+    name: str = Field(min_length=1, max_length=SWARM_CHARS)
+    location_id: str
+    size: int = Field(ge=3, le=500)  # 约莫多少人：只供叙事与烈度的感受，不做加减
+    panic_threshold: int = Field(ge=1, le=10)  # 惊惧阈值：一举的烈度（0~10）高过它，人群即溃散逃离
+    routine: str = Field(min_length=1, max_length=SWARM_CHARS)  # 平日此刻在做什么：「围观比剑」
+    faction: str = Field(default="", max_length=24)
     sources: tuple[Source, ...] = Field(min_length=1)
 
 
@@ -125,6 +146,21 @@ def lore_integrity_errors(bp: WorldBlueprint) -> list[str]:
                 errors.append(f"{where} 的知情人 {knower} 与主体无涉（须是主体本人、同门或有关系边）")
         if fact.unlock is not None and not _lands(fact, fact.unlock, chars, items, arts, ties, personas):
             errors.append(f"{where} 的 unlock {fact.unlock.kind}→{fact.unlock.target_id} 落不到蓝图的边上")
+
+    places = {loc.id for loc in bp.locations}
+    factions = {c.faction for c in chars.values() if c.faction}
+    swarms: set[str] = set()
+    for swarm in bp.swarms:
+        where = f"人群 {swarm.id}"
+        if swarm.id in swarms:
+            errors.append(f"重复的人群 id：{swarm.id}")
+        swarms.add(swarm.id)
+        if swarm.id != f"swm:{swarm.name}":
+            errors.append(f"{where} 的 id 须是 swm:{swarm.name}")
+        if swarm.location_id not in places:
+            errors.append(f"{where} 落在不存在的地点：{swarm.location_id}")
+        if swarm.faction and swarm.faction not in factions:
+            errors.append(f"{where} 的门派「{swarm.faction}」在蓝图里没有一个人")
     return errors
 
 

@@ -2,6 +2,7 @@
 [INPUT]: 依赖 neo4j 的 AsyncGraphDatabase / AsyncDriver / AsyncManagedTransaction，依赖 domain/ports 的 WorldReader / WorldProjector / WorldSeeder，
          依赖 domain/events 的领域事件，依赖 domain/combat 的 CombatOutcome，依赖 domain/progression 的 MAX_HP，
          依赖 domain/clocks 的 NarrativeClock，依赖 domain/aggregates 的 EMERGED_MAX，
+         依赖 domain/ambient 的 Activity / EnvironmentalTrace / ActivityKind 与 ACTIVITIES_MAX / TRACES_MAX / TOKENS_MAX，依赖 domain/commands 的 SPAWN_TICK，
          依赖 domain/models 的 Attitude / CharacterStatus / Era / ItemUse / Acquisition / Practice / kind_of / WorldBlueprint，依赖 domain/snapshot 的视图，
          依赖 infrastructure/cypher 的 compile_blueprint / CANON_LABELS / OVERLAY_LABELS / KIND_LABELS，依赖 app.errors 的 ProjectionError
 [OUTPUT]: 对外提供 Neo4jWorldGraph（connect / close + 图谱三端口 + stale_canon 旧纪元残留检查）
@@ -21,6 +22,13 @@
        由 ClockStarted 写入、ClockAdvanced 钳位加减、ClockCollapsed / ClockCleared 删除；(:Emerged {id, world, text, seq, subject_ids})-[:ABOUT]->(主体)
        由 FactEmerged 写入（seq = 信封版本，重提刷新），每个世界只留 seq 最新的 EMERGED_MAX 条；RenownChanged 只进聚合。
        快照召回挂在此地、在场者、可见之物、玩家自己身上的时钟，与主体 ABOUT 此地、在场者或可见之物的微观事实；forget 连同它们一起抹去。
+       世界心跳：Player.tick（PlayerSpawned 时 SPAWN_TICK，旧节点读作 SPAWN_TICK）由 TimePassed 累加，随即先删到期的 (:Trace)、
+       再删已结束且痕迹不在了的 (:Activity)（与 ambient.elapse 同口径、同次序）；(:Activity {world, id, kind, participants, started, ends, trace})-[:AT]->(:Location)、
+       (:Trace {world, id, description, born, decay})-[:AT]->(:Location)、(:Rumor {world, id, text, subject_ids, origin, born, speed, radius})-[:REACHED]->(传到之处)
+       按 (world, id) MERGE 覆盖，超上限按（起讫 / 出生刻, id）降序留前 N 个；RumorSpread 只补 REACHED 边（消息不在即无事）；
+       ItemDecayed 与 ItemConsumed 同一投影（CONSUMED 边），ItemPilfered 与 ItemTransferred 同一投影（HELD_BY 易手）；Moved.motivation 只进聚合。
+       快照另取此地的活动（state 按 tick 现算）、此地 remaining ≥ 1 的痕迹、正典 (:Swarm)-[:LOCATED_IN]->(此地) 的人群
+       （routed = 本世界有一个参与者含它、尚未结束的溃散逃离活动）与 REACHED 此地的消息；forget 一并删 (:Activity|Trace|Rumor {world})。
        每种事件一个投影函数（开闭）；投影在单个写事务内推进检查点，版本不超过检查点的事件被跳过（幂等，可安全重试）
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -32,10 +40,13 @@ from typing import Any
 from neo4j import AsyncDriver, AsyncGraphDatabase, AsyncManagedTransaction
 
 from app.domain.aggregates import EMERGED_MAX
+from app.domain.ambient import ACTIVITIES_MAX, TOKENS_MAX, TRACES_MAX, Activity, ActivityKind, EnvironmentalTrace
 from app.domain.clocks import NarrativeClock
 from app.domain.combat import CombatOutcome
+from app.domain.commands import SPAWN_TICK
 from app.domain.events import (
     LEGACY_MASTERY_POINTS,
+    ActivityStarted,
     ClockAdvanced,
     ClockCleared,
     ClockCollapsed,
@@ -44,20 +55,27 @@ from app.domain.events import (
     EventEnvelope,
     FactEmerged,
     FactLearned,
+    FactTokenSpawned,
     HealthChanged,
     ItemConsumed,
+    ItemDecayed,
+    ItemPilfered,
     ItemTransferred,
     Moved,
     PlayerDied,
     PlayerSpawned,
     RelationChanged,
+    RumorSpread,
     SkillExecuted,
     SkillPracticed,
+    TimePassed,
+    TraceLeft,
 )
 from app.domain.models import Acquisition, Attitude, CharacterStatus, Era, ItemUse, Practice, WorldBlueprint, kind_of
 from app.domain.ports import WorldProjector, WorldReader, WorldSeeder
 from app.domain.progression import MAX_HP
 from app.domain.snapshot import (
+    ActivityView,
     BondView,
     CharacterView,
     EmergedView,
@@ -67,7 +85,10 @@ from app.domain.snapshot import (
     LocalSnapshot,
     LocationView,
     PersonaView,
+    RumorView,
     SkillView,
+    SwarmView,
+    TraceView,
 )
 from app.errors import ProjectionError
 from app.infrastructure.cypher import CANON_LABELS, KIND_LABELS, OVERLAY_LABELS, compile_blueprint
@@ -97,17 +118,19 @@ MERGE (p)-[:LOCATED_IN]->(l)
 async def _spawned(tx: _Tx, pid: str, e: PlayerSpawned) -> None:
     await tx.run(
         "MERGE (p:Player {id: $pid}) "
-        "SET p.name = $name, p.alive = true, p.death_cause = null, p.aptitude = $aptitude, p.hp = $hp",
-        pid=pid, name=e.name, aptitude=e.aptitude, hp=MAX_HP,
+        "SET p.name = $name, p.alive = true, p.death_cause = null, p.aptitude = $aptitude, p.hp = $hp, p.tick = $tick",
+        pid=pid, name=e.name, aptitude=e.aptitude, hp=MAX_HP, tick=SPAWN_TICK,
     )
     await tx.run(_RELOCATE, pid=pid, loc=e.location_id)
 
 
 async def _moved(tx: _Tx, pid: str, e: Moved) -> None:
+    """此行所为（motivation）只进聚合：它是短期记忆的线头，不是图上的事实。"""
     await tx.run(_RELOCATE, pid=pid, loc=e.to_location_id)
 
 
-async def _transferred(tx: _Tx, pid: str, e: ItemTransferred) -> None:
+async def _transferred(tx: _Tx, pid: str, e: ItemTransferred | ItemPilfered) -> None:
+    """易手：玩家经手（ItemTransferred）与此地之人顺手拿走（ItemPilfered）是同一种覆盖——本世界的 HELD_BY 改指新持有者。"""
     holder_label = _LABEL[kind_of(e.to_holder)]  # 标签取自代码常量表，只有数据走参数
     await tx.run(
         f"""
@@ -156,8 +179,11 @@ async def _regarded(tx: _Tx, pid: str, e: RelationChanged) -> None:
     )
 
 
-async def _consumed(tx: _Tx, pid: str, e: ItemConsumed) -> None:
-    """用掉的东西记成本世界的 CONSUMED 边，HELD_BY 原样留着：只删 HELD_BY 会让它回到正典持有者手里。"""
+async def _consumed(tx: _Tx, pid: str, e: ItemConsumed | ItemDecayed) -> None:
+    """
+    用掉（ItemConsumed）与露天朽坏（ItemDecayed）都记成本世界的 CONSUMED 边——从此不在任何地方（与 evolve 折进 consumed 同口径）；
+    HELD_BY 原样留着：只删 HELD_BY 会让它回到正典持有者手里。
+    """
     await tx.run(
         "MATCH (i:Item {id: $item}) MATCH (p:Player {id: $pid}) MERGE (i)-[:CONSUMED {world: $pid}]->(p)",
         item=e.item_id, pid=pid,
@@ -237,6 +263,101 @@ async def _emerged(tx: _Tx, pid: str, e: FactEmerged, version: int) -> None:
     )
 
 
+# ---------------- 世界心跳：时间、活动、痕迹、消息（本世界的覆盖节点，world = 玩家 id） ----------------
+async def _time_passed(tx: _Tx, pid: str, e: TimePassed) -> None:
+    """
+    时间走了 ticks 刻：tick 累加，随即先删到期的痕迹、再删已结束且痕迹已不在的活动——与 ambient.elapse 同口径、同次序
+    （消散不另写事件：它是时间的纯函数）。
+    """
+    row = await (await tx.run(
+        "MATCH (p:Player {id: $pid}) SET p.tick = coalesce(p.tick, $spawn) + $ticks RETURN p.tick AS tick",
+        pid=pid, spawn=SPAWN_TICK, ticks=e.ticks,
+    )).single()
+    if row is None:
+        return
+    tick = int(row["tick"])
+    await tx.run("MATCH (t:Trace {world: $pid}) WHERE t.born + t.decay <= $tick DETACH DELETE t", pid=pid, tick=tick)
+    await tx.run(
+        "MATCH (a:Activity {world: $pid}) WHERE a.ends <= $tick "
+        "AND (a.trace IS NULL OR NOT EXISTS { MATCH (t:Trace {world: $pid}) WHERE t.id = a.trace }) "
+        "DETACH DELETE a",
+        pid=pid, tick=tick,
+    )
+
+
+async def _placed(tx: _Tx, label: str, pid: str, node_id: str, location_id: str) -> None:
+    """覆盖节点 (:Activity|Trace {world, id}) 落在一处地方：AT 边随之改指（同 id 再起即覆盖）。"""
+    await tx.run(
+        f"""
+        MATCH (n:{label} {{world: $pid, id: $id}})
+        OPTIONAL MATCH (n)-[old:AT]->()
+        DELETE old
+        WITH DISTINCT n
+        MATCH (l:Location {{id: $loc}})
+        MERGE (n)-[:AT]->(l)
+        """,
+        pid=pid, id=node_id, loc=location_id,
+    )
+
+
+async def _keep_newest(tx: _Tx, label: str, key: str, pid: str, keep: int) -> None:
+    """每个世界只留按（key, id）降序的前 keep 个——与 ambient.with_* 的「超上限请走最旧的」同口径。"""
+    await tx.run(
+        f"MATCH (n:{label} {{world: $pid}}) WITH n ORDER BY n.{key} DESC, n.id DESC SKIP $keep DETACH DELETE n",
+        pid=pid, keep=keep,
+    )
+
+
+async def _activity_started(tx: _Tx, pid: str, e: ActivityStarted) -> None:
+    a = e.activity
+    await tx.run(
+        "MERGE (n:Activity {world: $pid, id: $id}) "
+        "SET n.kind = $kind, n.participants = $participants, n.started = $started, n.ends = $ends, n.trace = $trace",
+        pid=pid, id=a.id, kind=a.kind.value, participants=list(a.participants), started=a.started_tick,
+        ends=a.ends_tick, trace=a.trace_id,
+    )
+    await _placed(tx, "Activity", pid, a.id, a.location_id)
+    await _keep_newest(tx, "Activity", "started", pid, ACTIVITIES_MAX)
+
+
+async def _trace_left(tx: _Tx, pid: str, e: TraceLeft) -> None:
+    t = e.trace
+    await tx.run(
+        "MERGE (n:Trace {world: $pid, id: $id}) SET n.description = $description, n.born = $born, n.decay = $decay",
+        pid=pid, id=t.id, description=t.description, born=t.born_tick, decay=t.decay_ticks,
+    )
+    await _placed(tx, "Trace", pid, t.id, t.location_id)
+    await _keep_newest(tx, "Trace", "born", pid, TRACES_MAX)
+
+
+async def _token_spawned(tx: _Tx, pid: str, e: FactTokenSpawned) -> None:
+    """消息成节点；同 id 再生即覆盖（传到之处一并重置为这枚消息自带的 reached，与 with_token 同口径）。"""
+    t = e.token
+    await tx.run(
+        "MERGE (r:Rumor {world: $pid, id: $id}) "
+        "SET r.text = $text, r.subject_ids = $subjects, r.origin = $origin, r.born = $born, r.speed = $speed, "
+        "r.radius = $radius "
+        "WITH r OPTIONAL MATCH (r)-[old:REACHED]->() DELETE old",
+        pid=pid, id=t.id, text=t.text, subjects=list(t.subject_ids), origin=t.origin_id, born=t.born_tick,
+        speed=t.speed, radius=t.radius,
+    )
+    await _reach(tx, pid, t.id, t.reached)
+    await _keep_newest(tx, "Rumor", "born", pid, TOKENS_MAX)
+
+
+async def _reach(tx: _Tx, pid: str, token_id: str, location_ids: Sequence[str]) -> None:
+    await tx.run(
+        "MATCH (r:Rumor {world: $pid, id: $id}) UNWIND $places AS place "
+        "MATCH (l:Location {id: place}) MERGE (r)-[:REACHED]->(l)",
+        pid=pid, id=token_id, places=list(location_ids),
+    )
+
+
+async def _rumor_spread(tx: _Tx, pid: str, e: RumorSpread) -> None:
+    """消息又传到几处：补 REACHED 边；消息已被挤掉或从未有过即无事发生（与 ambient.reached 同口径）。"""
+    await _reach(tx, pid, e.token_id, e.location_ids)
+
+
 async def _nothing(tx: _Tx, pid: str, e: DomainEvent) -> None:
     """Conversed / ActionFailed / Parleyed / Maneuvered：只是历史或只进聚合（心事线索）；RenownChanged 的名望只进聚合与状态栏——都不改变图谱的快照。"""
 
@@ -261,6 +382,13 @@ _PROJECTORS: dict[str, _Projector] = {
     "ClockCollapsed": _clock_retired,
     "ClockCleared": _clock_retired,
     "RenownChanged": _nothing,
+    "TimePassed": _time_passed,
+    "ActivityStarted": _activity_started,
+    "TraceLeft": _trace_left,
+    "FactTokenSpawned": _token_spawned,
+    "RumorSpread": _rumor_spread,
+    "ItemDecayed": _consumed,
+    "ItemPilfered": _transferred,
 }
 _VERSIONED: dict[str, _VersionedProjector] = {  # 需要信封版本的投影（按新旧裁剪的微观事实）
     "FactEmerged": _emerged,
@@ -273,7 +401,7 @@ _VERSIONED: dict[str, _VersionedProjector] = {  # 需要信封版本的投影（
 _Q_PLAYER = """
 MATCH (p:Player {id: $pid})-[:LOCATED_IN]->(l:Location)
 RETURN p.name AS name, p.alive AS alive, coalesce(p.version, 0) AS version,
-       coalesce(p.aptitude, 1.0) AS aptitude, coalesce(p.hp, $max_hp) AS hp,
+       coalesce(p.aptitude, 1.0) AS aptitude, coalesce(p.hp, $max_hp) AS hp, coalesce(p.tick, $spawn) AS tick,
        l {.id, .name, .region, .description} AS location,
        COLLECT { MATCH (p)-[k:KNOWS_SKILL]->(a:MartialArt) RETURN {id: a.id, points: coalesce(k.proficiency, $legacy)} } AS practice,
        COLLECT { MATCH (p)-[:SUBDUED]->(c:Character) RETURN c.id } AS subdued,
@@ -348,6 +476,29 @@ MATCH (f:Emerged {world: $pid}) WHERE EXISTS { MATCH (f)-[:ABOUT]->(s) WHERE s.i
 RETURN f.id AS id, f.text AS text, f.subject_ids AS subject_ids
 """
 
+_Q_ACTIVITIES = """
+MATCH (a:Activity {world: $pid})-[:AT]->(:Location {id: $loc})
+RETURN a {.id, .kind, .participants, .started, .ends, .trace} AS a
+"""
+
+_Q_TRACES = """
+MATCH (t:Trace {world: $pid})-[:AT]->(:Location {id: $loc}) WHERE t.born + t.decay - $tick >= 1
+RETURN t {.id, .description, .born, .decay} AS t
+"""
+
+_Q_SWARMS = """
+MATCH (s:Swarm)-[:LOCATED_IN]->(:Location {id: $loc})
+RETURN s {.id, .name, .size, .panic_threshold, .routine} AS s,
+       EXISTS {
+           MATCH (a:Activity {world: $pid, kind: $rout}) WHERE s.id IN a.participants AND a.ends > $tick
+       } AS routed
+"""
+
+_Q_RUMORS = """
+MATCH (r:Rumor {world: $pid})-[:REACHED]->(:Location {id: $loc})
+RETURN r.id AS id, r.text AS text, r.subject_ids AS subject_ids, r.origin AS origin_id, r.born AS born_tick
+"""
+
 _ART = "a {.id, .name, .aliases, .tier, .kind, .faction, .description, .acquisition, .practice} AS a"
 _Q_SKILLS = f"""
 MATCH (a:MartialArt) WHERE a.id IN $ids RETURN {_ART}
@@ -394,10 +545,10 @@ class Neo4jWorldGraph(WorldReader, WorldProjector, WorldSeeder):
             logger.warning("图谱里有 %d 个正典节点不在本蓝图中（旧纪元残留，如 %s）：MERGE 只增不删，换蓝图请加 --reset", len(stale), stale[:5])
 
     async def stale_canon(self, blueprint: WorldBlueprint) -> list[str]:
-        """不属于这份蓝图的正典节点 id——换蓝图却没 reset 时，新旧两版正典会悄悄混成一个世界。"""
-        ids = [*(e.id for e in blueprint.entities()), *(f.id for f in blueprint.facts)]
+        """不属于这份蓝图的正典节点 id（含见闻与人群）——换蓝图却没 reset 时，新旧两版正典会悄悄混成一个世界。"""
+        ids = [*(e.id for e in blueprint.entities()), *(f.id for f in blueprint.facts), *(s.id for s in blueprint.swarms)]
         records, _, _ = await self._driver.execute_query(
-            "MATCH (n) WHERE (n:Location OR n:Character OR n:MartialArt OR n:Item OR n:Fact) AND NOT n.id IN $ids "
+            "MATCH (n) WHERE (n:Location OR n:Character OR n:MartialArt OR n:Item OR n:Fact OR n:Swarm) AND NOT n.id IN $ids "
             "RETURN n.id AS id ORDER BY id",
             ids=ids, database_=self._db,
         )
@@ -448,7 +599,7 @@ class Neo4jWorldGraph(WorldReader, WorldProjector, WorldSeeder):
             "MATCH ()-[r:HELD_BY|CONSUMED|LEARNED {world: $pid}]->() DELETE r", pid=player_id, database_=self._db
         )
         await self._driver.execute_query(
-            "MATCH (n:Clock|Emerged {world: $pid}) DETACH DELETE n", pid=player_id, database_=self._db
+            "MATCH (n:Clock|Emerged|Activity|Trace|Rumor {world: $pid}) DETACH DELETE n", pid=player_id, database_=self._db
         )
         await self._driver.execute_query(
             "MATCH (p:Player {id: $pid}) DETACH DELETE p", pid=player_id, database_=self._db
@@ -490,12 +641,13 @@ async def _labels_tx(tx: _Tx, ids: list[str]) -> dict[str, str]:
 
 async def _snapshot_tx(tx: _Tx, player_id: str) -> LocalSnapshot:
     head = await (await tx.run(
-        _Q_PLAYER, pid=player_id, max_hp=MAX_HP, legacy=LEGACY_MASTERY_POINTS,
+        _Q_PLAYER, pid=player_id, max_hp=MAX_HP, legacy=LEGACY_MASTERY_POINTS, spawn=SPAWN_TICK,
         alive=CharacterStatus.ALIVE.value, hostile=Attitude.HOSTILE.value,
     )).single()
     if head is None:
         raise ProjectionError(f"图谱中没有 {player_id} 的覆盖层")
     loc = head["location"]
+    tick = int(head["tick"])
     subdued = set(head["subdued"])
 
     characters = []
@@ -530,6 +682,25 @@ async def _snapshot_tx(tx: _Tx, player_id: str) -> LocalSnapshot:
         async for k in _column(await tx.run(_Q_CLOCKS, pid=player_id, anchors=[*scene, player_id]), "k")
     ]
     emerged = [EmergedView(**r.data()) async for r in await tx.run(_Q_EMERGED, pid=player_id, scene=scene)]
+    # 世界心跳：图上存的是领域对象的属性，进行与否、还剩几刻经同一个领域对象按此刻的 tick 现算（与内存实现同口径）
+    activities = [
+        _activity_view(Activity(
+            id=a["id"], kind=a["kind"], participants=tuple(a["participants"]), location_id=loc["id"],
+            started_tick=a["started"], ends_tick=a["ends"], trace_id=a["trace"],
+        ), tick)
+        async for a in _column(await tx.run(_Q_ACTIVITIES, pid=player_id, loc=loc["id"]), "a")
+    ]
+    traces = [
+        TraceView(id=t["id"], description=t["description"], remaining=EnvironmentalTrace(
+            id=t["id"], location_id=loc["id"], description=t["description"], born_tick=t["born"], decay_ticks=t["decay"],
+        ).remaining(tick))
+        async for t in _column(await tx.run(_Q_TRACES, pid=player_id, loc=loc["id"], tick=tick), "t")
+    ]
+    swarms = [
+        SwarmView(**r["s"], routed=bool(r["routed"]))
+        async for r in await tx.run(_Q_SWARMS, pid=player_id, loc=loc["id"], tick=tick, rout=ActivityKind.ROUT.value)
+    ]
+    rumors = [RumorView(**r.data()) async for r in await tx.run(_Q_RUMORS, pid=player_id, loc=loc["id"])]
 
     inventory = [i.id for i in items if i.holder_id == player_id]
     practice = {row["id"]: int(row["points"] or 0) for row in head["practice"]}
@@ -561,5 +732,14 @@ async def _snapshot_tx(tx: _Tx, player_id: str) -> LocalSnapshot:
         facts=facts,
         clocks=clocks,
         emerged=emerged,
+        tick=tick,
+        activities=activities,
+        traces=traces,
+        swarms=swarms,
+        rumors=rumors,
     )
     return snapshot.model_copy(update={"labels": await _labels_tx(tx, sorted(snapshot.referenced_ids()))})
+
+
+def _activity_view(a: Activity, tick: int) -> ActivityView:
+    return ActivityView(id=a.id, kind=a.kind, participants=a.participants, state=a.state(tick), started_tick=a.started_tick)

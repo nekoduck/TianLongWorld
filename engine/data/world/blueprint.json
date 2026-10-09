@@ -5799,5 +5799,45 @@
         "chunk:16"
       ]
     }
+  ],
+  "swarms": [
+    {
+      "id": "swm:无量剑东宗弟子",
+      "name": "无量剑东宗弟子",
+      "location_id": "loc:剑湖宫·练武厅",
+      "size": 22,
+      "panic_threshold": 7,
+      "routine": "侍立师父身后观剑",
+      "faction": "无量剑东宗",
+      "sources": [
+        "chunk:0",
+        "chunk:1"
+      ]
+    },
+    {
+      "id": "swm:无量剑西宗弟子",
+      "name": "无量剑西宗弟子",
+      "location_id": "loc:剑湖宫·练武厅",
+      "size": 22,
+      "panic_threshold": 6,
+      "routine": "侍立师父身后观剑",
+      "faction": "无量剑西宗",
+      "sources": [
+        "chunk:0"
+      ]
+    },
+    {
+      "id": "swm:观礼宾客",
+      "name": "观礼宾客",
+      "location_id": "loc:剑湖宫·练武厅",
+      "size": 12,
+      "panic_threshold": 4,
+      "routine": "西首落座观礼",
+      "faction": "",
+      "sources": [
+        "chunk:0",
+        "chunk:1"
+      ]
+    }
   ]
 }

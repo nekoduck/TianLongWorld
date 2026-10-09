@@ -1,6 +1,7 @@
 """
 [INPUT]: 依赖 domain/events 的全部领域事件（含 P1 的 Parleyed / FactLearned / ItemConsumed / Maneuvered 与语义物理引擎的时钟 / 微观事实 / 名望事件）与 EventEnvelope，
-         依赖 domain/clocks 的 NarrativeClock / started / advanced / retired，依赖 domain/models 的 Attitude，依赖 domain/progression 的 MAX_HP / Mastery / Vitality /
+         依赖 domain/clocks 的 NarrativeClock / started / advanced / retired，依赖 domain/ambient 的 Activity / EnvironmentalTrace / FactToken 与写时复制操作，
+         依赖 domain/commands 的 SPAWN_TICK，依赖 domain/models 的 Attitude，依赖 domain/progression 的 MAX_HP / Mastery / Vitality /
          mastery_of / vitality / aptitude_for，依赖 domain/combat 的 CombatOutcome / CombatProposal，依赖 domain/stakes 的 Proposal，依赖 domain/resolution 的 ResolutionOutput，
          依赖 domain/threads 的 Thread / fold，依赖 domain/intent 的 Approach / PlayerIntent，
          依赖 domain/rules 的 decide()（裁决），依赖 app.errors 的 UnknownPlayerError / PlayerDeadError
@@ -9,6 +10,7 @@
           threads 心事线索（至多 6 条）、known_facts 已知见闻、consumed 用掉之物、recent_approaches 近来用过的手段（至多 RECENT_SIZE 个）、
           attempts 对每个对象出过几次有赌注的招（FortuneResolver 的种子）、taken_from 物品最初从谁手里到你身上，
           clocks 悬着的叙事时钟、emerged 推演出的微观事实（新者在前、至多 EMERGED_MAX 条）、renown 名望点数，
+          tick 世界时间、motivation 此行所为、activities / traces / tokens 此世的活动、痕迹与消息，
           mastery / vitality / inventory 现算）、FOCUS_SIZE、RECENT_SIZE、EMERGED_MAX、EmergedFact、
           evolve(state, event) 纯函数折叠、Player 聚合根（apply / from_history / replay / spawn / ensure_alive / mastery / decide）
 [POS]: domain 的一致性边界：一位玩家的平行世界就是一条事件流，世界在这条流上相对原著的全部偏离（位置、行囊、武学火候、气血、
@@ -23,6 +25,8 @@
        只是易手，不是物归原主——经第三人转一道手也洗不白。
        语义物理引擎的落账同样只做折叠：时钟按 id 挂上、推进回退（钳在阈值之下）、坍缩或销毁即退场；微观事实按正文摘要去重、新者在前；
        名望只做加法并钳在 ±RENOWN_MAX。
+       世界心跳同样只做折叠：TimePassed 累加 tick 并剪掉到期的痕迹与随之消散的已结束活动；活动、痕迹、消息按 id 挂上（超上限请走最旧的），
+       消息传到之处只增不减；朽坏之物折进 consumed（与用掉之物一样从此不在任何地方）；被人顺手拿走只改持有者——不进焦点、不记来路、不了结心事。
        内存图谱投影（infrastructure/persistence/memory_graph.py）复用同一个 evolve，投影与真相因此同构
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -32,10 +36,13 @@ from dataclasses import dataclass, field, replace
 from functools import reduce
 
 from app.domain import rules
+from app.domain.ambient import Activity, EnvironmentalTrace, FactToken, elapse, reached, with_activity, with_token, with_trace
 from app.domain.clocks import NarrativeClock, advanced, retired, started
+from app.domain.commands import SPAWN_TICK
 from app.domain.combat import CombatOutcome, CombatProposal
 from app.domain.events import (
     ActionFailed,
+    ActivityStarted,
     ClockAdvanced,
     ClockCleared,
     ClockCollapsed,
@@ -45,8 +52,11 @@ from app.domain.events import (
     EventEnvelope,
     FactEmerged,
     FactLearned,
+    FactTokenSpawned,
     HealthChanged,
     ItemConsumed,
+    ItemDecayed,
+    ItemPilfered,
     ItemTransferred,
     Maneuvered,
     Moved,
@@ -55,8 +65,11 @@ from app.domain.events import (
     PlayerSpawned,
     RelationChanged,
     RenownChanged,
+    RumorSpread,
     SkillExecuted,
     SkillPracticed,
+    TimePassed,
+    TraceLeft,
 )
 from app.domain.intent import Approach, PlayerIntent
 from app.domain.models import Attitude
@@ -120,6 +133,11 @@ class PlayerState:
     clocks: tuple[NarrativeClock, ...] = ()  # 悬着的叙事时钟（按 id 排序）
     emerged: tuple[EmergedFact, ...] = ()  # 推演出的微观事实，新者在前、至多 EMERGED_MAX 条
     renown_points: int = 0  # 名望：Σ RenownChanged，钳在 ±RENOWN_MAX
+    tick: int = SPAWN_TICK  # 世界时间：SPAWN_TICK + Σ TimePassed.ticks（一刻十五分钟）
+    motivation: str = ""  # 最近一次移动的此行所为（Moved.motivation）
+    activities: tuple[Activity, ...] = ()  # 此世记着的活动（按 id 排序，至多 ACTIVITIES_MAX）：已结束的随痕迹一同消散
+    traces: tuple[EnvironmentalTrace, ...] = ()  # 此世尚未消散的环境痕迹（按 id 排序，至多 TRACES_MAX）
+    tokens: tuple[FactToken, ...] = ()  # 此世传开的消息（按 id 排序，至多 TOKENS_MAX）与它们已传到之处
 
     @property
     def skills(self) -> frozenset[str]:
@@ -238,9 +256,9 @@ def evolve(state: PlayerState | None, event: DomainEvent) -> PlayerState:
         )
 
     match event:
-        case Moved(from_location_id=origin, to_location_id=destination, fleeing=fleeing):
+        case Moved(from_location_id=origin, to_location_id=destination, fleeing=fleeing, motivation=motivation):
             fled = state.fled_from | {origin} if fleeing else state.fled_from
-            return replace(state, location_id=destination, came_from=origin, fled_from=fled)
+            return replace(state, location_id=destination, came_from=origin, fled_from=fled, motivation=motivation)
         case ItemTransferred(item_id=item, from_holder=giver, to_holder=holder):
             provenance = state.taken_from
             if holder == state.player_id and item not in provenance:  # 只记最初的来路：转手第三人再拿回来，洗不掉偷来的底子
@@ -275,6 +293,22 @@ def evolve(state: PlayerState | None, event: DomainEvent) -> PlayerState:
             return replace(state, emerged=(fresh, *(f for f in state.emerged if f.id != fact_id))[:EMERGED_MAX])
         case RenownChanged(delta=delta):
             return replace(state, renown_points=max(-RENOWN_MAX, min(RENOWN_MAX, state.renown_points + delta)))
+        case TimePassed(ticks=ticks):
+            now = state.tick + ticks
+            activities, traces = elapse(state.activities, state.traces, now)
+            return replace(state, tick=now, activities=activities, traces=traces)
+        case ActivityStarted(activity=activity):
+            return replace(state, activities=with_activity(state.activities, activity))
+        case TraceLeft(trace=trace):
+            return replace(state, traces=with_trace(state.traces, trace))
+        case FactTokenSpawned(token=token):
+            return replace(state, tokens=with_token(state.tokens, token))
+        case RumorSpread(token_id=token_id, location_ids=places):
+            return replace(state, tokens=reached(state.tokens, token_id, places))
+        case ItemDecayed(item_id=item):
+            return replace(state, consumed=state.consumed | {item})
+        case ItemPilfered(item_id=item, to_holder=holder):
+            return replace(state, item_holders={**state.item_holders, item: holder})
         case SkillExecuted() | Conversed() | ActionFailed() | Parleyed() | Maneuvered():
             return state  # 只是历史（线索、焦点、手段、尝试次数已在上面折叠），不改变世界
     raise TypeError(f"未知的领域事件：{type(event).__name__}")

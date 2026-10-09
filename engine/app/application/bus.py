@@ -2,11 +2,11 @@
 [INPUT]: 依赖 pydantic v2 的 BaseModel / Field，依赖 domain/intent 的 PlayerIntent，依赖 application/options 的 ActionOption
 [OUTPUT]: 对外提供 命令 Command / SpawnPlayer / ResumePlayer（quiet 只重新接上、不复述此景）/ SubmitText / ChooseOption、
           回合消息 SessionOpened / TurnResolved / NarrationDelta / TurnCompleted 与 PlayerStatus（境界 / 伤势 / 武学火候 / 名望皆为语义标签，
-          另有人情 Bond、心事 Pursuit 两栏与眼前的叙事时钟 ClockInfo，由 application/status 现算）、
+          另有人情 Bond、心事 Pursuit 两栏与眼前的叙事时钟 ClockInfo，由 application/status 现算；时辰 time「第一日·辰正」取自快照）、
           CommandHandler 抽象、CommandBus（按命令类型分派到处理器，返回回合消息的异步流）
 [POS]: application 的边界契约：命令进、消息流出。presentation 只认识这里的类型，不认识聚合根、图谱与大模型；
        处理器以异步流回传消息，流式叙事因此是协议的一等公民而非事后补丁。新增命令 = 新命令类 + 新处理器 + 注册一行（开闭）。
-       PlayerStatus 只做加法：新栏位一律有缺省值，旧客户端照读
+       PlayerStatus 只做加法：新栏位一律有缺省值，旧客户端照读；时辰是世界心跳的读数——每条命令都花时间，状态栏据此报时
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -93,6 +93,7 @@ class PlayerStatus(_Message):
     pursuits: tuple[Pursuit, ...] = ()  # 心事：至多 3 条（status.pursuits）
     clocks: tuple[ClockInfo, ...] = ()  # 眼前的暗流：至多 4 只（status.clocks）
     renown: str = ""  # 名望的语义标签（籍籍无名……）；空即旧服务端未填
+    time: str = ""  # 时辰「第一日·辰正」（快照的 time_label；死者停在最后时刻）；空即旧服务端未填
 
 
 class SessionOpened(_Message):

@@ -4,7 +4,7 @@
          依赖 domain/events 的 Moved / ItemTransferred / HealthChanged / ItemConsumed / DomainEvent，依赖 domain/combat 的 CombatRuling，
          依赖 domain/stakes 的 AnyStakes / Ruling，依赖 domain/progression 的 MAX_HP / REST_GAIN，
          依赖 domain/intent 的 PlayerIntent，依赖 domain/snapshot 的 LocalSnapshot / ItemView；PlayerState 仅作类型标注
-[OUTPUT]: 对外提供 ObserveRule（静观，无事件）/ MoveRule（只沿 CONNECTS_TO）/ TakeRule（地上之物与被制住者身上之物定案；
+[OUTPUT]: 对外提供 ObserveRule（静观，无事件）/ ThinkRule（沉思，同静观）/ MoveRule（只沿 CONNECTS_TO，Moved 带上此行所为 motivation）/ TakeRule（地上之物与被制住者身上之物定案；
           他人手中之物按手段分路（所图以格子为准）：武力 → 战·夺物、言辞 / 人情 / 借势 → 交·讨要、计谋 / 潜行 → 暗·骗取 / 偷取、寻常 → 驳回并提示换手段（带持有人与物的 id）；
           不可携带之物一律驳回 NOT_PORTABLE）/ HAZARD_HURT 与 handled()（险物取到手即受伤，留一口气）/
           UseRule（服用敷用随身之物：ItemConsumed + HealthChanged(source="item")）/ RestRule（调息：有伤且无仇人在侧，source="rest"）/
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 
 
 class ObserveRule(Rule):
-    """静观是纯查询：没有事件，世界不因你看了一眼而改变。"""
+    """静观不改变世界：裁决不出事件——它花掉的那一刻由世界心跳（TimePassed）记账。沉思（THINK）同此。"""
 
     def adjudicate(self, intent: PlayerIntent, state: PlayerState, snap: LocalSnapshot) -> Verdict:
         return Approval(intent)
@@ -45,6 +45,10 @@ class ObserveRule(Rule):
         self, ok: Approval, state: PlayerState, snap: LocalSnapshot, ruling: Ruling | None
     ) -> list[DomainEvent]:
         return []
+
+
+class ThinkRule(ObserveRule):
+    """沉思：回想、盘算。与静观一样只花时间，不动手也不开口。"""
 
 
 class MoveRule(Rule):
@@ -61,7 +65,8 @@ class MoveRule(Rule):
         self, ok: Approval, state: PlayerState, snap: LocalSnapshot, ruling: Ruling | None
     ) -> list[DomainEvent]:
         assert ok.target and ok.exit_label
-        return [Moved(from_location_id=state.location_id, to_location_id=ok.target, exit_label=ok.exit_label)]
+        return [Moved(from_location_id=state.location_id, to_location_id=ok.target, exit_label=ok.exit_label,
+                      motivation=ok.intent.motivation)]
 
 
 HAZARD_HURT = 15  # 险物取到手的伤：轻伤一档的下沿，绝不致死

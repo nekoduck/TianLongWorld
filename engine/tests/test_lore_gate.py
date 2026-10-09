@@ -1,13 +1,18 @@
 """
-[INPUT]: 依赖 app.infrastructure.lore_gate（范围 / 作答契约 / 闸门 / 纯函数套用 / 缓存 / 报告 / 题面）、canon_audit 的 Library / EVIDENCE_VERSION、
-         knowledge_extractor 的 store_extraction / chunk_text / load_corpus，依赖 tests/test_canon_audit 的微型蓝图 BP 与自撰原文，依赖 app.seed 命令行与报告分节
+[INPUT]: 依赖 app.infrastructure.lore_gate（范围 / 作答契约 / 闸门 / 纯函数套用 / 缓存 / 报告 / 题面）、canon_audit 的 Library / EVIDENCE_VERSION / AuditBook / apply_audit、
+         graph_linter 的 apply_placements、
+         knowledge_extractor 的 store_extraction / chunk_text / load_corpus，依赖 tests/test_canon_audit 的微型蓝图 BP 与自撰原文，依赖 app.seed 命令行与报告分节，
+         依赖入库的 data/world/blueprint.json 与 lore.json（现有缓存在人群上线后依旧有效）
 [OUTPUT]: 掌故闸门单测：以一地为中心沿 CONNECTS_TO 走若干跳的地与人；一批合格的人设与见闻（MOTIVE / TEACHING / HAZARD / LEVERAGE 各落在一条边上）入缓存并套上蓝图；
           闸门逐类拒收整批（包含匹配、出处不在切片 / 没提到此人 / 格式不对、蓝图外专名、写了后文才有的武学或身故、牵涉开篇之后才结下的关系、
           知情人无涉或只靠后文关系、unlock 落不到边上、MOTIVE 无人设、照抄原著、人设超长、换行 / 英文 / 数字 / 标记、一批两答、多余字段、封闭枚举、id 格式、本地无原著）且缓存一字不写；
           T=0 只认开篇：将至的关系同样拒收且题面不列作门路，后来才出现的物品不作主体或 unlock 目标、不进 <names> 与随身之物，牵涉后来才到场之人的见闻标 ⚠；
           <names> 列出地名简称；报告一条一行（续行拆不开分节）；apply_lore 是纯函数、幂等、引用落不了地即抛错；指纹随 era 而变、不随描述而变，缓存作废时掌故清空；
-          题面分批、列出后文关系与险物；命令行 audit 撑起已审的蓝图 → export（打印几地几人）→ ingest（须署名）→ heal 与 audit 之后掌故照缓存补回、审计改了 era 掌故即整体作废，全程不装配大模型
-[POS]: tests 的"掌故不杜撰"证明：人设与见闻只能把蓝图里已有的边配上一句话、交到合理知情的人手里，后文剧情一个字也漏不进来
+          题面分批、列出后文关系与险物；命令行 audit 撑起已审的蓝图 → export（打印几地几人）→ ingest（须署名）→ heal 与 audit 之后掌故照缓存补回、审计改了 era 掌故即整体作废，全程不装配大模型；
+          人群（swarm）：合格的人群入缓存、套上蓝图、报告一群一行，同名新答覆盖旧答；闸门逐类拒收（地点包含匹配、名称超长、人数与惊惧阈值越界、
+          数字、蓝图外专名、后文之事、出处不在切片或没提到此地与门派、门派无人、一批两答、多余字段）；没有 swarms 的旧缓存照读、指纹不因人群而变，
+          入库的 lore.json 对入库的蓝图依旧有效；自愈与审计重建蓝图时人群原样带过；题面列出人群模板、已有人群与提到此地的原文块
+[POS]: tests 的"掌故不杜撰"证明：人设与见闻只能把蓝图里已有的边配上一句话、交到合理知情的人手里，人群只能落在原著写明的地方，后文剧情一个字也漏不进来
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -17,16 +22,18 @@ from typing import Any
 
 import pytest
 
-from app.domain.lore import Fact, Persona
+from app.domain.lore import Fact, Persona, SwarmNode
 from app.domain.models import Era, Location, RelationKind, WorldBlueprint
 from app.errors import ExtractionError
-from app.infrastructure.canon_audit import EVIDENCE_VERSION, Library
+from app.infrastructure.canon_audit import EVIDENCE_VERSION, AuditBook, Library, apply_audit
+from app.infrastructure.graph_linter import apply_placements
 from app.infrastructure.knowledge_extractor import chunk_text, load_corpus, store_extraction
 from app.infrastructure.lore_gate import (
     LORE_PROMPT_VERSION,
     FactEntry,
     LoreBook,
     PersonaEntry,
+    SwarmEntry,
     apply_lore,
     canonize_lore,
     ingest_lore,
@@ -37,6 +44,8 @@ from app.infrastructure.lore_gate import (
     region,
 )
 from tests.test_canon_audit import BP, TEXT0, TEXT1, library, raw
+
+ENGINE = Path(__file__).resolve().parents[1]
 
 # 审计之后的样子：毒信笺有毒，龚光杰与段誉的仇结于后文
 AUDITED = WorldBlueprint.model_validate({
@@ -73,6 +82,15 @@ GOOD: list[dict[str, Any]] = [
 ]
 
 
+# 人群：TEXT0 写了练武厅（地点的名字），东宗弟子另有门派；宾客无门无派
+SWARMS: list[dict[str, Any]] = [
+    {"type": "swarm", "name": "无量剑东宗弟子", "location": "练武厅", "size": 20, "panic_threshold": 7, "routine": "侍立观剑",
+     "faction": "无量剑东宗", "sources": ["chunk:0"]},
+    {"type": "swarm", "name": "观礼宾客", "location": "练武厅", "size": 10, "panic_threshold": 4, "routine": "西首落座观礼",
+     "sources": ["chunk:0"]},
+]
+
+
 def ingest(tmp_path: Path, *answers: dict[str, Any], lib: Library | None = None, bp: WorldBlueprint = AUDITED) -> LoreBook:
     return ingest_lore(bp, raw(*answers), tmp_path / "lore.json", "claude-subagent", lib or library())[0]
 
@@ -101,8 +119,31 @@ def test_a_good_batch_is_cached_and_lands_on_the_blueprint(tmp_path: Path) -> No
     assert [p.character_id for p in lored.personas] == ["chr:左子穆"]
     assert {f.id: f.unlock.kind for f in lored.facts if f.unlock} == {
         "fact:左子穆好颜面": "MOTIVE", "fact:白虹贯日": "TEACHING", "fact:毒信": "HAZARD", "fact:得意门徒": "LEVERAGE"}
-    assert lines[0] == "人设 1 位、见闻 4 条（provenance 推断）"
+    assert lines[0] == "人设 1 位、见闻 4 条、人群 0 群（provenance 推断）"
     assert any(ln.startswith("「左子穆」人设：好 旁人称颂东宗剑法；恶 当众失了颜面（claude-subagent") for ln in lines)
+
+
+def test_good_swarms_are_cached_applied_and_reported(tmp_path: Path) -> None:
+    fresh = ingest(tmp_path, *GOOD, *SWARMS)
+    assert [e.swarm.id for e in fresh.swarms] == ["swm:无量剑东宗弟子", "swm:观礼宾客"] and {e.by for e in fresh.swarms} == {"claude-subagent"}
+    cache = json.loads((tmp_path / "lore.json").read_text(encoding="utf-8"))
+    assert cache["version"] == LORE_PROMPT_VERSION and cache["fingerprint"] == lore_fingerprint(AUDITED)
+    assert [e["swarm"]["location_id"] for e in cache["swarms"]] == ["loc:练武厅", "loc:练武厅"]
+    lored, lines = canonize_lore(AUDITED, tmp_path / "lore.json")
+    assert lored.swarms == (
+        SwarmNode(id="swm:无量剑东宗弟子", name="无量剑东宗弟子", location_id="loc:练武厅", size=20, panic_threshold=7, routine="侍立观剑",
+                  faction="无量剑东宗", sources=("chunk:0",)),
+        SwarmNode(id="swm:观礼宾客", name="观礼宾客", location_id="loc:练武厅", size=10, panic_threshold=4, routine="西首落座观礼",
+                  sources=("chunk:0",)),
+    )
+    assert lines[0] == "人设 1 位、见闻 4 条、人群 2 群（provenance 推断）"
+    assert lines[-2:] == [
+        "人群「无量剑东宗弟子」在 练武厅：约 20 人，惊惧阈值 7，平日 侍立观剑；门派 无量剑东宗（claude-subagent，出处 chunk:0）",
+        "人群「观礼宾客」在 练武厅：约 10 人，惊惧阈值 4，平日 西首落座观礼（claude-subagent，出处 chunk:0）",
+    ]
+    ingest(tmp_path, SWARMS[1] | {"size": 12, "panic_threshold": 3})  # 同名新答覆盖旧答，其余照旧
+    book, _ = load_lore(tmp_path / "lore.json", AUDITED)
+    assert [(e.swarm.name, e.swarm.size) for e in book.swarms] == [("无量剑东宗弟子", 20), ("观礼宾客", 12)] and len(book.facts) == 4
 
 
 # ============================================================
@@ -135,6 +176,20 @@ BAD: dict[str, tuple[dict[str, Any], str]] = {
     "多余字段": (_fact("fact:密", "左子穆好面子", ["左子穆"], ["龚光杰"], secrecy="公开"), "不合契约"),
     "unlock 枚举之外": (_fact("fact:路", "左子穆好面子", ["左子穆"], ["龚光杰"], unlock={"kind": "PATH", "target": "剑湖宫"}), "不合契约"),
     "id 格式": (_fact("左子穆好面子", "左子穆好面子", ["左子穆"], ["龚光杰"]), "pattern"),
+    "人群地点包含匹配": (SWARMS[1] | {"name": "看客", "location": "练武"}, "没有名为「练武」的地点"),
+    "人群名称超长": (SWARMS[1] | {"name": "一" * 13}, "12"),
+    "人群人数太少": (SWARMS[1] | {"name": "看客", "size": 2}, "greater than or equal to 3"),
+    "人群人数太多": (SWARMS[1] | {"name": "看客", "size": 501}, "less than or equal to 500"),
+    "人群惊惧阈值越界": (SWARMS[1] | {"name": "看客", "panic_threshold": 11}, "panic_threshold"),
+    "人群所为超长": (SWARMS[1] | {"name": "看客", "routine": "一" * 13}, "routine"),
+    "人群名称含数字": (SWARMS[1] | {"name": "看客3"}, "英文字母、数字或标记符号：3"),
+    "人群蓝图外专名": (SWARMS[1] | {"name": "看客", "routine": "围看木婉清"}, "蓝图之外的专名：木婉清"),
+    "人群写后文": (SWARMS[1] | {"name": "看客", "routine": "看段誉走凌波微步"}, "后文才习得武学的「凌波微步」"),
+    "人群出处不在切片": (SWARMS[1] | {"name": "看客", "sources": ["chunk:7"]}, "不在已组装的切片里"),
+    "人群出处没提到此地": (SWARMS[1] | {"name": "看客", "sources": ["chunk:1"]}, "没有提到「练武厅」"),
+    "人群门派无人": (SWARMS[1] | {"name": "看客", "faction": "神农帮"}, "门派「神农帮」在蓝图里没有一个人"),
+    "人群一批两答": (SWARMS[1] | {"size": 30}, "swm:观礼宾客 在这一批里答了两次"),
+    "人群多余字段": (SWARMS[1] | {"name": "看客", "mood": "惶恐"}, "不合契约"),
 }
 
 
@@ -142,7 +197,7 @@ BAD: dict[str, tuple[dict[str, Any], str]] = {
 def test_the_gate_rejects_the_whole_batch(tmp_path: Path, case: str) -> None:
     bad, why = BAD[case]
     with pytest.raises(ExtractionError, match=why):
-        ingest(tmp_path, *GOOD, bad)
+        ingest(tmp_path, *GOOD, *SWARMS, bad)
     assert not (tmp_path / "lore.json").exists()
 
 
@@ -190,6 +245,22 @@ def test_scope_names_list_the_short_forms_of_places() -> None:
     assert isinstance(halls.locations[0], Location)
     brief = lore_export(halls, library(), LoreBook(), start="剑湖宫·练武厅", batch=5)[0]["lore-01.txt"]
     assert "练武厅" in brief.split("<names>\n")[1].split("\n</names>")[0].split("、")
+
+
+def test_a_swarm_source_must_mention_the_place_itself_not_its_parent(tmp_path: Path) -> None:
+    """「剑湖宫·练武厅」的出处须写到练武厅（处所一侧）：只提到剑湖宫的块不算——提到上级不等于提到此地。"""
+    halls = AUDITED.model_copy(update={"locations": tuple(
+        loc.model_copy(update={"name": "剑湖宫·练武厅"}) if loc.id == "loc:练武厅" else loc for loc in AUDITED.locations)})
+    base = library()
+    lib = Library({**base.chunks, 2: "马五德陪着段誉上剑湖宫观光。"}, base.events, base.novel, base.lexicon)
+    with pytest.raises(ExtractionError, match="chunk:2 没有提到"):
+        ingest(tmp_path, SWARMS[1] | {"location": "剑湖宫·练武厅", "sources": ["chunk:2"]}, lib=lib, bp=halls)
+    with pytest.raises(ExtractionError, match="没有名为「练武厅」的地点"):
+        ingest(tmp_path, SWARMS[1], lib=lib, bp=halls)  # 地点名称全等：简称落不了地
+    book = ingest(tmp_path, SWARMS[1] | {"location": "剑湖宫·练武厅"}, lib=lib, bp=halls)  # chunk:0 写的是「练武厅」
+    assert [e.swarm.location_id for e in book.swarms] == ["loc:练武厅"]
+    brief = lore_export(halls, lib, LoreBook(), start="剑湖宫·练武厅", hops=0)[0]["lore-01.txt"]
+    assert "剑湖宫·练武厅（未载）：未载（提到此地的原文块：chunk:0）" in brief
 
 
 def test_report_lines_never_span_two_physical_lines() -> None:
@@ -255,6 +326,40 @@ def test_fingerprint_follows_era_and_traits_but_not_descriptions(tmp_path: Path)
     assert canonize_lore(AUDITED, path)[0] == AUDITED  # 播种时从不抛错
 
 
+def test_caches_written_before_swarms_still_load_and_keep_their_fingerprint(tmp_path: Path) -> None:
+    """人群是向后兼容的新作答类型：旧缓存没有 swarms 照读为空，人群也不进指纹——现有的掌故不因人群上线而作废。"""
+    ingest(tmp_path, *GOOD)
+    path = tmp_path / "lore.json"
+    legacy = {k: v for k, v in json.loads(path.read_text(encoding="utf-8")).items() if k != "swarms"}
+    path.write_text(json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
+    book, notes = load_lore(path, AUDITED)
+    assert notes == [] and book.swarms == () and len(book.personas) == 1 and len(book.facts) == 4
+    crowded = apply_lore(AUDITED, LoreBook(swarms=(SwarmEntry(swarm=SwarmNode(
+        id="swm:看客", name="看客", location_id="loc:练武厅", size=9, panic_threshold=3, routine="看热闹", sources=("chunk:0",))),)))
+    assert lore_fingerprint(crowded) == lore_fingerprint(AUDITED) == legacy["fingerprint"]
+    bare, _ = canonize_lore(crowded, path)
+    assert bare.swarms == () and len(bare.facts) == 4  # 蓝图上的人群只来自缓存：缓存里没有即撤下
+
+
+def test_the_committed_lore_cache_is_still_valid_for_the_committed_blueprint() -> None:
+    """入库的 lore.json 对入库的蓝图依旧有效（人群上线前写的人设与见闻一条不丢），且套用后与蓝图上的掌故逐条相等。"""
+    bp = WorldBlueprint.model_validate_json((ENGINE / "data" / "world" / "blueprint.json").read_text(encoding="utf-8"))
+    path = ENGINE / "data" / "world" / "lore.json"
+    book, notes = load_lore(path, bp)
+    assert notes == [] and json.loads(path.read_text(encoding="utf-8"))["fingerprint"] == lore_fingerprint(bp)
+    lored, _ = canonize_lore(bp, path)
+    assert (lored.personas, lored.facts, lored.swarms) == (bp.personas, bp.facts, bp.swarms)
+    assert len(book.personas) >= 13 and len(book.facts) >= 43
+
+
+def test_healing_and_auditing_carry_swarms_through() -> None:
+    """自愈与审计重建蓝图时人群原样带过（播种时另有掌故缓存兜底，直接调用也不能丢）。"""
+    crowded = apply_lore(AUDITED, LoreBook(swarms=(SwarmEntry(swarm=SwarmNode(
+        id="swm:看客", name="看客", location_id="loc:练武厅", size=9, panic_threshold=3, routine="看热闹", sources=("chunk:0",))),)))
+    assert apply_placements(crowded, [])[0].swarms == crowded.swarms
+    assert apply_audit(crowded, AuditBook()).swarms == crowded.swarms
+
+
 # ============================================================
 #  题面
 # ============================================================
@@ -267,9 +372,12 @@ def test_export_brief_lists_scope_later_relations_and_hazards(tmp_path: Path) ->
     assert "毒信笺（书信；静置于 练武厅；险性 剧毒）" in brief
     assert '"type": "persona", "character": "左子穆"' in brief and "提到此人的原文块：chunk:0" in brief
     assert "龚光杰：师徒（左子穆是上首）：得意门徒" in brief
-    ingest(tmp_path, *GOOD)
+    assert '"type": "swarm"' in brief and "panic_threshold" in brief and "<existing_swarms>\n（无）\n</existing_swarms>" in brief
+    assert "练武厅（未载）：未载（提到此地的原文块：chunk:0）" in brief  # 人群的出处须提到此地：题面指路
+    ingest(tmp_path, *GOOD, *SWARMS)
     again, _ = lore_export(AUDITED, library(), load_lore(tmp_path / "lore.json", AUDITED)[0], start="练武厅")
     assert "fact:毒信：厅上那封信碰不得" in again["lore-01.txt"] and "已有人设：" in again["lore-01.txt"]
+    assert "无量剑东宗弟子（练武厅）：约 20 人，惊惧阈值 7，平日 侍立观剑；门派 无量剑东宗" in again["lore-01.txt"]
 
 
 # ============================================================
@@ -309,12 +417,13 @@ def test_seed_cli_lore_round_trip(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     with pytest.raises(SystemExit, match="没有名为「无此地」"):
         seed.main(["lore", "--export", str(tmp_path / "jobs"), "--from", "无此地"])
 
-    (tmp_path / "answer.json").write_text(raw(*GOOD), encoding="utf-8")
+    (tmp_path / "answer.json").write_text(raw(*GOOD, *SWARMS), encoding="utf-8")
     with pytest.raises(SystemExit):
         seed.main(["lore", "--ingest", str(tmp_path / "answer.json")])  # 作答者必须署名
     seed.main(["lore", "--ingest", str(tmp_path / "answer.json"), "--by", "claude-subagent"])
-    assert len(blueprint().personas) == 1 and len(blueprint().facts) == 4
-    assert "[掌故] 人设 1 位、见闻 4 条（provenance 推断）" in (settings.world_dir / "report.txt").read_text(encoding="utf-8")
+    assert len(blueprint().personas) == 1 and len(blueprint().facts) == 4 and len(blueprint().swarms) == 2
+    report = (settings.world_dir / "report.txt").read_text(encoding="utf-8")
+    assert "[掌故] 人设 1 位、见闻 4 条、人群 2 群（provenance 推断）" in report and "[掌故] 人群「观礼宾客」在 练武厅" in report
     (tmp_path / "bad.json").write_text(raw({"type": "persona", "character": "段誉", "likes": ["凌波微步"], "sources": ["chunk:0"]}), "utf-8")
     with pytest.raises(SystemExit, match="整批未入缓存"):
         seed.main(["lore", "--ingest", str(tmp_path / "bad.json"), "--by", "claude-subagent"])
@@ -327,5 +436,5 @@ def test_seed_cli_lore_round_trip(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
     (tmp_path / "audit.json").write_text(raw({"type": "relation", "source": "龚光杰", "target": "段誉", "kind": "仇敌", "era": "开篇"}), "utf-8")
     seed.main(["audit", "--ingest", str(tmp_path / "audit.json"), "--by", "claude-subagent"])  # 审计改了 era：掌故整体作废
-    assert blueprint().personas == () and blueprint().facts == ()
+    assert blueprint().personas == () and blueprint().facts == () and blueprint().swarms == ()
     assert "[掌故] 掌故缓存出自另一份蓝图" in (settings.world_dir / "report.txt").read_text(encoding="utf-8")

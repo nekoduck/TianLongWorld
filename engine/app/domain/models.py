@@ -5,13 +5,16 @@
           图谱节点 Location / Character（true_name 本名为主键 + titles 称号 + aliases 别名 + foreshadow 后文剧情 + arrives_with 后来才到场）/
           MartialArt / Item（portable 可携、hazard 险性、use 用法 ItemUse、arrives_with）、Remedy 功效、
           武学的获取要求 Acquisition 与修炼要求 Practice、关系边 CharacterRelation（带 era）、
-          原著蓝图 WorldBlueprint（含 personas / facts 掌故；引用完整性 + 根基无环 + 关系边无自环且一对人物至多一条 + 掌故闸门的最后一道关）
+          原著蓝图 WorldBlueprint（含 personas / facts / swarms 掌故；引用完整性 + 根基无环 + 关系边无自环且一对人物至多一条 + 掌故闸门的最后一道关）、
+          日常生态的两把尺 Material 物料（weathers_in 露天几日朽坏）与 MATERIAL_OF_KIND、Ownership 归属（随身 / 他持 / 遗落 / 无主）与 ownership()；
+          Location.sheltered（有遮蔽的室内）、Item.material / Item.ownership 都是派生属性，不另存
 [POS]: domain 的世界本体：原著解析管道的产物形状、Neo4j 图谱的节点与边的来源、裁决规则读取的事实；
        这里只有"世界是什么"，没有"世界此刻怎样"——后者属于事件流（events.py）与聚合根（aggregates.py）。
        语义本体对齐：人物的主键是本名而不是江湖上最响的那个称呼（段延庆不叫「恶贯满盈」）；武学把"门径从何而来"（获取）
        与"根基够不够"（修炼）分开，入门与精进各守各的门；物品可以下落不明（孤儿），由播种期的自愈代理据常识安放并标明来历。
        人情是有序阶梯，只比 rank：戒备不是仇人，友善还不是心腹；关系边记下结于何时（era），只有开篇的羁绊牵动 T=0 的人情；
-       foreshadow 只供离线审阅，绝不进任何提示词；带 arrives_with 的人与物 T=0 不在任何场景
+       foreshadow 只供离线审阅，绝不进任何提示词；带 arrives_with 的人与物 T=0 不在任何场景。
+       物料、归属、室内与否是派生属性而非新字段：它们由已有的种类、物主、处所名推出，审计与掌故缓存的蓝图指纹因此不动
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -21,7 +24,7 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.domain.lore import Fact, Persona, lore_integrity_errors
+from app.domain.lore import Fact, Persona, SwarmNode, lore_integrity_errors
 
 NAME_CHARS = 24
 DESC_CHARS = 200
@@ -36,6 +39,7 @@ class EntityKind(StrEnum):
     MARTIAL_ART = "art"
     ITEM = "itm"
     PLAYER = "ply"
+    SWARM = "swm"  # 人群（掌故）：活动的参与者之一
 
 
 def entity_id(kind: EntityKind, name: str) -> str:
@@ -160,9 +164,17 @@ class _Named(_Entity):
         return (self.name, *self.aliases)
 
 
+_SHELTERS = frozenset("厅室屋房穴洞窟观堂阁殿店铺庙寺庵舍轩斋馆厢楼")  # 处所名的末字：有顶有墙，风雨不到
+
+
 class Location(_Named):
     region: str = Field(default="", max_length=NAME_CHARS)
     exits: dict[str, str] = Field(default_factory=dict)  # 出入口映射：出口标签 → 目标地点 id（CONNECTS_TO 的来源）
+
+    @property
+    def sheltered(self) -> bool:
+        """有遮蔽的室内（厅、室、洞……）：露天的无主之物才会风化。由处所名的末字推出、不另存——蓝图与掌故的指纹因此不动。"""
+        return self.name.split("·")[-1][-1:] in _SHELTERS
 
 
 class Character(_Entity):
@@ -237,6 +249,63 @@ class MartialArt(_Named):
 Remedy = Literal["疗伤", "解毒"]  # 用法的功效：疗伤回气血，解毒（P2 起有中毒之状）
 
 
+# ============================================================
+#  物料与归属 —— 日常生态的两把尺：露天的无主之物按物料风化，无主与遗落之物会被人顺手拿走
+# ============================================================
+class Material(StrEnum):
+    """物料：决定一件东西露天搁着会不会朽坏、几日朽坏。由物品的种类推出、不另存——蓝图与掌故的指纹因此不动。"""
+
+    METAL = "金铁"
+    STONE = "玉石"
+    WOOD = "竹木"
+    LEATHER = "皮革"
+    CLOTH = "布帛"
+    PAPER = "纸帛"
+    MEDICINE = "药石"
+    PLANT = "草木"  # 长在地里的药草：生生不息，不风化
+    FOOD = "饮食"
+    LIVING = "活物"
+    MISC = "杂物"
+
+    @property
+    def weathers_in(self) -> int | None:
+        """露天几日朽坏；None 即经得起风雨（金铁玉石、活物、长着的草木）。"""
+        return _WEATHERING.get(self)
+
+
+_WEATHERING: dict[Material, int] = {
+    Material.FOOD: 2, Material.PAPER: 3, Material.MEDICINE: 10, Material.CLOTH: 15, Material.WOOD: 60, Material.LEATHER: 60,
+}
+MATERIAL_OF_KIND: dict[str, Material] = {  # 物品种类 → 物料（封闭表，表外的种类是杂物）
+    "兵器": Material.METAL, "暗器": Material.METAL, "器具": Material.METAL, "护具": Material.LEATHER,
+    "衣饰": Material.CLOTH, "家具": Material.WOOD, "乐器": Material.WOOD,
+    "棋局": Material.STONE, "棋盘": Material.STONE, "奇石": Material.STONE, "雕像": Material.STONE, "宝物": Material.STONE,
+    "书信": Material.PAPER, "遗书": Material.PAPER, "秘籍": Material.PAPER, "书籍": Material.PAPER, "文书": Material.PAPER,
+    "药物": Material.MEDICINE, "伤药": Material.MEDICINE, "解药": Material.MEDICINE, "毒药": Material.MEDICINE,
+    "春药": Material.MEDICINE, "丹药": Material.MEDICINE,
+    "药草": Material.PLANT, "食物": Material.FOOD, "灵兽": Material.LIVING, "毒物": Material.LIVING, "坐骑": Material.LIVING,
+}
+
+
+class Ownership(StrEnum):
+    """一件东西此刻的归属样子，由（原著物主, 此刻持有者）推出：随身 / 他持 / 遗落 / 无主。"""
+
+    CARRIED = "随身"  # 在物主自己手里
+    HELD = "他持"  # 在物主之外的人手里：借来、夺来、偷来、拾来
+    STRAYED = "遗落"  # 有物主，却搁在某地
+    UNOWNED = "无主"
+
+
+def ownership(owner_id: str | None, holder_id: str | None) -> Ownership:
+    if owner_id is None:
+        return Ownership.UNOWNED
+    if holder_id == owner_id:
+        return Ownership.CARRIED
+    if holder_id is not None and holder_id.startswith(f"{EntityKind.LOCATION}:"):
+        return Ownership.STRAYED
+    return Ownership.HELD
+
+
 class ItemUse(BaseModel):
     """随身之物的用法：服药、敷药。potency 是药力的档次（1~3），折算多少气血由规则定。"""
 
@@ -268,6 +337,16 @@ class Item(_Named):
         return self.owner_id is None and self.location_id is None
 
     @property
+    def material(self) -> Material:
+        """物料由种类推出（MATERIAL_OF_KIND），表外的种类是杂物。"""
+        return MATERIAL_OF_KIND.get(self.kind, Material.MISC)
+
+    @property
+    def ownership(self) -> Ownership:
+        """T=0 的归属样子；此刻的归属看持有者（ownership() 与 ItemView.ownership）。"""
+        return ownership(self.owner_id, self.canon_holder)
+
+    @property
     def canon_holder(self) -> str | None:
         """T=0 时此物的物理持有者：静置之地优先，否则是随身携带的物主；下落不明者为 None。"""
         return self.location_id or self.owner_id
@@ -296,6 +375,7 @@ class WorldBlueprint(BaseModel):
     relations: tuple[CharacterRelation, ...] = ()
     personas: tuple[Persona, ...] = ()  # 外显人设（lore.py）
     facts: tuple[Fact, ...] = ()  # 可打探入账的见闻（lore.py）
+    swarms: tuple[SwarmNode, ...] = ()  # 人群（lore.py）：没有名姓、成群在场的人
 
     @model_validator(mode="after")
     def _integrity(self) -> Self:
