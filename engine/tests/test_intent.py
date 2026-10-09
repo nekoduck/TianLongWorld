@@ -1,7 +1,7 @@
 """
 [INPUT]: 依赖 app.application.intent_parser 的 HeuristicIntentParser / LLMIntentParser / INTENT_SYSTEM / INTENT_SCHEMA，
          依赖 app.domain.intent 的 ActionType / Approach / Aim / PlayerIntent，依赖 app.domain.approach 的 MOVES / AIMS / row_of，
-         依赖 app.domain.snapshot 的视图（手搭剑湖宫一景：钟灵与闪电貂、木婉清与晓风拂柳、左子穆与神农帮的见闻、行囊里的金创药），
+         依赖 app.domain.snapshot 的视图（手搭剑湖宫一景：钟灵与闪电貂、木婉清与晓风拂柳、左子穆与神农帮的见闻、行囊里的金创药）与 domain/geography 的方位 / 认知 / 交通方式，
          依赖 tests/conftest 的 ScriptedLLM
 [OUTPUT]: 意图解析 v2 单测：schema 只有形状（枚举与模型的开发者 docstring 不进 model_json_schema）、INTENT_SYSTEM 写明 USE 与七种手段 / 九种所图 /
           话题且「用于」与兼容表一致、撂话离场是 MOVE；离线解析认得手段与所图的关键词（潜行 / 计谋 / 言辞 / 威逼 / 借势 / 人情 / 打探 + 话题 / 化解 / 服药），
@@ -9,7 +9,10 @@
           世界心跳：schema 带上 THINK 与 motivation（仍只有形状），INTENT_SYSTEM 写明 THINK 与此行所为且示例里有沉思与带所为的移动；
           离线解析的沉思只在别的动作都没命中时成立，MOVE 的此行所为按出口名定位去处、取其后到句末的一段（修饰语与趋向补语不算）；
           点了出路且「去」先于别的动作即是动身（后面的取物、打探、疗伤成此行所为，先做的事先算），「去 / 往 / 赶」的非移动义（过去的事、往事、望去、赶紧）不是挪步；
-          大模型路径照传 MOVE 的此行所为、清空别的动作的此行所为，守卫的字段再检查带上此行所为
+          大模型路径照传 MOVE 的此行所为、清空别的动作的此行所为，守卫的字段再检查带上此行所为；
+          探索迷雾（手搭路口：东边两条路、南边一条标签带地名的未知之路、认得的内堂）：INTENT_SYSTEM 教 MOVE 写方位把手、问路是寻常 TALK 且话题此地，示例里的移动一律写把手；
+          场景词表只给未知去处的把手与「未知区域」、scene_names 不收迷雾里的名字与标签；离线解析的方位（恰有一条即其把手、两条或没有照写方位、
+          其后到句末是此行所为、先做的事先算、只是望不算挪步）与问路（点名即问他、恳请也只是寻常、引号里的问话照认、没点名问人情最好者而不问仇人、全是仇人就不是问路）
 [POS]: tests 的意图解析 v2 护栏：解析器只产出「想怎么做、图什么」，表外的组合由 _fit 与 rules.normalize 同一口径退回寻常
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -19,11 +22,18 @@ from typing import Any
 
 import pytest
 
-from app.application.intent_parser import INTENT_SCHEMA, INTENT_SYSTEM, HeuristicIntentParser, LLMIntentParser
+from app.application.intent_parser import (
+    INTENT_SCHEMA,
+    INTENT_SYSTEM,
+    HeuristicIntentParser,
+    LLMIntentParser,
+    scene_names,
+)
 from app.domain.approach import AIMS, MOVES, row_of
+from app.domain.geography import Direction, DiscoveryStatus, TravelMethod
 from app.domain.intent import ActionType, Aim, Approach, PlayerIntent
 from app.domain.lore import FactUnlock
-from app.domain.models import Disposition, ItemUse, Tier
+from app.domain.models import Attitude, Disposition, ItemUse, Tier
 from app.domain.snapshot import CharacterView, ExitView, FactView, ItemView, LocalSnapshot, LocationView, SkillView
 
 PID = "ply:阿星"
@@ -108,6 +118,16 @@ def test_intent_system_examples_are_valid_intents() -> None:
     assert any(p.action_type is ActionType.THINK for p in parsed)
     assert any(p.action_type is ActionType.MOVE and p.motivation for p in parsed)
     assert all(not p.motivation for p in parsed if p.action_type is not ActionType.MOVE)  # 示例自己守「别的动作留空」
+
+
+def test_intent_system_teaches_bearings_and_asking_the_way() -> None:
+    """MOVE 写方位把手（未知区域只能写把手、不猜名字）；问路是寻常的 TALK，话题是此地之名——示例各有一条。"""
+    assert "方位把手（「北」「东·二」）" in INTENT_SYSTEM and "去处是「未知区域」的只能写方位把手，不替它猜名字" in INTENT_SYSTEM
+    assert "问路（打听去处、前路，问这条路通向哪里）也是 TALK" in INTENT_SYSTEM and "topic 写此地之名" in INTENT_SYSTEM
+    examples = [PlayerIntent.model_validate(json.loads(line)) for line in INTENT_SYSTEM.splitlines() if line.startswith("{")]
+    assert SAFE(action_type=ActionType.TALK, target_entity="钟灵", topic="剑湖宫·练武厅", narrative_style="客气") in examples
+    assert any(e.action_type is ActionType.MOVE and e.target_entity == "东" for e in examples)
+    assert all(e.target_entity in ("北", "南", "东", "外部") for e in examples if e.action_type is ActionType.MOVE)  # 移动一律写把手
 
 
 # ============================================================
@@ -239,3 +259,69 @@ async def test_llm_parser_keeps_the_errand_only_on_a_move_and_guards_it() -> Non
     forged = ScriptedLLM(reply(action_type="MOVE", target_entity="出厅", motivation="寻仙修仙"))
     refused = await LLMIntentParser(forged).parse("出厅去寻访高人", hall())
     assert refused.action_type is ActionType.INVALID and "修仙" in (refused.reason or "") and len(forged.calls) == 1
+
+# ============================================================
+#  探索迷雾：方位把手、未知去处、问路
+# ============================================================
+def crossroads() -> LocalSnapshot:
+    """
+    手搭的路口：东边两条路（认得的剑湖宫、不认得的一处），南边一条不认得的路（标签里带着地名「大理」），往里是认得的内堂。
+    """
+    exits = (
+        ExitView(label="出宫往东", to_id="loc:剑湖宫", to_name="剑湖宫", direction=Direction.EAST),
+        ExitView(label="东边小径", to_id="loc:松林", to_name="松林", direction=Direction.EAST, discovery=DiscoveryStatus.UNKNOWN),
+        ExitView(label="南去大理", to_id="loc:大理城", to_name="大理城", direction=Direction.SOUTH,
+                 discovery=DiscoveryStatus.UNKNOWN, travel_method=TravelMethod.RIDE, time_cost=192),
+        ExitView(label="入内", to_id="loc:内堂", to_name="内堂", direction=Direction.INSIDE, discovery=DiscoveryStatus.TOLD),
+    )
+    return hall().model_copy(update={"exits": exits})
+
+
+async def test_the_vocabulary_hides_what_the_fog_hides() -> None:
+    """场景词表的出路：认得的给把手、标签与去处，不认得的只给把手与「未知区域」——标签里的地名也不给。"""
+    from tests.conftest import ScriptedLLM
+
+    llm = ScriptedLLM(reply(action_type="MOVE", target_entity="南"))
+    assert await LLMIntentParser(llm).parse("快马加鞭往南赶", crossroads()) == SAFE(action_type=ActionType.MOVE, target_entity="南")
+    _, user, _ = llm.calls[0]
+    assert "出路（方位把手→去处）：东·一（出宫往东）→剑湖宫、东·二→未知区域、南→未知区域、内部（入内）→内堂" in user
+    assert not any(word in user for word in ("东边小径", "松林", "南去大理", "大理城"))
+    names = scene_names(crossroads())
+    assert {"出宫往东", "剑湖宫", "入内", "内堂"} <= set(names)
+    assert not {"东边小径", "松林", "南去大理", "大理城"} & set(names)  # 迷雾里的去处不是玩家叫得出的名字
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("往南走", SAFE(action_type=ActionType.MOVE, target_entity="南")),
+        ("朝南边奔去，寻段誉问个明白", SAFE(action_type=ActionType.MOVE, target_entity="南", motivation="寻段誉问个明白")),
+        ("往东走", SAFE(action_type=ActionType.MOVE, target_entity="东")),  # 东边两条路：照写方位交给规则驳回，多义不猜
+        ("往里走，找左子穆", SAFE(action_type=ActionType.MOVE, target_entity="内部", motivation="找左子穆")),
+        ("去剑湖宫找钟灵", SAFE(action_type=ActionType.MOVE, target_entity="出宫往东", motivation="找钟灵")),  # 认得的去处照名落地
+        ("去松林转转", SAFE(action_type=ActionType.MOVE, target_entity="松林转转")),  # 不认得的去处叫不出名：交给规则驳回
+        ("往西走", SAFE(action_type=ActionType.MOVE, target_entity="西")),  # 此地没有往西的路
+        ("向钟灵讨要闪电貂，再往南走", SAFE(action_type=ActionType.TAKE, target_entity="闪电貂", approach=Approach.WORDS)),  # 先做的事先算
+        ("往南走，路上向钟灵讨要闪电貂", SAFE(action_type=ActionType.MOVE, target_entity="南", motivation="路上向钟灵讨要闪电貂")),
+        ("望着东边发呆", SAFE(action_type=ActionType.OBSERVE)),
+        ("向钟灵问路", SAFE(action_type=ActionType.TALK, target_entity="钟灵", topic="剑湖宫·练武厅")),
+        ("恳请左先生指点去处", SAFE(action_type=ActionType.TALK, target_entity="左子穆", topic="剑湖宫·练武厅")),  # 问路恒是寻常
+        ("问木婉清：「往南这条路通向何处？」", SAFE(action_type=ActionType.TALK, target_entity="木婉清", topic="剑湖宫·练武厅")),
+        ("问路", SAFE(action_type=ActionType.TALK, target_entity="左子穆", topic="剑湖宫·练武厅")),  # 没点名：人情平手取快照次序
+    ],
+)
+async def test_heuristic_reads_bearings_and_asking_the_way(text: str, expected: PlayerIntent) -> None:
+    assert await HeuristicIntentParser().parse(text, crossroads()) == expected
+
+
+async def test_asking_the_way_skips_foes() -> None:
+    """没点名问谁：不问敌视你的人；在场的全是仇人就不是问路。"""
+    people = tuple(c.model_copy(update={"attitude": Attitude.HOSTILE}) if c.name == "左子穆" else c for c in hall().characters)
+    assert await HeuristicIntentParser().parse("问路", crossroads().model_copy(update={"characters": people})) == SAFE(
+        action_type=ActionType.TALK, target_entity="木婉清", topic="剑湖宫·练武厅")  # 快照次序的头一位记恨你：问下一位
+    warm = tuple(c.model_copy(update={"attitude": Attitude.FRIENDLY}) if c.name == "龚光杰" else c for c in hall().characters)
+    assert await HeuristicIntentParser().parse("问路", crossroads().model_copy(update={"characters": warm})) == SAFE(
+        action_type=ActionType.TALK, target_entity="龚光杰", topic="剑湖宫·练武厅")  # 交情最好的那位
+    foes = tuple(c.model_copy(update={"attitude": Attitude.HOSTILE}) for c in hall().characters)
+    assert (await HeuristicIntentParser().parse("问路", crossroads().model_copy(update={"characters": foes}))).action_type \
+        is not ActionType.TALK

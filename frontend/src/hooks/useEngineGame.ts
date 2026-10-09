@@ -1,20 +1,24 @@
 /**
  * [INPUT]: 依赖 react 的 useReducer / useRef / useState / useMemo / useCallback / useEffect，依赖 api/ws.ts 的 EngineSocket / storedPlayer，
- *          依赖 engineTypes.ts 的服务端帧与 PlayerStatus，依赖 view.ts 的 GameFacade / Choice / Phase / Tone，依赖 types.ts 的 ActionType
+ *          依赖 engineTypes.ts 的服务端帧、EngineOption、NavigationOption 与 PlayerStatus，依赖 view.ts 的 GameFacade / Choice / Waypoint / Phase / Tone，
+ *          依赖 types.ts 的 ActionType
  * [OUTPUT]: 对外提供 useEngineGame() -> GameFacade（与 useGame 同形，另带 resume）
  * [POS]: hooks 的 engine 状态机，VITE_ENGINE 时取代 useGame 成为前端唯一的状态源。帧驱动：turn_resolved 开新一幕并立题记
  *        （facts，手段非寻常时附「手段 · 所图」），narration_delta 逐片累加进 scene（打字机随文本增长接着吐字），
- *        turn_completed 落定选项（角标先风险档后方向）、状态栏（时辰与名望有才显示）、人情 / 心事 / 暗流与生死；P1 与时钟字段缺省时一切照旧；
+ *        turn_completed 落定选项（按钮正文是风味文案 flavor_text，角标是战术维度的徽记，why 与风险档进悬停提示，色调先风险档后方向）、
+ *        方位导航（navigation → Waypoint：方位按钮写去处或「未知区域」，悬停写交通方式、耗时与认知；脱身之路血、未知金、其余素）、
+ *        状态栏（时辰与名望有才显示）、人情 / 心事 / 暗流与生死；P1、时钟与导航字段缺省时一切照旧；
+ *        点交互选项与点导航项都是 choose{option_id}，题记分别写风味文案与「前往去处（方位）」；
  *        断线 / 选项过期 / 连接被 Fast Refresh 关掉都进入「悄悄续局」：旧菜单作废、交互区锁进缓冲提示，quiet resume 的终帧
- *        只换回菜单、状态栏、人情心事暗流与生死（此景、题记、打字机进度与输入草稿原样保留，零大模型）
+ *        只换回菜单、导航、状态栏、人情心事暗流与生死（此景、题记、打字机进度与输入草稿原样保留，零大模型）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 
 import { EngineSocket, storedPlayer } from '../api/ws'
-import type { EngineIntent, EngineOption, PlayerStatus, ServerFrame } from '../engineTypes'
+import type { EngineIntent, EngineOption, NavigationOption, PlayerStatus, ServerFrame, TacticalAxis } from '../engineTypes'
 import type { ActionType } from '../types'
-import type { Bond, Choice, Clock, GameFacade, Phase, Pursuit, Tone } from '../view'
+import type { Bond, Choice, Clock, GameFacade, Phase, Pursuit, Tone, Waypoint } from '../view'
 
 const NAMELESS = '无名氏'
 const LOST = '与江湖失去联系，正在重连……'
@@ -31,6 +35,8 @@ interface EngineView {
   scene: string
   facts: readonly string[]
   options: EngineOption[] | null
+  /** 方位导航：与选项同生同灭（新一幕、续局、断在半途时一并作废） */
+  navigation: NavigationOption[] | null
   lastAction: string | null
   /** 上一招的手段与所图（手段寻常时为空），随题记而立 */
   manner: string | null
@@ -57,6 +63,7 @@ const INITIAL: EngineView = {
   scene: '',
   facts: [],
   options: null,
+  navigation: null,
   lastAction: null,
   manner: null,
   bonds: [],
@@ -103,8 +110,9 @@ const mannerOf = (intent: EngineIntent | null): string | null =>
   intent?.approach && intent.approach !== '寻常' ? [intent.approach, intent.aim].filter(Boolean).join(' · ') : null
 
 // ============================================================
-//  选项 → 通用抉择：角标与色调都先看风险档（P1 起下发），缺省按方向
+//  选项 → 通用抉择：正文是风味文案，角标是战术维度的徽记，why 与风险档进悬停提示；色调先看风险档，缺省按方向
 // ============================================================
+const AXIS_BADGE: Record<TacticalAxis, string> = { ESCALATE: '激化', TRICKERY: '诡道', PACIFY: '化解', OBSERVE: '旁观' }
 const TONE_BY_RISK: Record<string, Tone> = { 稳妥: 'calm', 有险: 'probe', 凶险: 'risk' }
 const TONE_BY_CATEGORY: Record<string, Tone> = {
   探索: 'calm',
@@ -118,12 +126,38 @@ const TONE_BY_CATEGORY: Record<string, Tone> = {
 const choicesOf = (options: EngineOption[] | null): Choice[] | null =>
   options &&
   options.map((o) => ({
-    key: o.risk || o.category,
-    label: o.label,
-    hint: o.why || undefined,
+    key: AXIS_BADGE[o.tactical_axis] ?? o.category,
+    label: o.flavor_text,
+    tip: [o.why, o.risk].filter(Boolean).join(' · ') || undefined,
     tone: (o.risk && TONE_BY_RISK[o.risk]) || TONE_BY_CATEGORY[o.category] || 'probe',
     value: o.id,
   }))
+
+// ============================================================
+//  导航 → 方位按钮：按钮写方位与去处，悬停写交通方式、耗时与认知；脱身之路血、未知金、其余素
+// ============================================================
+const KNOWING: Record<string, string> = { 亲历: '到过', 问路: '问路得知', 远眺: '远远望得见', 名胜: '天下皆知', 未知: '未曾到过' }
+
+const waypointsOf = (navigation: NavigationOption[] | null): Waypoint[] | null =>
+  navigation &&
+  navigation.map((n) => ({
+    direction: n.direction,
+    target: n.target,
+    tip: [n.target, n.travel_method, n.time_label, KNOWING[n.discovery] ?? n.discovery, n.retreat && '脱身之路']
+      .filter(Boolean)
+      .join(' · '),
+    retreat: n.retreat,
+    tone: n.retreat ? 'risk' : n.discovery === '未知' ? 'probe' : 'calm',
+    value: n.id,
+  }))
+
+/** 题记：交互选项写玩家看见的风味文案，导航项写「前往去处（方位）」 */
+const labelOf = (id: string, options: EngineOption[] | null, navigation: NavigationOption[] | null): string | undefined => {
+  const option = options?.find((o) => o.id === id)
+  if (option) return option.flavor_text
+  const way = navigation?.find((n) => n.id === id)
+  return way && `前往${way.target}（${way.direction}）`
+}
 
 // ============================================================
 //  状态机：idle → loading → streaming → playing ⇄ … → dead
@@ -136,6 +170,7 @@ const begin = (state: EngineView, facts: readonly string[], manner: string | nul
   scene: '',
   facts,
   options: null,
+  navigation: null,
   lastAction: state.pendingAction,
   manner: state.pendingAction ? manner : null,
   pendingAction: null,
@@ -167,6 +202,7 @@ function onFrame(state: EngineView, frame: ServerFrame): EngineView {
           scene: state.scene || `你定了定神，此刻身在${frame.status.location}。`,
           phase: frame.game_over ? 'dead' : 'playing',
           options: frame.options,
+          navigation: frame.navigation ?? [],
           statusBar: statusOf(frame.status),
           ...tiesOf(frame.status),
           resync: null,
@@ -178,6 +214,7 @@ function onFrame(state: EngineView, frame: ServerFrame): EngineView {
         phase: frame.game_over ? 'dead' : 'playing',
         scene: frame.narration || scene.scene,
         options: frame.options,
+        navigation: frame.navigation ?? [],
         statusBar: statusOf(frame.status),
         ...tiesOf(frame.status),
       }
@@ -198,8 +235,8 @@ function fail(state: EngineView, error: string, code?: string): EngineView {
     case 'loading':
       return { ...state, phase: state.statusBar ? 'playing' : 'idle', pendingAction: null, resync: null, error }
     case 'streaming':
-      // 事件已入账、叙事断在半途：旧选项与新世界对不上，只留自由输入
-      return { ...state, phase: 'playing', options: null, error }
+      // 事件已入账、叙事断在半途：旧选项与旧导航都与新世界对不上，只留自由输入
+      return { ...state, phase: 'playing', options: null, navigation: null, error }
     case 'dead':
       return state
     default:
@@ -216,7 +253,15 @@ function reducer(state: EngineView, event: Event): EngineView {
     case 'resync':
       // 旧菜单作废、交互区锁进缓冲提示（提示语随之显示），直到悄悄续局的终帧或失败到来；死者无局可续
       if (state.phase === 'dead') return state
-      return { ...state, phase: 'loading', options: null, pendingAction: null, resync: event.reason, error: event.note }
+      return {
+        ...state,
+        phase: 'loading',
+        options: null,
+        navigation: null,
+        pendingAction: null,
+        resync: event.reason,
+        error: event.note,
+      }
     case 'frame':
       return onFrame(state, event.frame)
     case 'fail':
@@ -323,12 +368,12 @@ export function useEngineGame(): GameFacade {
     socket().resume(playerId)
   }, [socket])
 
-  const { phase, options } = state
+  const { phase, options, navigation } = state
   const act = useCallback(
     (type: ActionType, text: string) => {
       const value = text.trim()
       if (busy.current || phase !== 'playing' || !value) return
-      const label = type === 'choice' ? options?.find((o) => o.id === value)?.label : value
+      const label = type === 'choice' ? labelOf(value, options, navigation) : value
       if (!label) return
       const sent = type === 'choice' ? socket().choose(value) : socket().act(value)
       if (!sent) {
@@ -339,10 +384,11 @@ export function useEngineGame(): GameFacade {
       busy.current = true
       dispatch({ type: 'request', action: label })
     },
-    [socket, revive, phase, options],
+    [socket, revive, phase, options, navigation],
   )
 
   const choices = useMemo(() => choicesOf(options), [options])
+  const waypoints = useMemo(() => waypointsOf(navigation), [navigation])
 
   return {
     phase: state.phase,
@@ -350,6 +396,7 @@ export function useEngineGame(): GameFacade {
     scene: state.scene,
     facts: state.facts,
     choices,
+    waypoints,
     lastAction: state.lastAction,
     manner: state.manner,
     bonds: state.bonds,

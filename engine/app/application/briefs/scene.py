@@ -1,9 +1,9 @@
 """
 [INPUT]: 依赖 application/briefs/combat 的 safe / join，依赖 application/chronicle 的 titled / known_arts，
-         依赖 application/narrator 的 when / crowd / activity / trace / chronological（世界心跳的此地之物与说书人同一种写法），
+         依赖 application/narrator 的 when / crowd / activity / trace / chronological / way（世界心跳的此地之物与出路，都与说书人同一种写法），
          依赖 domain/intent 的 ActionType / PlayerIntent，依赖 domain/rules 的 player_tier，依赖 domain/progression 的 MAX_HP，
          依赖 domain/resolution 的 SELF，依赖 domain/aggregates 的 PlayerState，依赖 domain/snapshot 的 LocalSnapshot / CharacterView
-[OUTPUT]: 对外提供 intent_section()（<intent> 玩家意图 + <player_input> 原话）、world_section()（<time> / <scene> / <exits> / <people> / <crowds> / <things> /
+[OUTPUT]: 对外提供 intent_section()（<intent> 玩家意图 + <player_input> 原话）、world_section()（<time> / <scene> / <exits>（方位｜去处｜交通方式｜路程）/ <people>（带议程者附来意）/ <crowds> / <things> /
           <activities> / <traces> / <rumors> / <clocks> / <emerged> / <known> 绝对物理快照）、player_section()（<player> 玩家状态，含此行所为）、
           ACTION（动作的中文说法，含沉思）、courage()（惊惧阈值 → 胆量的语义）
 [POS]: application/briefs 的输入层（绝对事实）：三路与结果已定之事共用的那部分简报。只用快照——
@@ -13,13 +13,15 @@
        境界写领域按火候折算过的值、气血写数值，免得大模型二次折算。
        世界心跳只给此地的切片（局部认知）：时辰与昼夜、此地的人群（名、约数、此刻在做什么、胆量——惊惧阈值只写胆小 / 寻常 / 胆大，不写数字）、
        此地的往事（活动，按先后）与痕迹（还剩多久）、传到此地的消息正文——在场之人知道玩家做过什么只凭这些与亲眼所见；
-       没有消息传到此地时明写他们一无所知。<player> 带此行所为（PlayerState.motivation，空则不写）。每个插值逐值转义，act: / trc: / swm: / tok: id 从不露出
+       没有消息传到此地时明写他们一无所知。<player> 带此行所为（PlayerState.motivation，空则不写）。每个插值逐值转义，act: / trc: / swm: / tok: id 从不露出。
+       探索迷雾：出路与说书人同一种写法「方位｜去处｜交通方式｜路程」（narrator.way），玩家不认得的去处只写「未知区域」，出口标签（常带地名）从不进简报；
+       在场者带着议程（PlayerState.agendas）而来的，人物行附「来意：…」（议程意图）——地下城主据此推演他的神色与急缓，那不是他已做成的事
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
 from app.application.briefs.combat import join, safe
 from app.application.chronicle import known_arts, titled
-from app.application.narrator import activity, chronological, crowd, trace, when
+from app.application.narrator import activity, chronological, crowd, trace, way, when
 from app.domain.aggregates import PlayerState
 from app.domain.intent import ActionType, PlayerIntent
 from app.domain.progression import MAX_HP
@@ -60,6 +62,8 @@ def _person(c: CharacterView, scene: LocalSnapshot, state: PlayerState, target_i
     alias = f"｜又称：{'、'.join(c.aliases)}" if c.aliases else ""
     cause = state.attitude_causes.get(c.id)
     regard = f"对你{c.attitude.value}" + (f"（恩怨：{cause}）" if cause else "")
+    if agenda := state.agendas.get(c.id):  # 带议程而来：来意是他心里的打算，不是做成的事
+        regard += f"｜来意：{agenda.intent}"
     persona = ""
     if p := c.persona:
         persona = f"｜好：{join(p.likes)}｜恶：{join(p.dislikes)}｜心事：{p.worry or '无'}"
@@ -94,7 +98,7 @@ def world_section(scene: LocalSnapshot, state: PlayerState, target_id: str | Non
     """
     e = safe
     loc = scene.location
-    exits = [f"- {x.label} → {x.to_name}" + ("（去处有仇人）" if x.hostile_ahead else "") for x in scene.exits]
+    exits = [f"- {way(x)}" + ("（去处有仇人）" if x.hostile_ahead else "") for x in scene.exits]  # 迷雾：标签不进，未知即「未知区域」
     clocks = [
         f"- {c.name}｜{c.kind.value}｜挂在：{SELF if c.anchor_id == scene.player_id else scene.label(c.anchor_id)}｜"
         f"进度 {c.progress}/{c.maximum}｜满则：{c.consequence or '按种类结算'}"

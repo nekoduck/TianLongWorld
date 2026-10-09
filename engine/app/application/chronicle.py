@@ -1,9 +1,10 @@
 """
 [INPUT]: 依赖 domain/events 的全部领域事件，依赖 domain/ambient 的 Activity / ActivityKind，依赖 domain/combat 的 CombatOutcome，依赖 domain/outcomes 的 SocialOutcome / CovertOutcome，
+         依赖 domain/agenda 的 EncounterKind / SkirmishOutcome，
          依赖 domain/intent 的 ActionType / Approach，依赖 domain/models 的 Attitude / EntityKind / kind_of，
          依赖 domain/snapshot 的 LocalSnapshot / CharacterView
 [OUTPUT]: 对外提供 describe(event, labels, player_name) —— 一条领域事件的确定性白描（一句话；不出声的事件为空串，调用方一律滤掉；
-          含时钟四事件、微观事实 FactEmerged、名望 RenownChanged 与世界心跳七事件）；
+          含时钟四事件、微观事实 FactEmerged、名望 RenownChanged、世界心跳七事件与 H-Agent / 探索迷雾八事件）；
           titled(character) —— 「段延庆（恶贯满盈）」式的称呼；known_arts(snapshot) —— 「北冥神功（略有小成）」式的武学与火候
 [POS]: application 的事实渲染器：把事件与快照翻成人话。describe 供三处消费——回合结果帧里的 facts、叙事 Prompt 里的 <settled_facts>、
        长线记忆的向量语料。它只读事件与名称表，不经大模型：记忆里存的是这里的白描而非大模型的散文，幻觉因此进不了记忆；
@@ -16,23 +17,33 @@
        世界心跳的七条事件里只有人群溃散出声「某某惊惶四散，一哄而逃。」（人群名取名称表：快照的 labels 覆盖 swm: id）；
        时间流逝、交手的往事、痕迹、消息的生成与扩散、风化、顺手牵羊一律空串——它们经快照被感知（此地的痕迹、传到此地的消息），
        不被宣告：别处发生的事玩家本不该知道，白描一旦写出就进了 turn_resolved、<settled_facts> 与记忆，成了全知视角。
+       H-Agent 与探索迷雾的八条事件只有玩家眼前的那一面出声：NPC 走来「某某来到此地。」、走开「某某起身离去。」（NpcMoved.witnessed，别处的行军空串）；
+       撞见「某某与你不期而遇。」、当面的狭路相逢动了手或起了口角各一句白描（EncounterResolved.witnessed，相安无事与不在当场空串）；
+       问路「某某为你指点了去处。」（PlacesLearned——不点去处的名字，认得了自会在导航里露名）；议程的立下与了结、中断的开始、NPC 受伤一律空串——
+       议程是人物心里的事，玩家只看得见他走来走去。
        titled / known_arts 是称呼与火候的唯一写法：状态栏、叙事 Hard Prompt 与地下城主的战况简报共用，三处说法不会各执一词
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
 from collections.abc import Mapping
 
+from app.domain.agenda import EncounterKind, SkirmishOutcome
 from app.domain.ambient import Activity, ActivityKind
 from app.domain.combat import CombatOutcome
 from app.domain.events import (
     ActionFailed,
     ActivityStarted,
+    AgendaConcluded,
+    AgendaIssued,
+    AgendaPlanned,
     ClockAdvanced,
     ClockCleared,
     ClockCollapsed,
     ClockStarted,
     Conversed,
     DomainEvent,
+    EncounterBegan,
+    EncounterResolved,
     FactEmerged,
     FactLearned,
     FactTokenSpawned,
@@ -43,7 +54,10 @@ from app.domain.events import (
     ItemTransferred,
     Maneuvered,
     Moved,
+    NpcMoved,
+    NpcWounded,
     Parleyed,
+    PlacesLearned,
     PlayerDied,
     PlayerSpawned,
     RelationChanged,
@@ -100,6 +114,14 @@ _ACTION = {
     ActionType.INVALID: "行非常之事",
 }
 
+
+_SKIRMISH = {  # 当面的狭路相逢：{a} 来者、{b} 在此者；相安无事不出声
+    SkirmishOutcome.COMER_WINS: "{a}与{b}狭路相逢，动起手来，{b}落了下风。",
+    SkirmishOutcome.HOLDER_WINS: "{a}与{b}狭路相逢，动起手来，{a}落了下风。",
+    SkirmishOutcome.BOTH_HURT: "{a}与{b}狭路相逢，一番恶斗，两败俱伤。",
+    SkirmishOutcome.QUARREL: "{a}与{b}狭路相逢，言语间起了冲突。",
+}
+_NPC_MOVED = {"来到": "{n}来到此地。", "离开": "{n}起身离去。"}
 
 _UNDERCURRENT = "那股暗流"  # 旧账里没带名字的时钟事件：宁可含糊，也不露 clk: id
 _STOPS = ("。", "！", "？", "…", "」")
@@ -184,6 +206,19 @@ def describe(event: DomainEvent, labels: Mapping[str, str], player_name: str) ->
         case ActivityStarted(activity=Activity(kind=ActivityKind.ROUT, participants=crowd)):
             return f"{'、'.join(name(s) for s in crowd)}惊惶四散，一哄而逃。"
         case TimePassed() | ActivityStarted() | TraceLeft() | FactTokenSpawned() | RumorSpread() | ItemDecayed() | ItemPilfered():
+            return ""
+        # H-Agent 与探索迷雾：只有玩家眼前的那一面出声，议程是人物心里的事
+        case NpcMoved(npc_id=npc, witnessed=seen):
+            return _NPC_MOVED[seen].format(n=name(npc)) if seen else ""
+        case EncounterResolved(witnessed=False):
+            return ""
+        case EncounterResolved(kind=EncounterKind.MEET_PLAYER, npc_ids=(npc, *_)):
+            return f"{name(npc)}与你不期而遇。"
+        case EncounterResolved(outcome=SkirmishOutcome() as outcome, npc_ids=(a, b, *_)) if outcome in _SKIRMISH:
+            return _SKIRMISH[outcome].format(a=name(a), b=name(b))
+        case PlacesLearned(source_id=src):
+            return f"{name(src) if src else '有人'}为你指点了去处。"
+        case EncounterResolved() | AgendaPlanned() | AgendaIssued() | AgendaConcluded() | EncounterBegan() | NpcWounded():
             return ""
     raise TypeError(f"未知的领域事件：{type(event).__name__}")
 

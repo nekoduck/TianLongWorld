@@ -28,7 +28,8 @@
        名望只做加法并钳在 ±RENOWN_MAX。
        世界心跳同样只做折叠：TimePassed 累加 tick 并剪掉到期的痕迹与随之消散的已结束活动；活动、痕迹、消息按 id 挂上（超上限请走最旧的），
        消息传到之处只增不减；朽坏之物折进 consumed（与用掉之物一样从此不在任何地方）；被人顺手拿走只改持有者——不进焦点、不记来路、不了结心事。
-       空间认知与 NPC 生态同样只做折叠：投胎之地与每个去处进 visited、问路得知进 heard；议程按 NPC 挂上（启程之刻进 npc_since）、了结即摘下；
+       空间认知与 NPC 生态同样只做折叠：投胎之地与每个去处进 visited、问路得知进 heard；议程按 NPC 挂上（启程之刻进 npc_since：立议程之刻与驻足到之刻取较晚者，
+       同一批里裁决之后再立的新议程不抹掉驻足）、了结即摘下；
        NPC 每走一跳改 npc_at 与 npc_since；中断挂进 encounters、裁决之后摘下并让当事 NPC 驻足到 resume_tick；受伤记到 npc_wounds。
        内存图谱投影（infrastructure/persistence/memory_graph.py）复用同一个 evolve，投影与真相因此同构
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -345,10 +346,11 @@ def evolve(state: PlayerState | None, event: DomainEvent) -> PlayerState:
         case AgendaPlanned(tick=tick):
             return replace(state, agenda_tick=tick)
         case AgendaIssued(agenda=agenda):
+            start = max(state.npc_since.get(agenda.npc_id, agenda.issued_tick), agenda.issued_tick)  # 新议程不抹掉驻足
             return replace(
                 state,
                 agendas={**state.agendas, agenda.npc_id: agenda},
-                npc_since={**state.npc_since, agenda.npc_id: agenda.issued_tick},
+                npc_since={**state.npc_since, agenda.npc_id: start},
             )
         case AgendaConcluded(npc_id=npc):
             return replace(state, agendas={k: v for k, v in state.agendas.items() if k != npc})

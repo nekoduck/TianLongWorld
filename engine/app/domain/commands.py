@@ -25,7 +25,7 @@ NEARBY_MOVE = 1  # 同一处所之内走动（剑湖宫 ↔ 剑湖宫·练武厅
 REFUSED_COST = 1  # 被驳回的命令
 
 TIME_COSTS: dict[ActionType, int] = {
-    ActionType.MOVE: 4,  # 换一处所，一个时辰的脚程
+    ActionType.MOVE: 4,  # 换一处所，半个时辰的脚程（没写道路注记时的缺省；有注记以那条出路的耗时为准）
     ActionType.OBSERVE: 1,
     ActionType.THINK: 1,
     ActionType.TALK: 1,

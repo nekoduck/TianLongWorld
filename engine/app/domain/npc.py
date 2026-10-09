@@ -28,7 +28,15 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from app.domain.agenda import AGENDA_CHARS, AgendaEnd, Encounter, EncounterKind, NpcAgenda, SkirmishOutcome, encounter_id
+from app.domain.agenda import (
+    AGENDA_CHARS,
+    AgendaEnd,
+    Encounter,
+    EncounterKind,
+    NpcAgenda,
+    SkirmishOutcome,
+    encounter_id,
+)
 from app.domain.ambient import (
     Activity,
     ActivityKind,
@@ -186,7 +194,7 @@ def _rival(atlas: Atlas, npc_id: str, here: str, where: Mapping[str, str | None]
 def march(state: PlayerState, atlas: Atlas, *, player_arrived: bool = False) -> list[DomainEvent]:
     """
     把每位带议程、能上路的 NPC（按 id）沿 Atlas.path 推进到 state.tick：下一跳在「上一刻 + 道路耗时」到达，赶得及就走、走一跳一条 NpcMoved；
-    到了目标即 AgendaConcluded(抵达)；无路可通即受阻；被玩家制住即受阻；带伤或在中断里的原地不动。
+    到了目标即 AgendaConcluded(抵达，记在到达之刻，驻足中才发觉的记在此刻)；无路可通即受阻；被玩家制住即受阻；带伤或在中断里的原地不动。
     相撞即中断并停步：走进玩家所在之处是撞见，走到开篇仇人（核心 NPC）所在之处是狭路相逢。
     player_arrived：玩家这一回合挪了地方——他走进的地方若有带议程、离了家的 NPC，同样是撞见。
     """
@@ -215,8 +223,8 @@ def march(state: PlayerState, atlas: Atlas, *, player_arrived: bool = False) -> 
             continue
         pos, since = where.get(npc), state.npc_since.get(npc, agenda.issued_tick)
         while pos is not None:
-            if pos == agenda.target_id:
-                out.append(AgendaConcluded(npc_id=npc, how=AgendaEnd.ARRIVED, tick=max(since, agenda.issued_tick)))
+            if pos == agenda.target_id:  # 驻足中的抵达记在此刻：驻足到的那一刻还没来，事件不记未来之事
+                out.append(AgendaConcluded(npc_id=npc, how=AgendaEnd.ARRIVED, tick=min(state.tick, max(since, agenda.issued_tick))))
                 break
             route = atlas.path(pos, agenda.target_id)
             if len(route) < 2:

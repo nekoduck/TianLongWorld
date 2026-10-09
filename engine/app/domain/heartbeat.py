@@ -5,7 +5,7 @@
          依赖 domain/combat 的 CombatOutcome，依赖 domain/outcomes 的 SocialOutcome / CovertOutcome，依赖 domain/snapshot 的 LocalSnapshot；
          PlayerState 仅作类型标注
 [OUTPUT]: 对外提供 Atlas（静态地理：道路邻接、室内之地、正典物品、常驻之人，以及道路耗时 costs、名字 names、在世人物 characters、
-          核心 NPC core（有执念者）、开篇仇人对 rivals）与 Atlas.of(bp) / ring()（从一地广度优先的次序表）/ cost() / path()（以道路耗时为权的最省时之路）、
+          核心 NPC core（有执念者）、开篇仇人对 rivals、NPC 寻路不走的坠落之路 falls、名胜 renowned）与 Atlas.of(bp) / ring()（从一地广度优先的次序表）/ cost() / path()（以道路耗时为权的最省时之路，不走 falls）、
           position()（NPC 此世此刻所在）/ residents_at()（此世此刻身在某地的人）、
           Mark 痕迹样式与 BLOOD / SCUFFLE / LITTER、ROUT_TICKS / PILFER_ODDS、
           intensity()（一批事件的烈度 0~10）、deed()（一批事件里那件公开之事的消息正文与主体）、
@@ -58,7 +58,7 @@ from app.domain.events import (
     SkillExecuted,
     TraceLeft,
 )
-from app.domain.geography import ways
+from app.domain.geography import TravelMethod, ways
 from app.domain.intent import ActionType
 from app.domain.models import (
     Character,
@@ -92,6 +92,8 @@ class Atlas:
     characters: Mapping[str, Character] = field(default_factory=dict)  # T=0 在世、已到场的人物
     core: tuple[str, ...] = ()  # 核心 NPC：有执念（人设心事）的在世之人，按 id 排序——宏观议程只为他们立
     rivals: frozenset[frozenset[str]] = frozenset()  # 开篇结仇（仇敌、开篇）的人物对：狭路相逢的判据
+    falls: frozenset[tuple[str, str]] = frozenset()  # NPC 寻路不走的边：坠落出路（没人故意跳崖）与单程坠落出口的回程（爬不回去）
+    renowned: frozenset[str] = frozenset()  # 名胜（Sight.renowned）：天下皆知，玩家没到过也叫得出名
 
     @classmethod
     def of(cls, bp: WorldBlueprint) -> Atlas:
@@ -102,9 +104,12 @@ class Atlas:
                 if target in places:  # 道路双向：出口只写了一头，另一头照样走得通
                     roads[loc.id].add(target)
                     roads[target].add(loc.id)
-        costs: dict[tuple[str, str], int] = {key: way.time_cost for key, way in ways(bp).items()}
+        roads_of = ways(bp)
+        costs: dict[tuple[str, str], int] = {key: way.time_cost for key, way in roads_of.items()}
         for (a, b), cost in list(costs.items()):
             costs.setdefault((b, a), cost)
+        falls = {key for key, way in roads_of.items() if way.travel_method is TravelMethod.FALL}
+        falls |= {(b, a) for a, b in falls if (b, a) not in roads_of}
         residents: dict[str, list[Character]] = {}
         living = sorted(
             (c for c in bp.characters if c.status is CharacterStatus.ALIVE and c.arrives_with is None), key=lambda c: c.id
@@ -126,6 +131,8 @@ class Atlas:
                 frozenset((r.source_id, r.target_id)) for r in bp.relations
                 if r.kind is RelationKind.ENEMY and r.era is Era.OPENING
             ),
+            falls=frozenset(falls),
+            renowned=frozenset(s.location_id for s in bp.sights if s.renowned),
         )
 
     def ring(self, origin: str, radius: int) -> tuple[str, ...]:
@@ -142,7 +149,8 @@ class Atlas:
 
     def path(self, origin: str, target: str) -> tuple[str, ...]:
         """
-        最省时的路（以道路耗时为权的 Dijkstra——A* 的启发项取零）：含起点与终点，耗时相同取 id 序列字典序最小的一条，不通为空。
+        最省时的路（以道路耗时为权的 Dijkstra——A* 的启发项取零）：含起点与终点，耗时相同取 id 序列字典序最小的一条，不通为空；
+        坠落之路与单程坠落的回程不走（falls）。
         NPC 的微观行军每一跳都按它重算，地图怎么变都走得对。
         """
         if origin == target:
@@ -157,7 +165,7 @@ class Atlas:
             if best[node] < (spent, route):
                 continue
             for nxt in self.neighbors.get(node, ()):
-                if nxt in route:
+                if nxt in route or (node, nxt) in self.falls:
                     continue
                 candidate = (spent + self.cost(node, nxt), (*route, nxt))
                 if nxt not in best or candidate < best[nxt]:

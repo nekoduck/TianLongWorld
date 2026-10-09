@@ -4,12 +4,14 @@
          依赖 domain/events 的 Moved / ItemTransferred / HealthChanged / ItemConsumed / DomainEvent，依赖 domain/combat 的 CombatRuling，
          依赖 domain/stakes 的 AnyStakes / Ruling，依赖 domain/progression 的 MAX_HP / REST_GAIN，
          依赖 domain/intent 的 PlayerIntent，依赖 domain/snapshot 的 LocalSnapshot / ItemView；PlayerState 仅作类型标注
-[OUTPUT]: 对外提供 ObserveRule（静观，无事件）/ ThinkRule（沉思，同静观）/ MoveRule（只沿 CONNECTS_TO，Moved 带上此行所为 motivation）/ TakeRule（地上之物与被制住者身上之物定案；
+[OUTPUT]: 对外提供 ObserveRule（静观，无事件）/ ThinkRule（沉思，同静观）/ MoveRule（只沿 CONNECTS_TO，去向按 exit_names 落地——标签、方位把手、已知去处之名，
+          未知去处的名字不落地、驳回只列把手与 shown_name；Moved 带上此行所为 motivation）/ TakeRule（地上之物与被制住者身上之物定案；
           他人手中之物按手段分路（所图以格子为准）：武力 → 战·夺物、言辞 / 人情 / 借势 → 交·讨要、计谋 / 潜行 → 暗·骗取 / 偷取、寻常 → 驳回并提示换手段（带持有人与物的 id）；
           不可携带之物一律驳回 NOT_PORTABLE）/ HAZARD_HURT 与 handled()（险物取到手即受伤，留一口气）/
           UseRule（服用敷用随身之物：ItemConsumed + HealthChanged(source="item")）/ RestRule（调息：有伤且无仇人在侧，source="rest"）/
           InvalidRule（违背世界观永不获准）
 [POS]: rules 包里管"身体与地理"的那几条：出口是否相连、物在谁手、伤要不要疗——只看快照的物理事实与玩家的气血。
+       探索迷雾在这里守住：叫不出名的去处只能按方位（「往南」）或出口标签去走，「未知区域」的真名既不落地也不出现在驳回理由里。
        取物先过物性闸门（不可携带者不论用什么手段都拿不走），再看物在谁手：地上或被制住者身上即确定易手，自由人手中的则按兼容表分路；
        有险性之物（hazard）不论经哪一路到手，门面都追加一次 HealthChanged(source="blow", source_id=物)，永不致死。
        服药每档药力回 REST_GAIN 的气血（钳在上限内）；用掉之物从此不在行囊（PlayerState.consumed）
@@ -52,12 +54,17 @@ class ThinkRule(ObserveRule):
 
 
 class MoveRule(Rule):
+    """
+    只沿 CONNECTS_TO 走：去向按 LocalSnapshot.exit_names 落地——出口标签、方位把手（「东」「东·二」）、已知去处的名字；
+    未知的去处叫不出名，名字不落地。驳回时列出的可行之路只写把手与 shown_name（未知即「未知区域」），绝不露标签与未知之地的名字。
+    """
+
     def adjudicate(self, intent: PlayerIntent, state: PlayerState, snap: LocalSnapshot) -> Verdict:
         if not intent.target_entity:
             return Rejection("NO_TARGET", "欲往何处？须说出去向。")
-        way = resolve(intent.target_entity, snap.exits, names)
+        way = resolve(intent.target_entity, snap.exits, snap.exit_names)
         if way is None:
-            roads = "、".join(f"{e.label}（{e.to_name}）" for e in snap.exits) or "无路可走"
+            roads = "、".join(f"{snap.handle(e)}（{e.shown_name}）" for e in snap.exits) or "无路可走"
             return Rejection("NO_PATH", f"此处并无通往「{intent.target_entity}」的路。可行之路：{roads}。")
         return Approval(intent, target=way.to_id, exit_label=way.label)
 

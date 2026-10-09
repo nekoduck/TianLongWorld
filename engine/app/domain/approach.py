@@ -187,14 +187,14 @@ _BY_ACTION: dict[ActionType, TacticalAxis] = {  # 寻常手段按动作定轴：
 
 def axis_of(intent: PlayerIntent) -> TacticalAxis:
     """
-    一招落在哪根战术轴上（封闭表，确定性）：出手恒为激化；打探（所图打探或带话题的寻常攀谈）恒为旁观——看清楚再说；
+    一招落在哪根战术轴上（封闭表，确定性）：出手恒为激化；打探（所图打探、带话题的寻常攀谈、带话题而不写所图的言辞——与 infer_aim 一致）恒为旁观——看清楚再说；
     其余先看手段、再看动作，表外的一律旁观。
     """
     if intent.action_type is ActionType.ATTACK:
         return _X.ESCALATE
     if intent.action_type is ActionType.TALK and intent.approach in (_P.PLAIN, _P.WORDS) and (
-        intent.aim is Aim.PROBE or (intent.approach is _P.PLAIN and intent.topic)
-    ):
+        intent.aim is Aim.PROBE or (intent.topic and (intent.approach is _P.PLAIN or intent.aim is None))
+    ):  # 言辞带话题而不写所图，规则推断为打探（infer_aim），轴与之一致
         return _X.OBSERVE
     if intent.approach in _BY_APPROACH:
         return _BY_APPROACH[intent.approach]

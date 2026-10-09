@@ -1,5 +1,6 @@
 """
-[INPUT]: 依赖 domain/models 的 WorldBlueprint / EntityKind / kind_of 及节点类型，依赖 domain/lore 的 Persona，依赖 json 的 dumps
+[INPUT]: 依赖 domain/models 的 WorldBlueprint / EntityKind / kind_of 及节点类型，依赖 domain/lore 的 Persona，
+         依赖 domain/geography 的 ways（每条出口的有效方位 / 交通方式 / 耗时），依赖 json 的 dumps
 [OUTPUT]: 对外提供 CypherStatement（参数化语句）、compile_blueprint()（蓝图 → 按依赖排序的批量写图语句）、
           render_script()（同一批语句渲染为可交给 cypher-shell 的 .cypher 脚本）、cypher_literal()（值 → Cypher 字面量）、
           CANON_LABELS（正典节点标签，含见闻 Fact 与人群 Swarm）、OVERLAY_LABELS（覆盖节点标签 Player / Clock / Emerged / Activity / Trace / Rumor）、
@@ -15,7 +16,10 @@
        (知情人)-[:KNOWS_FACT]->(f)、(f)-[:ABOUT]->(主体)、(f)-[:UNLOCKS {kind}]->(所解之边的那一端)——主体与目标按 id 前缀落到各自的标签上。
        人群是 (:Swarm {id, name, size, panic_threshold, routine, faction, sources})-[:LOCATED_IN]->(:Location)：正典只记他们平日在哪、做什么，
        溃散与否是平行世界的事（覆盖层的 Activity）。
-       约束里另有覆盖节点 (:Clock) / (:Emerged) / (:Activity) / (:Trace) / (:Rumor) 的 (world, id) 复合唯一与 world 索引：它们由投影写入，不由蓝图产出
+       约束里另有覆盖节点 (:Clock) / (:Emerged) / (:Activity) / (:Trace) / (:Rumor) 的 (world, id) 复合唯一与 world 索引：它们由投影写入，不由蓝图产出。
+       空间属性图：CONNECTS_TO 按 geography.ways 写 label / direction / travel_method / time_cost（撰写的道路注记优先，否则确定性推出——
+       与内存图谱、世界物理的寻路同一个函数），Location 节点带 landmark / renowned（可见性注记：地标远眺可见、名胜天下皆知，缺省 false）；
+       覆盖层的行军所在 (:Character)-[:AT {world}]->(:Location) 另建 AT.world 索引（VISITED / HEARD_OF / WOUNDED 都挂在 Player 上，随它一并抹去）
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -26,6 +30,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from app.domain.geography import ways
 from app.domain.lore import Persona
 from app.domain.models import EntityKind, WorldBlueprint, kind_of
 
@@ -59,6 +64,7 @@ CONSTRAINTS = [
     "CREATE INDEX item_canon_holder IF NOT EXISTS FOR (n:Item) ON (n.canon_holder)",
     "CREATE INDEX held_by_world IF NOT EXISTS FOR ()-[r:HELD_BY]-() ON (r.world)",
     "CREATE INDEX consumed_world IF NOT EXISTS FOR ()-[r:CONSUMED]-() ON (r.world)",
+    "CREATE INDEX at_world IF NOT EXISTS FOR ()-[r:AT]-() ON (r.world)",  # 行军所在：(:Character)-[:AT {world}]->(:Location)
     # 覆盖节点（语义物理引擎的时钟与微观事实、世界心跳的活动 / 痕迹 / 消息）：id 只在本世界内唯一
     # （同一挂处同名的时钟、同一刻同一处的同一件事，在每个平行世界里 id 相同）
     *(f"CREATE CONSTRAINT {label.lower()}_world_id IF NOT EXISTS FOR (n:{label}) REQUIRE (n.world, n.id) IS UNIQUE"
@@ -92,10 +98,12 @@ def compile_blueprint(bp: WorldBlueprint) -> list[CypherStatement]:
             statements.append(CypherStatement(query, {"rows": list(rows[start : start + BATCH_ROWS])}))
 
     # ---- 节点 ----
+    sights = {s.location_id: s for s in bp.sights}
     emit(_NODE.format(label="Location"), [
         {"id": x.id, "props": {"name": x.name, "aliases": list(x.aliases), "region": x.region,
-                               "description": x.description}}
-        for x in bp.locations
+                               "description": x.description,
+                               "landmark": bool(s and s.landmark), "renowned": bool(s and s.renowned)}}
+        for x in bp.locations for s in [sights.get(x.id)]
     ])
     personas = {p.character_id: p for p in bp.personas}
     emit(_NODE.format(label="Character"), [
@@ -132,9 +140,10 @@ def compile_blueprint(bp: WorldBlueprint) -> list[CypherStatement]:
     emit(_FACTION, [{"name": name} for name in factions])
 
     # ---- 硬性边 ----
-    emit(_edge("Location", "CONNECTS_TO", "Location"), [
-        {"a": loc.id, "b": target, "props": {"label": label}}
-        for loc in bp.locations for label, target in loc.exits.items()
+    emit(_edge("Location", "CONNECTS_TO", "Location"), [  # 一对 (from, to) 一条边：方位、交通方式、耗时取有效值
+        {"a": w.from_id, "b": w.to_id, "props": {"label": w.label, "direction": w.direction.value,
+                                                 "travel_method": w.travel_method.value, "time_cost": w.time_cost}}
+        for w in ways(bp).values()
     ])
     emit(_edge("Character", "LOCATED_IN", "Location"), [
         {"a": c.id, "b": c.location_id, "props": {}} for c in bp.characters if c.location_id

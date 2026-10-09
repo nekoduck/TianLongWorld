@@ -1,5 +1,5 @@
 """
-[INPUT]: 依赖 rules/base 的 Rule / Approval / Rejection / Verdict / resolve / names / listed / present / menace / skill_tier / player_tier / best_skill，
+[INPUT]: 依赖 rules/base 的 Rule / Approval / Rejection / Verdict / resolve / names / listed / present / menace / skill_tier / player_tier / best_skill / fighting_tier，
          依赖 rules/parley 的 parley / required_regard（求艺走交涉），依赖 domain/reputation 的 ripple（人情涟漪），
          依赖 domain/events 的 SkillExecuted / HealthChanged / PlayerDied / Moved / SkillPracticed / ItemTransferred / DomainEvent，
          依赖 domain/models 的 Attitude / Tier / Transmission，依赖 domain/combat 的 Stakes / assess / CombatRuling / CombatOutcome，
@@ -10,7 +10,7 @@
           strike_stakes() / strike()（出手与夺物共用的区间与定案）、LearnRule（修习：入门走获取要求、精进走修炼要求；
           以言辞 / 人情求教而师父不肯 → 交涉·求艺）、retreat()（重伤逃脱的去处）、required_regard()（求教某功须有的人情）
 [POS]: rules 包里管"武"的两条：出手与修习。
-       出手的胜负由 combat.assess 圈出可裁区间、地下城主在区间里挑；定案为重伤时追加夺路而逃的 Moved（fleeing）：先走来路，
+       出手的胜负由 combat.assess 圈出可裁区间（对方此世带伤即境界折一档：狭路相逢的落败者一日之内好欺负）、地下城主在区间里挑；定案为重伤时追加夺路而逃的 Moved（fleeing）：先走来路，
        其次去处没有仇人（hostile_ahead=False）的出路，逃离过的险地永不作退路，条条不通才留在原地。计谋出手同样不越级（区间不变，只记手段）。
        夺物（TAKE×武力）与出手同一个区间：得手即追加易手。此情此景里根本没有的武功名（自拟招式）只是笔墨，照常以看家本领出手。
        人情涟漪交给 reputation（只认开篇羁绊、恢复「敌人之敌」、缘由写明称谓）。
@@ -46,6 +46,7 @@ from app.domain.rules.base import (
     Rule,
     Verdict,
     best_skill,
+    fighting_tier,
     listed,
     menace,
     names,
@@ -99,14 +100,16 @@ class AttackRule(Rule):
 
 
 def strike_stakes(ok: Approval, state: PlayerState, snap: LocalSnapshot, seize: str | None = None) -> Stakes:
-    """出手的胜负不再一锤定音：境界差（火候折算后）、对方性情与自身伤势圈出可裁区间，交给地下城主在区间里定夺。夺物同一个区间。"""
+    """
+    出手的胜负不再一锤定音：境界差（火候折算后；对方此世带伤折一档）、对方性情与自身伤势圈出可裁区间，交给地下城主在区间里定夺。夺物同一个区间。
+    """
     assert ok.target
     foe = snap.character(ok.target)
     assert foe is not None
     art = snap.skill(ok.skill) if ok.skill else None
     return assess(
         defender_id=foe.id, skill_id=ok.skill, item_id=None if seize else ok.item,
-        attacker=skill_tier(art, state) if art else Tier.NONE, defender=foe.tier,
+        attacker=skill_tier(art, state) if art else Tier.NONE, defender=fighting_tier(foe),
         disposition=foe.disposition, player_hp=state.hp, seize_id=seize,
     )
 

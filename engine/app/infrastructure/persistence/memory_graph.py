@@ -1,9 +1,10 @@
 """
 [INPUT]: 依赖 domain/ports 的 WorldReader / WorldProjector / WorldSeeder，依赖 domain/aggregates 的 PlayerState / evolve，
-         依赖 domain/ambient 的 ActivityKind / ActivityState，
+         依赖 domain/ambient 的 ActivityKind / ActivityState，依赖 domain/geography 的 ways / Way / discovery，依赖 domain/npc 的 wounded，
          依赖 domain/models 的本体与 WorldBlueprint，依赖 domain/lore 的 Fact，依赖 domain/snapshot 的视图，依赖 app.errors 的 ProjectionError
 [OUTPUT]: 对外提供 InMemoryWorldGraph —— 图谱三端口的进程内实现（快照含 P1 的 era / lead / persona / facts / hostile_ahead / 物性，
-          语义物理引擎的 clocks / emerged，以及世界心跳的 tick / activities / traces / swarms / rumors）
+          语义物理引擎的 clocks / emerged，世界心跳的 tick / activities / traces / swarms / rumors，
+          以及空间属性图的出路方位 / 交通方式 / 耗时 / 认知与分层 NPC 生态的此世所在与带伤）
 [POS]: persistence 的零依赖图谱：正典是一份 WorldBlueprint 的索引，每个平行世界的覆盖层就是一个 PlayerState——
        投影直接复用领域的 evolve 折叠（投影与聚合根同构，无第二套状态机：熟练度、气血、悟性都原样投进快照）；
        下落不明的物品没有持有者，因而不出现在任何快照里；后来才到场（arrives_with）的人与物 P1 不进任何场景；
@@ -17,6 +18,10 @@
        朽坏之物折进 consumed、顺手拿走之物只改持有者）：快照的 tick 即 PlayerState.tick，此地的活动（state 按 tick 现算）、
        此地 remaining ≥ 1 的痕迹、蓝图里落在此地的人群（routed = 有一个把它算作参与者、此刻进行中的溃散逃离活动）、
        reached 含此地的消息——全局的事件流不进快照；抹去重放随覆盖层一并重建；
+       空间属性图与探索迷雾：出路取 geography.ways（与 Cypher 编译、Atlas 寻路同一个函数，一对 (from, to) 一条），
+       discovery 按 PlayerState.visited / heard 与蓝图的地标名胜现算；分层 NPC 生态：人物此世所在 = PlayerState.npc_at 否则正典所在——
+       在场者、出口的 hostile_ahead、物品持有者与见闻的知情人都按它算，CharacterView.wounded 即 npc.wounded（伤到的那一刻还没过）；
+       议程与中断只在聚合里，不进快照；
        与 Neo4jWorldGraph 同守一份契约（tests/test_world_graph.py 双实现共跑，快照逐字段相等）
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -26,8 +31,10 @@ from collections.abc import Iterable, Sequence
 from app.domain.aggregates import PlayerState, evolve
 from app.domain.ambient import ActivityKind, ActivityState
 from app.domain.events import EventEnvelope
+from app.domain.geography import Way, discovery, ways
 from app.domain.lore import Fact
 from app.domain.models import Attitude, Character, CharacterStatus, WorldBlueprint
+from app.domain.npc import wounded
 from app.domain.ports import WorldProjector, WorldReader, WorldSeeder
 from app.domain.snapshot import (
     ActivityView,
@@ -62,6 +69,11 @@ class InMemoryWorldGraph(WorldReader, WorldProjector, WorldSeeder):
         self._items = {x.id: x for x in bp.items}
         self._facts = {x.id: x for x in bp.facts}
         self._swarms = {x.id: x for x in bp.swarms}
+        self._exits: dict[str, list[Way]] = {}  # 地点 → 出路（ways 的有效属性，一对 (from, to) 一条）
+        for way in ways(bp).values():
+            self._exits.setdefault(way.from_id, []).append(way)
+        self._landmarks = frozenset(s.location_id for s in bp.sights if s.landmark)
+        self._renowned = frozenset(s.location_id for s in bp.sights if s.renowned)
         self._personas = {
             p.character_id: PersonaView(likes=p.likes, dislikes=p.dislikes, worry=p.worry) for p in bp.personas
         }
@@ -120,17 +132,20 @@ class InMemoryWorldGraph(WorldReader, WorldProjector, WorldSeeder):
     def _holder(self, state: PlayerState, item_id: str) -> str | None:
         return state.item_holders.get(item_id) or self._items[item_id].canon_holder
 
-    def _present(self, location_id: str) -> list[Character]:
-        """在场口径：正典所在于此、健在、且不是后来才到场的人（arrives_with 者 P1 不进任何场景）。"""
+    def _present(self, st: PlayerState, location_id: str) -> list[Character]:
+        """
+        在场口径：此世所在于此（行军改过的 npc_at 优先，否则正典所在）、健在、且不是后来才到场的人（arrives_with 者 P1 不进任何场景）。
+        """
         return [
             c for c in self._characters.values()
-            if c.location_id == location_id and c.status is CharacterStatus.ALIVE and c.arrives_with is None
+            if st.npc_at.get(c.id, c.location_id) == location_id
+            and c.status is CharacterStatus.ALIVE and c.arrives_with is None
         ]
 
     def _hostile_ahead(self, st: PlayerState, location_id: str) -> bool:
         """去处此刻站着对玩家敌视、且没被制住的在场者。"""
         return any(
-            st.attitude_of(c.id) is Attitude.HOSTILE and c.id not in st.subdued for c in self._present(location_id)
+            st.attitude_of(c.id) is Attitude.HOSTILE and c.id not in st.subdued for c in self._present(st, location_id)
         )
 
     @staticmethod
@@ -155,7 +170,7 @@ class InMemoryWorldGraph(WorldReader, WorldProjector, WorldSeeder):
         st, version = self._overlays[player_id]
         loc = self._locations[st.location_id]
 
-        present = self._present(loc.id)
+        present = self._present(st, loc.id)
         holders = {loc.id, player_id, *(c.id for c in present)}
         consumed = st.consumed
         items = [
@@ -180,8 +195,14 @@ class InMemoryWorldGraph(WorldReader, WorldProjector, WorldSeeder):
             version=version,
             location=LocationView(id=loc.id, name=loc.name, region=loc.region, description=loc.description),
             exits=[
-                ExitView(label=k, to_id=v, to_name=self._locations[v].name, hostile_ahead=self._hostile_ahead(st, v))
-                for k, v in loc.exits.items()
+                ExitView(
+                    label=w.label, to_id=w.to_id, to_name=self._locations[w.to_id].name,
+                    hostile_ahead=self._hostile_ahead(st, w.to_id),
+                    direction=w.direction, travel_method=w.travel_method, time_cost=w.time_cost,
+                    discovery=discovery(w.to_id, visited=st.visited, heard=st.heard, landmarks=self._landmarks,
+                                        renowned=self._renowned),
+                )
+                for w in self._exits.get(loc.id, ())
             ],
             characters=[
                 CharacterView(
@@ -189,6 +210,7 @@ class InMemoryWorldGraph(WorldReader, WorldProjector, WorldSeeder):
                     disposition=c.disposition, description=c.description,
                     subdued=c.id in st.subdued, attitude=st.attitude_of(c.id),
                     skill_ids=c.skills, bonds=self._bonds.get(c.id, []), persona=self._personas.get(c.id),
+                    wounded=wounded(st, c.id),
                 )
                 for c in present
             ],

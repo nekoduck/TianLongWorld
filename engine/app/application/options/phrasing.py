@@ -4,7 +4,10 @@
           learn_phrase()（修习的措辞键与槽位：求教 / 参悟 / 随师精研 / 参照典籍 / 闭门苦练，只读 Approval.guidance / source）、bare()（去掉槽位的模板骨架）
 [POS]: options 包的措辞表：选项标签的唯一来源。每个键 2~3 个变体，按意图哈希挑选——同一个意图（同一个世界）永远是同一句，
        不同的人与物自然换着说法，菜单不再是一副腔调。模板只写动作与手段的说法，绝不含实体名（人、物、功、地都经槽位填入）；
-       去掉槽位后 ≤10 字，槽位缺一即抛错（宁可测试里炸，也不下发半截标签）。打探的标签只有对象，从不带见闻正文——见闻是要打听的东西，不是菜单上的字
+       去掉槽位后 ≤10 字，槽位缺一即抛错（宁可测试里炸，也不下发半截标签）。打探的标签只有对象，从不带见闻正文——见闻是要打听的东西，不是菜单上的字。
+       这里的标签是朴素的退路（label）：说书人挑中的招另配武侠风味（flavor_text，经 options/menu 过闸）；出路不再有措辞——
+       移动归导航（application/navigation），标签里常带地名，未知去处绝不能露名，所以导航只给方位、去处（或「未知区域」）、交通方式与耗时。
+       问路（ask.way）只有对象，不带此地与去处的名字
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -18,10 +21,9 @@ from app.domain.snapshot import LocalSnapshot
 
 type Slots = tuple[tuple[str, str], ...]
 
-# 槽位：exit 出路名、place 去处、npc 对象、item 物、art 武学、src 凭借（师父或典籍）
+# 槽位：npc 对象、item 物、art 武学、src 凭借（师父或典籍）。出路不在这里：导航只用方位、去处（或未知区域）、交通方式与耗时
 TEMPLATES: dict[str, tuple[str, ...]] = {
-    # —— 出路与自身 ——
-    "move": ("沿「{exit}」前往{place}", "取道「{exit}」去{place}", "经「{exit}」往{place}"),
+    # —— 自身 ——
     "observe": ("静观四周", "按兵不动，静观其变", "留神打量四下"),
     "rest": ("盘膝运功疗伤", "觅处静坐调息", "调息疗伤"),  # 静观与调息的意图恒定：实际只露出一句（静观四周 / 调息疗伤），与 P0 同字
     "use.heal": ("以{item}疗伤", "取出{item}疗伤"),
@@ -35,6 +37,7 @@ TEMPLATES: dict[str, tuple[str, ...]] = {
     "plead.favor": ("以人情求{npc}传{art}", "托人情请{npc}授{art}"),
     # —— 与人交谈 ——
     "talk": ("与{npc}攀谈", "上前和{npc}搭话", "同{npc}闲叙几句"),
+    "ask.way": ("向{npc}问路", "请{npc}指点去处", "找{npc}打听前路"),
     "befriend": ("好言结交{npc}", "向{npc}示好结纳", "与{npc}套套交情"),
     "befriend.favor": ("以人情笼络{npc}", "卖{npc}一个人情"),
     "befriend.lever": ("借势结交{npc}", "搬出靠山结纳{npc}"),

@@ -1,9 +1,11 @@
 """
-[INPUT]: 依赖 app.application 的 intent_parser / options / narrator / chronicle，依赖 tests/test_rules 的 scene() 快照工厂与事件夹具，依赖 tests/conftest 的 ScriptedLLM
+[INPUT]: 依赖 app.application 的 intent_parser / options / navigation / narrator / chronicle，依赖 tests/test_rules 的 scene() 快照工厂与事件夹具，依赖 tests/conftest 的 ScriptedLLM
 [OUTPUT]: 应用层单测：意图解析的三道防线与离线解析（含调息疗伤先于练功）、守卫两道检查都先剔除场景正名（原著的「金针渡劫」）、
-          场景词表的称号与火候、选项菜单（合法、世界不变则逐字不变、跟进席跟着焦点、脱身席、调息按伤势加权、MMR 不扎堆、why；
+          场景词表的称号与火候、探索迷雾（初到时「去大理城」叫不出名、往南 / 向南而去 / 往下爬 / 北上落到方位把手、名字里的「南」不是方位、
+          问路是寻常 TALK 话题此地且没点名问人情最好的那位；去过之后照名落地，场景词表与 scene_names 不露未知去处）、
+          选项菜单（合法、世界不变则逐字不变、跟进席跟着焦点、调息按伤势加权、MMR 铺开四根战术轴、why；脱身之路挪到导航的 retreat，与 rules.retreat 同一条、绝不逃回险地；
           标签是按意图哈希挑出的措辞变体，every_label 把席位、补位与同一对象的上限都拉满）、修习选项随凭借改换措辞、Hard Prompt 的边界与转义（称号、火候、伤势、恩怨、时辰；速写已废，推演的细节以入账事实进 <settled_facts>）、
-          离线白描照录入账的事实并报一句时辰、沉思与此行所为的离线解析、降级叙事、事实白描
+          离线白描照录入账的事实并报一句时辰、沉思与此行所为的离线解析、流式叙事末尾恒交一个 MenuPicks、降级叙事、事实白描
 [POS]: tests 的"大模型无权改写世界"证明：解析器只产出意图、选项从不经大模型、叙事只拿到快照与已定的结果
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -23,7 +25,15 @@ from app.application.intent_parser import (
     scene_names,
     scene_vocabulary,
 )
-from app.application.narrator import FallbackNarrator, LLMNarrator, NarrationRequest, TemplateNarrator, hard_prompt
+from app.application.narrator import (
+    FallbackNarrator,
+    LLMNarrator,
+    MenuPicks,
+    NarrationRequest,
+    TemplateNarrator,
+    hard_prompt,
+)
+from app.application.navigation import navigation
 from app.application.options import OptionCategory, OptionGenerator
 from app.domain import rules
 from app.domain.aggregates import PlayerState
@@ -162,12 +172,44 @@ async def test_llm_errors_propagate_so_nothing_is_written() -> None:
         ("一剑刺向正在调息的龚光杰", PlayerIntent(action_type=ActionType.ATTACK, target_entity="龚光杰")),  # 调息的是对手
         ("我徒手一拳打向龚光杰", PlayerIntent(action_type=ActionType.ATTACK, target_entity="龚光杰")),  # v6 试玩抓到：曾被当作交谈
         ("回想龚光杰方才那一剑", PlayerIntent(action_type=ActionType.THINK)),  # 沉思：点了名也不是找他说话
-        ("去大理城找段正淳", PlayerIntent(action_type=ActionType.MOVE, target_entity="南下", motivation="找段正淳")),
+        # 探索迷雾：初到无量山，大理城叫不出名——照抄原话交给规则驳回（驳回只列方位与「未知区域」），不带此行所为
+        ("去大理城找段正淳", PlayerIntent(action_type=ActionType.MOVE, target_entity="大理城找段正淳")),
+        # 方位：往 + 四方即挪步，向 / 朝须跟着挪步的字；落到这个方位上唯一的那条出路的把手，其后到句末是此行所为
+        ("往南走，找段正淳问个明白", PlayerIntent(action_type=ActionType.MOVE, target_entity="南", motivation="找段正淳问个明白")),
+        ("施展轻功，向南而去", PlayerIntent(action_type=ActionType.MOVE, target_entity="南")),
+        ("顺着藤蔓往下爬", PlayerIntent(action_type=ActionType.MOVE, target_entity="下")),
+        ("一路北上", PlayerIntent(action_type=ActionType.MOVE, target_entity="北")),  # 此地没有往北的路：照写方位交给规则驳回
+        ("向南海鳄神出手", PlayerIntent(action_type=ActionType.ATTACK, target_entity="南海鳄神")),  # 名字里的「南」不是方位
+        ("望着南边出神", PlayerIntent(action_type=ActionType.OBSERVE)),  # 没有挪步的字：只是望
+        # 问路：话题是此地（规则据此把四下的未知去处记作问路得知）；没点名问谁，问人情最好的那位（平手取快照次序）
+        ("向左子穆问路", PlayerIntent(action_type=ActionType.TALK, target_entity="左子穆", topic="无量山")),
+        ("向辛双清打听去处", PlayerIntent(action_type=ActionType.TALK, target_entity="辛双清", topic="无量山")),
+        ("拱手问道：「这条路通向哪里？」", PlayerIntent(action_type=ActionType.TALK, target_entity="南海鳄神", topic="无量山")),
     ],
 )
 async def test_heuristic_parser(text: str, expected: PlayerIntent) -> None:
     _, snap = await scene("loc:无量山")
     assert await HeuristicIntentParser().parse(text, snap) == expected
+
+
+async def test_fog_lifts_once_you_have_been_there() -> None:
+    """去过的地方叫得出名：「去大理城找段正淳」落到南下那条路上并带此行所为；场景词表只给未知去处的方位把手，名字与标签一概不给。"""
+    _, fresh = await scene("loc:无量山")
+    assert "出路（方位把手→去处）：南→未知区域、下→未知区域" in scene_vocabulary(fresh)
+    assert not any(n in scene_names(fresh) for n in ("大理城", "南下", "崖下", "无量玉洞"))  # 迷雾里的去处不是此景之名
+    there = Moved(from_location_id="loc:无量山", to_location_id="loc:大理城", exit_label="南下")
+    back = Moved(from_location_id="loc:大理城", to_location_id="loc:无量山", exit_label="北上")
+    _, known = await scene("loc:无量山", there, back)
+    assert "出路（方位把手→去处）：南（南下）→大理城、下→未知区域" in scene_vocabulary(known)
+    assert {"大理城", "南下"} <= set(scene_names(known))
+    assert await HeuristicIntentParser().parse("去大理城找段正淳", known) == PlayerIntent(
+        action_type=ActionType.MOVE, target_entity="南下", motivation="找段正淳")
+    friend = RelationChanged(character_id="chr:辛双清", attitude=Attitude.FRIENDLY, cause="你替她解围")
+    _, warm = await scene("loc:无量山", friend)
+    assert await HeuristicIntentParser().parse("打听一下前路", warm) == PlayerIntent(
+        action_type=ActionType.TALK, target_entity="辛双清", topic="无量山")  # 没点名：问交情最好的那位
+    _, cave = await scene("loc:无量玉洞")
+    assert (await HeuristicIntentParser().parse("问路", cave)).action_type is not ActionType.TALK  # 四下无人，问不了路
 
 
 async def test_scene_vocabulary_carries_mastery() -> None:
@@ -250,9 +292,9 @@ async def test_rest_is_weighted_by_the_wound() -> None:
     state, snap = await scene("loc:大理城", bruised)
     assert "调息疗伤" not in [o.label for o in OptionGenerator().generate(state, snap)]  # 眼前的事更多，调息让位
     assert "调息疗伤" in every_label(state, snap)  # 只是补位：合法，凑不足时才上
-    state, snap = await scene("loc:无量玉洞", bruised)  # 空无一人的石洞只有两件事可做：调息补上第三席
+    state, snap = await scene("loc:无量玉洞", bruised)  # 空无一人的石洞（出路已挪去导航）只有三件事可做：调息补上一席
     labels = [o.label for o in OptionGenerator().generate(state, snap)]
-    assert labels == ["拾起北冥神功卷轴", "经「攀上」往无量山", "调息疗伤"]
+    assert labels == ["拾起北冥神功卷轴", "调息疗伤", "静观四周"]
     scratched, snap = await scene("loc:大理城", HealthChanged(delta=-5, cause="磕碰"))
     assert scratched.vitality.value == "安然无恙" and "调息疗伤" not in every_label(scratched, snap)
     assert "调息疗伤" not in every_label(*(await scene("loc:大理城")))  # 无伤可疗
@@ -267,29 +309,35 @@ async def test_salience_and_mmr_keep_the_menu_varied() -> None:
     state, snap = await scene("loc:无量山", friend, bruised)
     assert {"拾起玉佩", "调息疗伤", "拜请辛双清传授无量剑法"} <= set(every_label(state, snap))
     options = OptionGenerator().generate(state, snap)
-    assert [o.label for o in options[:2]] == ["拜请辛双清传授无量剑法", "拾起玉佩"]
+    assert options[0].label == "拜请辛双清传授无量剑法"  # 底分最高的机缘居首
     assert len({o.intent.action_type for o in options}) == len(options) == 4  # 四席四种动作
+    assert len({o.tactical_axis for o in options}) == 4  # 尽量铺开四根战术轴：拾起玉佩让位给另一根轴上的招
     assert all(o.category is not OptionCategory.RECOVER for o in options)  # 轻伤的调息不占席
 
 
 async def test_a_way_out_is_always_offered_when_foes_are_present() -> None:
-    """脱身席：仇人在侧，最显著的一条出路排在第一并写明缘由；静观让位；版本号怎么变都是同一条。"""
+    """
+    脱身之路：仇人在侧，导航上恰有一条标为 retreat（rules.retreat 会走的那条），菜单里不再有移动；静观让位；版本号怎么变都是同一份。
+    无仇人在侧，没有一条是脱身之路。
+    """
     grudge = RelationChanged(character_id="chr:龚光杰", attitude=Attitude.HOSTILE, cause="遭你出手相攻")
     friend = RelationChanged(character_id="chr:辛双清", attitude=Attitude.FRIENDLY, cause="你替她解围")
-    menus = set()
+    seen = set()
     for extra in range(4):
         refused = [ActionFailed(action=ActionType.REST, target=None, reason_code="UNSAFE", reason="不得安宁")] * extra
         state, snap = await scene("loc:无量山", grudge, friend, *refused)
-        options = OptionGenerator().generate(state, snap)
-        assert options[0].intent.action_type is ActionType.MOVE and options[0].why == "仇人在侧，先脱身"
-        assert all(o.intent.action_type is not ActionType.OBSERVE for o in options)
-        menus.add(options)
-    assert len(menus) == 1
+        options, ways = OptionGenerator().generate(state, snap), navigation(state, snap)
+        assert all(o.intent.action_type not in (ActionType.MOVE, ActionType.OBSERVE) for o in options)
+        escape = rules.retreat(state, snap)
+        assert escape is not None and [w.direction for w in ways if w.retreat] == [escape.direction]
+        seen.add((options, ways))
+    assert len(seen) == 1
+    calm, snap = await scene("loc:无量山", friend)
+    assert not any(w.retreat for w in navigation(calm, snap))
     hit = SkillExecuted(skill_id=None, target_id="chr:龚光杰", outcome=CombatOutcome.MINOR_WOUND)
-    state, snap = await scene("loc:无量山", hit, grudge)  # 刚与他交手：脱身席之后紧跟着他
+    state, snap = await scene("loc:无量山", hit, grudge)  # 刚与他交手：菜单居首就是他
     options = OptionGenerator().generate(state, snap)
-    assert options[0].why == "仇人在侧，先脱身" and options[1].intent.target_entity == "龚光杰"
-    assert options[1].why == "仇怨未了"
+    assert options[0].intent.target_entity == "龚光杰" and options[0].why == "仇怨未了"
 
 
 async def test_a_heavy_wound_holds_its_seat_against_fresh_acquaintances() -> None:
@@ -309,7 +357,7 @@ async def test_a_heavy_wound_holds_its_seat_against_fresh_acquaintances() -> Non
 
 
 async def test_the_way_out_never_leads_back_to_a_place_you_fled() -> None:
-    """脱身席与 rules._retreat 同理：先走来路，绝不逃回逃离过的险地——那里的仇人不会挪窝（对抗式审查的复现）。"""
+    """导航的脱身之路与 rules.retreat 同理：先走来路，绝不逃回逃离过的险地——那里的仇人不会挪窝（对抗式审查的复现）。"""
     events = [
         SkillExecuted(skill_id=None, target_id="chr:乔峰", outcome=CombatOutcome.SEVERE_WOUND),
         Moved(from_location_id="loc:无锡城", to_location_id="loc:大理城", exit_label="西归", fleeing=True),
@@ -319,13 +367,12 @@ async def test_the_way_out_never_leads_back_to_a_place_you_fled() -> None:
     ]
     state, snap = await scene("loc:无锡城", *events)
     assert state.fled_from == {"loc:无锡城"} and state.came_from == "loc:无量山"
-    options = OptionGenerator().generate(state, snap)
-    assert options[0].intent.target_entity == "北上" and options[0].why == "仇人在侧，先脱身"
-    back = [o for o in options if o.intent.target_entity == "东去"]
-    assert all(o.why == "曾在此遇险" for o in back)  # 列出来也只说实话，不劝你「换个去处」
+    ways = {w.intent.target_entity: w for w in navigation(state, snap)}
+    assert ways["北"].retreat and ways["北"].target == "无量山" and not ways["东"].retreat  # 险地照样列出，只是不标脱身
     state, snap = await scene("loc:无锡城", *events[:2], events[-1])  # 来路就是险地：逃到大理城当场又结了仇
     assert state.came_from == "loc:无锡城" == next(iter(state.fled_from))
-    assert OptionGenerator().generate(state, snap)[0].intent.target_entity == "北上"  # 宁走生路，不沿来路逃回乔峰跟前
+    ways = {w.intent.target_entity: w for w in navigation(state, snap)}
+    assert ways["北"].retreat and ways["北"].target == "未知区域" and not ways["东"].retreat  # 宁走生路（哪怕是未知区域），不沿来路逃回乔峰跟前
 
 
 async def test_focus_goes_stale_once_you_move_on() -> None:
@@ -413,15 +460,17 @@ async def test_a_flight_keeps_the_fight_scene_in_view() -> None:
 async def test_llm_narrator_streams_and_fallback_keeps_facts_visible() -> None:
     _, snap = await scene("loc:无量山")
     request = NarrationRequest(snapshot=snap, facts=("阿星初入江湖。",))
-    chunks = [c async for c in LLMNarrator(ScriptedLLM("山风猎猎，剑光如雪。", chunk=3)).narrate(request)]
+    items = [c async for c in LLMNarrator(ScriptedLLM("山风猎猎，剑光如雪。", chunk=3)).narrate(request)]
+    chunks = [c for c in items if isinstance(c, str)]
     assert len(chunks) > 1 and "".join(chunks) == "山风猎猎，剑光如雪。"
+    assert items[-1] == MenuPicks()  # 流尽后恒交一个 MenuPicks：没写 <menu> 即空，调用方用退路菜单
 
     class Broken(TemplateNarrator):
         async def narrate(self, request: NarrationRequest):  # type: ignore[override]
             yield "半句"
             raise LLMError("断线")
 
-    text = "".join([c async for c in FallbackNarrator(Broken(), TemplateNarrator()).narrate(request)])
+    text = "".join([c async for c in FallbackNarrator(Broken(), TemplateNarrator()).narrate(request) if isinstance(c, str)])
     assert text.startswith("半句") and "天机中断" in text and "阿星初入江湖。" in text
 
 

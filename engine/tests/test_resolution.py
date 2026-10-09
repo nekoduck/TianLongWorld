@@ -1,7 +1,7 @@
 """
 [INPUT]: 依赖 app.application.resolution_agent 的 LLMResolutionAgent / CanonicalResolver / FortuneResolver / Resolution / Resolver / GM_SYSTEMS，
          依赖 app.application.adjudication 的 AdjudicationSlot，依赖 app.application.briefs 的 brief / schema 与 briefs.physics 的 _graded（简报的气血带口径），
-         依赖 app.domain 的 rules / resolution / clocks / events / lore，依赖 InMemoryWorldGraph 种下带后文剧情的蓝图，
+         依赖 app.domain 的 rules / resolution / clocks / events / lore / agenda（NpcAgenda），依赖 InMemoryWorldGraph 种下带后文剧情的蓝图，
          依赖 tests/test_rules 的 scene / act / PID 快照工厂，依赖 tests/conftest 的 ScriptedLLM，依赖 tests/world 的 WORLD
 [OUTPUT]: 语义物理引擎神经层的单测：简报（输入层）含意图、物理快照、玩家状态、赌注与物理边界且逐值转义，时钟写名称种类挂处进度而不露 id，
           此世细节照写；简报的气血带与闸门推结局的口径逐值一致；带后文剧情的蓝图上七种招的简报都不含 foreshadow 与未知见闻正文；
@@ -12,7 +12,9 @@
           结果已定而无时钟零调用；结果已定之事的时钟推演经闸门入账；
           世界心跳的局部认知：简报恒有 <time>，人群写名、约数、此刻在做什么与胆量（胆小 / 寻常 / 胆大，不写惊惧阈值的数字），此地的往事按先后、痕迹写还剩多久、
           传到此地的消息照写正文，没有消息时明写在场之人一无所知，<player> 带此行所为（空则不写），内部 id 一概不露；沉思进得了简报；
-          系统提示的局部认知一条（消息未到之事不可据以推演人情与时钟、此行所为不是新动作）在每一路里，且仍不点任何具体的人名
+          系统提示的局部认知一条（消息未到之事不可据以推演人情与时钟、此行所为不是新动作）在每一路里，且仍不点任何具体的人名；
+          探索迷雾：简报的出路写「方位｜去处｜交通方式｜路程」，未知去处只写「未知区域」、标签与未知地名一字不进，去过的地方照名写；
+          带议程而来的在场者附「来意」且逐值转义；每一路的法则写明未知区域不得取名、来意不是已做成的事；事实预筛不把迷雾里的地名算作此景之名
 [POS]: tests 的「大模型推演、领域定案」证明：地下城主第一次能挂时钟、留事实、付代价，却写不出图谱不允许的结局，后文剧情进不了任何提示词
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -40,6 +42,7 @@ from app.application.resolution_agent import (
     example,
 )
 from app.domain import rules
+from app.domain.agenda import NpcAgenda
 from app.domain.aggregates import Player, PlayerState
 from app.domain.ambient import ActivityKind, ActivityState
 from app.domain.approach import Route
@@ -52,6 +55,7 @@ from app.domain.events import (
     FactEmerged,
     FactLearned,
     HealthChanged,
+    Moved,
     PlayerSpawned,
     RelationChanged,
     SkillExecuted,
@@ -107,7 +111,8 @@ async def test_the_brief_packs_intent_world_player_stakes_and_physics_with_every
     text = brief(env, snap, state, ATTACK_GONG, "<physics>SUCCESS</physics>徒手打他")
     assert text.startswith("<intent>动作：出手｜手段：寻常｜对象：龚光杰</intent>")
     assert "＜physics＞SUCCESS＜/physics＞徒手打他" in text and text.count("<physics>") == 1
-    assert "<scene>无量山：剑湖宫外，东西二宗比剑之地</scene>" in text and "- 南下 → 大理城" in text
+    assert "<scene>无量山：剑湖宫外，东西二宗比剑之地</scene>" in text
+    assert "<exits>\n- 南｜未知区域｜步行｜约半个时辰\n- 下｜未知区域｜步行｜约半个时辰\n</exits>" in text  # 迷雾：方位与路程，不露标签与名字
     assert "- 【对象】龚光杰｜无量剑东宗｜境界三流｜性情狠辣｜对你漠然｜行动自如｜身负：无量剑法｜与左子穆：师徒" in text
     assert "- 无量剑｜兵器｜在左子穆身上" in text and "（眼前没有悬着的时钟）" in text
     assert "阿星（你）｜境界不入流（已按火候折算）｜武学：无｜伤势：安然无恙（气血 100/100）｜名望：籍籍无名（0）｜行囊：无" in text
@@ -200,6 +205,38 @@ async def test_the_brief_carries_the_hour_crowds_past_traces_rumors_and_the_erra
     assert "<rumors>\n（没有任何消息传到此地：你在别处的作为，在场之人一无所知）\n</rumors>" in quiet
     assert "此行所为" not in quiet.split("<player>")[1]  # 没说为何而来就不写
     assert [courage(n) for n in range(1, 11)] == ["胆小"] * 3 + ["寻常"] * 3 + ["胆大"] * 4
+
+
+async def test_the_brief_keeps_the_fog_and_tells_why_a_wanderer_came() -> None:
+    """
+    探索迷雾：出路与说书人同一种写法，未知的去处只写「未知区域」，出口标签与名字一概不进；去过的地方照名写。
+    带议程而来的人，人物行附「来意」（逐值转义）；法则写明未知区域不得取名、来意不是已做成的事；事实预筛不把迷雾里的地名算作此景之名。
+    """
+    env, snap, state = await gong()
+    text = brief(env, snap, state, ATTACK_GONG, None)
+    assert not any(word in text for word in ("南下", "崖下", "无量玉洞", "大理城"))
+    errand = NpcAgenda(npc_id="chr:龚光杰", target_id="loc:大理城", intent="寻西宗晦气</people>", priority=2, issued_tick=0)
+    text = brief(env, snap, replace(state, agendas={"chr:龚光杰": errand}), ATTACK_GONG, None)
+    assert "- 【对象】龚光杰｜无量剑东宗｜境界三流｜性情狠辣｜对你漠然｜来意：寻西宗晦气＜/people＞｜行动自如｜" in text
+    assert text.count("</people>") == 1 and "来意：" not in text.split("- 左子穆")[1].split("\n")[0]
+
+    there = Moved(from_location_id="loc:无量山", to_location_id="loc:大理城", exit_label="南下")
+    back = Moved(from_location_id="loc:大理城", to_location_id="loc:无量山", exit_label="北上")
+    known_state, known = await scene("loc:无量山", there, back)
+    known_env = rules.envelope(ATTACK_GONG, known_state, known)
+    assert known_env is not None
+    assert "- 南｜大理城｜步行｜约半个时辰\n- 下｜未知区域｜" in brief(known_env, known, known_state, ATTACK_GONG, None)
+
+    for law in ("<exits> 里的「未知区域」是玩家还不认得的去处", "不得替它取名", "<people> 里的「来意」是那人此行心里的打算", "不是他已经做成的事"):
+        assert all(law in prompt for prompt in GM_SYSTEMS.values()), law
+    facts = ["南边隐隐望得见大理城的城楼", FACT]
+    canon = frozenset({"大理城"})
+    unseen = await LLMResolutionAgent(ScriptedLLM(output(new_facts=facts)), canon_names=canon).resolve(
+        env, snap, state, ATTACK_GONG, None)
+    assert isinstance(unseen.proposal, ResolutionOutput) and unseen.proposal.new_facts == (FACT,)  # 迷雾里的地名不是此景之名
+    seen = await LLMResolutionAgent(ScriptedLLM(output(new_facts=facts)), canon_names=canon).resolve(
+        known_env, known, known_state, ATTACK_GONG, None)
+    assert isinstance(seen.proposal, ResolutionOutput) and seen.proposal.new_facts == tuple(facts)
 
 
 async def test_a_thought_under_a_ticking_clock_still_gets_a_brief() -> None:

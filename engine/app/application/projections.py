@@ -1,12 +1,15 @@
 """
-[INPUT]: 依赖 domain/ports 的 EventStore / WorldProjector / WorldReader / NarrativeMemory / MemoryRecord，依赖 domain/events 的 EventEnvelope / PlayerSpawned，
+[INPUT]: 依赖 domain/ports 的 EventStore / WorldProjector / WorldReader / NarrativeMemory / MemoryRecord，
+         依赖 domain/events 的 EventEnvelope / PlayerSpawned / FactEmerged / EncounterResolved，
          依赖 application/chronicle 的 describe
-[OUTPUT]: 对外提供 ProjectionCoordinator（publish 投影图谱 / heal 自愈追平 / chronicle 写入长线记忆 / rebuild 从事件流整体重建）
+[OUTPUT]: 对外提供 ProjectionCoordinator（publish 投影图谱 / heal 自愈追平 / chronicle 写入长线记忆 / rebuild 从事件流整体重建）、
+          witnessed()（重建记忆时剔掉别处狭路相逢冒出的细节：局部认知）
 [POS]: application 的投影协调者：事件流是唯一真相，图谱与向量记忆都只是它的两份投影。
        图谱投影是强一致的——下一步的快照与裁决依赖它，所以同步执行，落后则在下一回合开始前用事件流自愈；
        记忆投影是尽力而为的——它只影响叙事的照应，失败只记日志，凭 (玩家, 版本) 幂等主键随时可重放补齐；
        不出声的事件（白描为空串，如服药那条 HealthChanged、零步的时钟推进、零点的名望）不入记忆；
-       时钟与微观事实的事件自带名称与正文，重建时不为 clk: / emg: id 取名
+       时钟与微观事实的事件自带名称与正文，重建时不为 clk: / emg: id 取名；
+       重建同样守住局部认知：玩家没目睹的狭路相逢冒出的细节不入记忆（活的回合由 handlers 按两张快照筛，重建没有快照，按事件的结构筛）
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -14,7 +17,7 @@ import logging
 from collections.abc import Mapping, Sequence
 
 from app.application.chronicle import describe
-from app.domain.events import EventEnvelope, PlayerSpawned
+from app.domain.events import EncounterResolved, EventEnvelope, FactEmerged, PlayerSpawned
 from app.domain.ports import EventStore, MemoryRecord, NarrativeMemory, WorldProjector, WorldReader
 
 logger = logging.getLogger(__name__)
@@ -74,5 +77,20 @@ class ProjectionCoordinator:
             }
         labels = await self._reader.labels(ids)
         name = next((e.event.name for e in history if isinstance(e.event, PlayerSpawned)), player_id)
-        await self.chronicle(player_id, name, history, labels)
+        await self.chronicle(player_id, name, witnessed(history), labels)
         return len(history)
+
+
+def witnessed(history: Sequence[EventEnvelope]) -> list[EventEnvelope]:
+    """
+    重建记忆时守住局部认知（与回合编排的「眼前那一面」同一口径）：别处狭路相逢冒出的细节——紧挨在一条玩家没目睹的
+    EncounterResolved 之前的 FactEmerged——不入记忆；它们挂在人与地上，等玩家走到那里由快照照出来。
+    """
+    keep: list[EventEnvelope] = []
+    for i, envelope in enumerate(history):
+        if isinstance(envelope.event, FactEmerged):
+            nxt = next((e.event for e in history[i + 1:] if not isinstance(e.event, FactEmerged)), None)
+            if isinstance(nxt, EncounterResolved) and not nxt.witnessed:
+                continue
+        keep.append(envelope)
+    return keep

@@ -5,7 +5,7 @@
          依赖 domain/combat 的 CombatProposal，依赖 domain/social / covert 的 SocialStakes / CovertStakes，
          依赖 domain/events 的 ActionFailed / DomainEvent，依赖 domain/intent 的 ActionType / PlayerIntent，依赖 domain/snapshot 的 LocalSnapshot；
          PlayerState 仅作类型标注（避免与 aggregates 成环）
-[OUTPUT]: 对外提供 门面 adjudicate()（合法性：规整 + 指称落地 + 物理/逻辑双重校验）、command()（命令耗时：意图 + time_cost，驳回只花一刻）、stakes()（胜负未定之事的可裁区间：出手 / 交涉 / 暗中三路之一）、
+[OUTPUT]: 对外提供 门面 adjudicate()（合法性：规整 + 指称落地 + 物理/逻辑双重校验）、command()（命令耗时：意图 + time_cost，驳回只花一刻，移动取那条出路的 ExitView.time_cost）、stakes()（胜负未定之事的可裁区间：出手 / 交涉 / 暗中三路之一）、
           envelope()（任一获准之举的物理边界：三路赌注或结果已定之事）、decide()（合法性 + 推演过闸 + 定案 → 事件）、normalized()（按此情此景规整意图）、RULES 注册表，
           并原样转出 Rejection / Approval / Verdict / Rule / resolve / ground / skill_tier / player_tier / best_skill / retreat /
           required_regard / TRUST_RESTORED 与各条 Rule——拆包之前从 app.domain.rules 能导入的一切，拆包之后照样能导入
@@ -18,7 +18,9 @@
        结果已定之事（FIXED）也可以带一份推演：只许动时钟、留事实、折损名望。
        交与暗两路的定案经 parley.settled 落为事件（Parleyed / Maneuvered 及其附带）；险物不论经哪一路到手，都追加一次留一口气的伤。
        每种动作一条 Rule（开闭：新动作 = 新 Rule + 注册一行；新的模糊动作 = 覆写 stakes 钩子），options 生成器复用 adjudicate 过滤出合法行为。
-       驳回入账为 ActionFailed，带上 unlock（怎样才行）、玩家当时的所图与手段、落了地的对象与标的（target_id / subject_id）
+       驳回入账为 ActionFailed，带上 unlock（怎样才行）、玩家当时的所图与手段、落了地的对象与标的（target_id / subject_id）。
+       空间与 NPC 生态：移动按方位把手落地、耗时取那条出路的 time_cost；寻常攀谈的话题落在此地或去处即问路（PlacesLearned）；
+       出手与暗取对此世带伤之人（CharacterView.wounded）境界折一档，交涉不折
 [PROTOCOL]: 变更时更新此头部，然后检查 rules/CLAUDE.md
 """
 
@@ -157,15 +159,17 @@ def envelope(intent: PlayerIntent, state: PlayerState, snap: LocalSnapshot) -> E
 
 def command(intent: PlayerIntent, state: PlayerState, snap: LocalSnapshot) -> Command:
     """
-    裁定一条命令花多少刻（domain/commands 的封闭表）：驳回只花一刻；移动看去处与此地是否同一处所。
+    裁定一条命令花多少刻（domain/commands 的封闭表）：驳回只花一刻；移动取所走那条出路的耗时（ExitView.time_cost：道路注记或 geography 推出的）。
     意图按此情此景规整后装进 Command——世界心跳据 time_cost 走动。
     """
     verdict = adjudicate(intent, state, snap)
     if isinstance(verdict, Rejection):
         return Command(intent=normalized(intent, state, snap), time_cost=time_cost(intent.action_type, approved=False))
-    there = next((e.to_name for e in snap.exits if e.to_id == verdict.target), None)
     action = verdict.intent.action_type
-    return Command(intent=verdict.intent, time_cost=time_cost(action, here=snap.location.name, there=there))
+    if action is ActionType.MOVE:
+        way = next(e for e in snap.exits if e.to_id == verdict.target and e.label == verdict.exit_label)
+        return Command(intent=verdict.intent, time_cost=time_cost(action, way_cost=way.time_cost))
+    return Command(intent=verdict.intent, time_cost=time_cost(action))
 
 
 def _after(route: list[DomainEvent], extras: tuple[DomainEvent, ...]) -> list[DomainEvent]:

@@ -2,6 +2,7 @@
 [INPUT]: 依赖 app.config 的 Settings，依赖 infrastructure/knowledge_extractor 的 load_corpus / LLMKnowledgeExtractor / CachedExtractor / SeedingPipeline，
          依赖 infrastructure/graph_linter 的 GraphHealer / LLMPlacementOracle / lint / heal_brief / ingest_placements / HEALER_SYSTEM，
          依赖 infrastructure/canon_audit 的 Library / audit_export / ingest_audit / canonize_audit / unbacked_audit / one_line 与 lore_gate 的 lore_export / ingest_lore / canonize_lore，
+         依赖 infrastructure/geo_gate 的 geo_export / ingest_geography / canonize_geography / load_geography，
          依赖 infrastructure/cypher 的 compile_blueprint / render_script，依赖 infrastructure/persistence/neo4j_graph 的 Neo4jWorldGraph，
          依赖 infrastructure/llm/factory 的 build_llm 与 budget 的 CallBudget（抽取职责，自愈同用，只在 --use-llm 时装配），依赖 domain/models 的 WorldBlueprint
 [OUTPUT]: 对外提供 命令行入口 main()：`python -m app.seed extract --use-llm [--max-chunks N] [--apply] [--reset] [--allow-partial]`、
@@ -10,16 +11,20 @@
           `python -m app.seed heal [--apply] [--reset] [--retry-null] [--export DIR | --ingest FILE --by NAME | --use-llm]`、
           `python -m app.seed audit [--export DIR [--batch N] [--all] | --ingest FILE --by NAME] [--evidence-version V]`、
           `python -m app.seed lore [--export DIR [--from LOCATION] [--hops N] [--batch N] | --ingest FILE --by NAME] [--evidence-version V]`、
+          `python -m app.seed geo [--export DIR [--from LOCATION] [--batch-pairs N] [--all] | --ingest FILE --by NAME] [--evidence-version V]`、
           `python -m app.seed apply [--reset]` 与 `python -m app.seed script`
 [POS]: World Seeding 的操作面：extract 读 data/source_text 的原著，经大模型抽取、确定性组装，写出 data/world/ 下的
-       blueprint.json（中间表示）、seed.cypher（可交给 cypher-shell 审阅或导入）与 report.txt（丢弃 / 封存 / 孤儿 / 时间线 / 自愈 / 审计 / 掌故明细）——
+       blueprint.json（中间表示）、seed.cypher（可交给 cypher-shell 审阅或导入）与 report.txt（丢弃 / 封存 / 孤儿 / 时间线 / 自愈 / 审计 / 掌故 / 地理明细）——
        有失败块时只写报告、不覆盖已有蓝图（缓存保住已抽的块，排障后重跑即续抽）；
        assemble 只读缓存零费用重新组装（组装器改了规则、或要复现入库的蓝图时用）；
-       extract 与 assemble 组装之后依次自动套用 healing.json 的安放、audit.json 的 T=0 审计、lore.json 的人设、见闻与人群（零费用、确定性），
-       新的推断与撰写只由 heal / audit / lore 经 --export / --ingest 交给子代理——audit 与 lore 根本没有大模型这条路；
+       extract 与 assemble 组装之后依次自动套用 healing.json 的安放、audit.json 的 T=0 审计、lore.json 的人设、见闻与人群、geography.json 的道路与可见性注记（零费用、确定性），
+       新的推断与撰写只由 heal / audit / lore / geo 经 --export / --ingest 交给子代理——audit、lore 与 geo 根本没有大模型这条路；
        heal 为蓝图里下落不明的孤儿物品推断安放：配了真实大模型就问它，离线时只套缓存，export / ingest 让子代理或人工作答（自愈重建蓝图后照缓存补回审计与掌故）；
        audit 出 T=0 审计的分批题面、收作答过闸后写回蓝图（与播种同一个新鲜度判据，只豁免这一批刚重答的人物）；
-       lore 以一地为中心（默认剑湖宫·练武厅走两跳）出人设、见闻与人群的题面、收作答过闸后写回（各命令的回显都点出人群数）；两者不带参数即按缓存重新套用，只换 report.txt 里自己那几节（每条折成一行）；
+       lore 以一地为中心（默认剑湖宫·练武厅走两跳）出人设、见闻与人群的题面、收作答过闸后写回（各命令的回显都点出人群数）；
+       geo 从剑湖宫·练武厅起按广度优先把出口按无向的一对分批出道路题面（缺省每批 40 对，一对两向同批，--all 连缓存里两向已答的也出），另出一批全部地点的可见性题面，
+       收作答过闸后入 geography.json 并写回；三者不带参数即按缓存重新套用，只换 report.txt 里自己那几节（每条折成一行）；
+       套用顺序恒为 自愈 → 审计 → 掌故 → 地理（audit / lore 重建蓝图时同样依次补回后面几段）；
        蓝图带着审计痕迹而审计缓存用不上（缺失、损坏、口径或指纹不符）时，audit 与 heal 拒绝并指路 assemble——免得把审过的描述当原描述；
        有审计缓存时套用顺带读证据库，撞上后文的 T=0 描述在 [审计] 里标 ⚠；
        写回蓝图而不是直接改图——蓝图是正典，Neo4j 只是它的投影（--apply 时经同一个 seeder MERGE 进去）；
@@ -51,6 +56,14 @@ from app.infrastructure.canon_audit import (
     unbacked_audit,
 )
 from app.infrastructure.cypher import compile_blueprint, render_script
+from app.infrastructure.geo_gate import (
+    DEFAULT_BATCH_PAIRS,
+    canonize_geography,
+    geo_export,
+    ingest_geography,
+    load_geography,
+)
+from app.infrastructure.geo_gate import DEFAULT_FROM as GEO_FROM
 from app.infrastructure.graph_linter import (
     HEALER_SYSTEM,
     GraphHealer,
@@ -93,19 +106,24 @@ def _lore_cache(settings: Settings) -> Path:
     return settings.world_dir / "lore.json"
 
 
+def _geography_cache(settings: Settings) -> Path:
+    return settings.world_dir / "geography.json"
+
+
 def _library(settings: Settings, version: str = EVIDENCE_VERSION) -> Library:
     return Library.load(settings.source_text_dir, settings.world_dir / "cache", version, settings.extraction_chunk_chars)
 
 
-def _canonize(settings: Settings, blueprint: WorldBlueprint) -> tuple[WorldBlueprint, list[str], list[str]]:
+def _canonize(settings: Settings, blueprint: WorldBlueprint) -> tuple[WorldBlueprint, dict[str, list[str]]]:
     """
-    自愈之后依次套用审计缓存与掌故缓存（零费用、确定性、从不抛错）：掌故依赖审计定下的 era 与物性，所以在后。
-    有审计缓存时另读证据库，把撞上后文的 T=0 描述标 ⚠。
+    自愈之后依次套用审计、掌故与地理缓存（零费用、确定性、从不抛错）：掌故依赖审计定下的 era 与物性，所以在后；地理只认地点与出口，排在最后。
+    有审计缓存时另读证据库，把撞上后文的 T=0 描述标 ⚠。返回（蓝图, 报告分节 {审计, 掌故, 地理}）。
     """
     cache = _audit_cache(settings)
     audited, audit = canonize_audit(blueprint, cache, lib=_library(settings) if cache.exists() else None)
     lored, lore = canonize_lore(audited, _lore_cache(settings))
-    return lored, audit, lore
+    noted, geo = canonize_geography(lored, _geography_cache(settings))
+    return noted, {"审计": audit, "掌故": lore, "地理": geo}
 
 
 def _refuse_unbacked(settings: Settings, blueprint: WorldBlueprint) -> None:
@@ -178,13 +196,11 @@ async def _seed(
     print(f"读取 {len(documents)} 部原著，共 {len(pipeline.chunks(documents, max_chunks))} 个文本块，开始抽取……")
     result = await pipeline.run(documents, max_chunks=max_chunks)
     healing = await GraphHealer(None, _healing_cache(settings)).heal(result.blueprint)  # 只套缓存：零费用、确定性
-    bp, audited, lored = _canonize(settings, healing.blueprint)
+    bp, sections = _canonize(settings, healing.blueprint)
     report = result.report
     report.healed.extend([*healing.healed, *healing.unresolved])
     settings.world_dir.mkdir(parents=True, exist_ok=True)
-    (settings.world_dir / "report.txt").write_text(
-        _with_sections(report.render(), {"审计": audited, "掌故": lored}), encoding="utf-8"
-    )
+    (settings.world_dir / "report.txt").write_text(_with_sections(report.render(), sections), encoding="utf-8")
     if report.failed_chunks and not allow_partial:
         raise SystemExit(
             f"{len(report.failed_chunks)} 个文本块抽取失败（明细见 report.txt），蓝图未写出、旧蓝图保持原样；"
@@ -193,7 +209,8 @@ async def _seed(
     _write_blueprint(settings, bp)
     print(
         f"蓝图已写出：地点 {len(bp.locations)}、人物 {len(bp.characters)}、武学 {len(bp.martial_arts)}、"
-        f"物品 {len(bp.items)}、关系 {len(bp.relations)}、人设 {len(bp.personas)}、见闻 {len(bp.facts)}、人群 {len(bp.swarms)}；"
+        f"物品 {len(bp.items)}、关系 {len(bp.relations)}、人设 {len(bp.personas)}、见闻 {len(bp.facts)}、人群 {len(bp.swarms)}、"
+        f"道路注记 {len(bp.passages)}、可见性注记 {len(bp.sights)}；"
         f"丢弃 {len(report.dropped)}、封存 {len(report.sealed)}、"
         f"孤儿 {len(report.orphans)}（自愈 {len(healing.placements)}）、时间线隔离 {len(report.timeline)}、"
         f"失败块 {len(report.failed_chunks)}（明细见 report.txt）"
@@ -270,9 +287,9 @@ async def heal(
     result = await GraphHealer(oracle, cache, retry_null=retry_null).heal(blueprint)
     if isinstance(oracle, LLMPlacementOracle) and oracle.halted is not None:
         print(f"自愈模型不可用（{oracle.halted}）：尚无答案的孤儿这次没有问成，改用 heal --export / --ingest 交给子代理")
-    healed, audited, lored = _canonize(settings, result.blueprint)  # 安放改了所在：审计与掌故按缓存重新核验套用（指纹不符即作废）
+    healed, sections = _canonize(settings, result.blueprint)  # 安放改了所在：审计、掌故与地理按缓存重新核验套用（指纹不符即作废）
     _write_blueprint(settings, healed)
-    _rewrite_sections(settings, {"自愈": [*result.healed, *result.unresolved], "审计": audited, "掌故": lored})
+    _rewrite_sections(settings, {"自愈": [*result.healed, *result.unresolved], **sections})
     print(f"自愈完成：生效的安放 {len(result.placements)} 条，仍下落不明 {len(lint(healed))} 件；已写回蓝图与 seed.cypher")
     for line in [*result.healed, *result.unresolved]:
         print(f"  {line}")
@@ -280,9 +297,9 @@ async def heal(
 
 
 # ============================================================
-#  报告分节 —— 组装之后由操作面填入的三节（自愈 / 审计 / 掌故），依序排在「抽取失败」之前
+#  报告分节 —— 组装之后由操作面填入的四节（自愈 / 审计 / 掌故 / 地理），依序排在「抽取失败」之前
 # ============================================================
-_SECTIONS = ("自愈", "审计", "掌故")
+_SECTIONS = ("自愈", "审计", "掌故", "地理")
 
 
 def _with_sections(text: str, sections: Mapping[str, Sequence[str]]) -> str:
@@ -296,14 +313,14 @@ def _with_sections(text: str, sections: Mapping[str, Sequence[str]]) -> str:
 
 
 def _rewrite_sections(settings: Settings, sections: Mapping[str, Sequence[str]]) -> None:
-    """heal / audit / lore 不重新组装：只换 report.txt 里自己那几节。"""
+    """heal / audit / lore / geo 不重新组装：只换 report.txt 里自己那几节。"""
     path = settings.world_dir / "report.txt"
     if path.exists():
         path.write_text(_with_sections(path.read_text(encoding="utf-8"), sections), encoding="utf-8")
 
 
 # ============================================================
-#  T=0 审计与掌故 —— 只有 export / ingest：撰写归 Claude 子代理，这里没有大模型这条路
+#  T=0 审计、掌故与地理 —— 只有 export / ingest：撰写归 Claude 子代理，这里没有大模型这条路
 # ============================================================
 def audit(
     settings: Settings, *, export_dir: Path | None = None, ingest_file: Path | None = None, by: str | None = None,
@@ -339,12 +356,14 @@ def audit(
     if ingest_file is not None:  # 与播种同一个新鲜度判据，只豁免这一批刚重答的人物（蓝图里还是上一版结论的样子）
         bp, audited = canonize_audit(blueprint, cache, keep=keep, lib=lib)
         bp, lored = canonize_lore(bp, _lore_cache(settings))
+        bp, noted = canonize_geography(bp, _geography_cache(settings))
+        sections = {"审计": audited, "掌故": lored, "地理": noted}
     else:
-        bp, audited, lored = _canonize(settings, blueprint)
+        bp, sections = _canonize(settings, blueprint)
     _write_blueprint(settings, bp)
-    _rewrite_sections(settings, {"审计": audited, "掌故": lored})
+    _rewrite_sections(settings, sections)
     print(f"审计已套用并写回蓝图与 seed.cypher；人设 {len(bp.personas)}、见闻 {len(bp.facts)}、人群 {len(bp.swarms)}（掌故依赖审计：改了 era 或物性即整体作废）")
-    for line in [*audited, *lored]:
+    for line in [*sections["审计"], *sections["掌故"]]:
         print(f"  {line}")
     return bp
 
@@ -379,10 +398,50 @@ def lore(
     except ExtractionError as exc:
         raise SystemExit(str(exc)) from exc
     bp, lored = canonize_lore(blueprint, cache)
+    bp, noted = canonize_geography(bp, _geography_cache(settings))  # 地理排在掌故之后：同样按缓存补回
     _write_blueprint(settings, bp)
-    _rewrite_sections(settings, {"掌故": lored})
+    _rewrite_sections(settings, {"掌故": lored, "地理": noted})
     print(f"掌故已套用并写回蓝图与 seed.cypher：人设 {len(bp.personas)}、见闻 {len(bp.facts)}、人群 {len(bp.swarms)}")
     for line in lored:
+        print(f"  {line}")
+    return bp
+
+
+def geo(
+    settings: Settings, *, export_dir: Path | None = None, ingest_file: Path | None = None, by: str | None = None,
+    start: str = GEO_FROM, batch: int = DEFAULT_BATCH_PAIRS, everything: bool = False, version: str = EVIDENCE_VERSION,
+) -> WorldBlueprint:
+    """地理注记：export 出分批题面（道路按无向的一对、可见性全部地点），ingest 过闸后入 geography.json 并写回；不带参数即按缓存重新套用。"""
+    blueprint = _load_blueprint(settings)
+    cache = _geography_cache(settings)
+    try:
+        if export_dir is not None:
+            book, notes = load_geography(cache, blueprint)
+            lib = _library(settings, version)
+            try:
+                files, todo = geo_export(blueprint, lib, book, start=start, batch=batch, everything=everything)
+            except ValueError as exc:
+                raise SystemExit(str(exc)) from exc
+            _write_files(export_dir, files)
+            print(f"已导出 {len(files)} 份地理题面到 {export_dir}：从「{start}」起按广度优先，道路 {len(todo)} 对分 {len(files) - 1} 批"
+                  f"（缓存里已有道路注记 {len(book.passages)} 条，--all 连两向已答的一起出题）、可见性 {len(blueprint.locations)} 地一批：{sorted(files)}")
+            for note in notes:
+                print(f"  {note}")
+            if not lib.chunks:
+                print("  本地没有原著：题面列不出原文块，出处过不了闸门")
+            return blueprint
+        if ingest_file is not None:
+            fresh, notes = ingest_geography(blueprint, ingest_file.read_text(encoding="utf-8"), cache, by or "", _library(settings, version))
+            print(f"已入地理缓存：道路注记 {len(fresh.passages)}、可见性注记 {len(fresh.sights)}（作答者 {by}）")
+            for note in notes:
+                print(f"  {note}")
+    except ExtractionError as exc:
+        raise SystemExit(str(exc)) from exc
+    bp, noted = canonize_geography(blueprint, cache)
+    _write_blueprint(settings, bp)
+    _rewrite_sections(settings, {"地理": noted})
+    print(f"地理已套用并写回蓝图与 seed.cypher：道路注记 {len(bp.passages)}、可见性注记 {len(bp.sights)}")
+    for line in noted[:1]:  # 逐条明细在 report.txt 的 [地理] 分节
         print(f"  {line}")
     return bp
 
@@ -460,9 +519,18 @@ def main(argv: list[str] | None = None) -> None:
     lo.add_argument("--hops", type=int, default=DEFAULT_HOPS, help=f"沿 CONNECTS_TO 走几跳（默认 {DEFAULT_HOPS}）")
     lo.add_argument("--batch", type=int, default=15, help="每份题面至多几人")
     lo.add_argument("--evidence-version", default=EVIDENCE_VERSION, help=f"后文事件与切片取自哪一版抽取缓存（默认 {EVIDENCE_VERSION}）")
+    gg = sub.add_parser("geo", help="地理注记：出路的方位、交通方式与耗时，地标与名胜（经 --export / --ingest 交给子代理；不带参数即按缓存重新套用）")
+    geg = gg.add_mutually_exclusive_group()
+    geg.add_argument("--export", type=Path, default=None, metavar="DIR", help="导出分批题面（道路按无向的一对，另出一批可见性）")
+    geg.add_argument("--ingest", type=Path, default=None, metavar="FILE", help="作答（JSON 数组，容忍围栏）过闸后入 geography.json，并写回蓝图")
+    gg.add_argument("--by", default=None, metavar="NAME", help="--ingest 的作答者署名，如 claude-subagent")
+    gg.add_argument("--from", dest="start", default=GEO_FROM, metavar="LOCATION", help=f"广度优先的起点（默认 {GEO_FROM}）")
+    gg.add_argument("--batch-pairs", type=int, default=DEFAULT_BATCH_PAIRS, help=f"每份道路题面至多几对（默认 {DEFAULT_BATCH_PAIRS}，一对两向同批）")
+    gg.add_argument("--all", action="store_true", help="连缓存里两向都已答的一对也出题")
+    gg.add_argument("--evidence-version", default=EVIDENCE_VERSION, help=f"原文块取自哪一版抽取缓存（默认 {EVIDENCE_VERSION}）")
     sub.add_parser("script", help="由 blueprint.json 重新生成 seed.cypher")
     args = parser.parse_args(argv)
-    if args.command in ("heal", "audit", "lore") and args.ingest is not None and not args.by:
+    if args.command in ("heal", "audit", "lore", "geo") and args.ingest is not None and not args.by:
         parser.error(f"{args.command} --ingest 须以 --by NAME 署名作答者")
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -483,6 +551,10 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "lore":
         lore(settings, export_dir=args.export, ingest_file=args.ingest, by=args.by, start=args.start, hops=args.hops,
              batch=args.batch, version=args.evidence_version)
+        return
+    if args.command == "geo":
+        geo(settings, export_dir=args.export, ingest_file=args.ingest, by=args.by, start=args.start, batch=args.batch_pairs,
+            everything=args.all, version=args.evidence_version)
         return
 
     async def run() -> None:

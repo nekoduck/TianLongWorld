@@ -3,7 +3,7 @@
          依赖 tests/test_option_metrics 的 canon（入库的正典蓝图，含掌故），依赖 application/resolution_agent 的 Resolver / Resolution / 气运种子，依赖 domain 的 ResolutionOutput / envelope 与时钟事件
 [OUTPUT]: CQRS 游戏环路端到端用例：完整的逻辑死线剧情（入门 → 参照典籍练到略有小成 → 制敌夺剑 → 物归原主直升信赖 → 拜师一阳指；驳回入账且花一刻）、
           极端找死的永久死亡、重伤后避开仇人调息疗伤、选项点选与防伪、断线重连即重放、投影自愈、静观只写一条 TimePassed（白描不出声、时辰走一刻）、
-          ruled() 剥去世界心跳（时间、余波与生态）取规则定案的事件——「最后一条」仍是这一招本身的结果、
+          ruled() 剥去世界心跳与 H-Agent（时间、余波、生态、行军与议程）取规则定案的事件——「最后一条」仍是这一招本身的结果、
           叙事失败不影响真相、出界的推演（制住了得手不在区间里的对手）整份作废按确定性裁决结算、在场者的人物行写明恩怨、记忆召回带上焦点与在场者、
           gm() / start() / tick() 写 ResolutionOutput 形状的推演、Reading 地下城主替身；
           语义物理引擎端到端：交涉推演挂上疑心 + 留细节 + 折名望 → 入账、白描、<clocks> / <emerged> 进叙事、快照召回、状态栏亮出暗流与名望 →
@@ -11,7 +11,7 @@
           此地的危机坍缩即受创三十并被迫脱身；点选零次地下城主且气运好过确定性裁决时对象身上补挂代价时钟；
           P1 验收（正典蓝图上 ScriptedLLM 直接给意图 JSON）：交涉路线（言辞求艺 → 地下城主推演、好一格欠下戒心 → 心事线索 → 菜单「换个手段」→ 点选归气运）、
           暗取路线（点选零次地下城主、文本骗貂败露到手即中毒且补挂失主的疑心、人情一栏写明缘由、眼前挂着时钟的结果已定回合请一次）、
-          随身之物（通天草驳回 NO_USE、金创药疗伤且只有一句白描）、每回合至多三次调用、菜单作端倪进 <hooks>、
+          随身之物（通天草驳回 NO_USE、金创药疗伤且只有一句白描）、每回合至多三次调用（still() 关掉议程：这几条只测玩家的三路）、换个手段进可供性目录、
           真实三件套后端上的整局（设置 PG 与 Neo4j 环境变量时；时钟与微观事实经 Neo4j 覆盖层召回，交手的往事、痕迹与消息同样经覆盖层进快照，
           抹去重放后挂在你身上的时钟照样回来、时辰与重建前一致）
 [POS]: tests 的总装验收：经组合根装配的完整引擎，测试与生产走同一条路径
@@ -39,10 +39,15 @@ from app.container import Container, build_container
 from app.domain.events import (
     ActionFailed,
     ActivityStarted,
+    AgendaConcluded,
+    AgendaIssued,
+    AgendaPlanned,
     ClockAdvanced,
     ClockCollapsed,
     ClockStarted,
     DomainEvent,
+    EncounterBegan,
+    EncounterResolved,
     FactEmerged,
     FactTokenSpawned,
     HealthChanged,
@@ -51,6 +56,8 @@ from app.domain.events import (
     ItemPilfered,
     Maneuvered,
     Moved,
+    NpcMoved,
+    NpcWounded,
     Parleyed,
     PlayerDied,
     RelationChanged,
@@ -70,11 +77,19 @@ from tests.conftest import NEO4J_PASSWORD, NEO4J_URI, NEO4J_USER, PG_DSN, Script
 from tests.test_option_metrics import canon
 from tests.world import WORLD
 
-HEARTBEAT = (TimePassed, ActivityStarted, TraceLeft, FactTokenSpawned, RumorSpread, ItemDecayed, ItemPilfered)
+HEARTBEAT = (
+    TimePassed, ActivityStarted, TraceLeft, FactTokenSpawned, RumorSpread, ItemDecayed, ItemPilfered,
+    AgendaPlanned, AgendaIssued, AgendaConcluded, NpcMoved, EncounterBegan, EncounterResolved, NpcWounded,
+)
+
+
+def still(settings: Settings) -> Settings:
+    """关掉宏观议程：正典里有核心 NPC，议程大模型会在第一招时立一轮——P1 的三路验收只测玩家这一侧，H-Agent 另见 test_agents_loop。"""
+    return settings.model_copy(update={"npc_agenda": False})
 
 
 async def ruled(container: Container, pid: str) -> list[DomainEvent]:
-    """事件流里规则定案的那些（剥去世界心跳：时间、余波与生态）——「最后一条」仍是这一招本身的结果。"""
+    """事件流里规则定案的那些（剥去世界心跳与 H-Agent：时间、余波、生态、行军与议程）——「最后一条」仍是这一招本身的结果。"""
     return [e.event for e in await container.store.load(pid) if not isinstance(e.event, HEARTBEAT)]
 
 
@@ -407,13 +422,13 @@ def _foreshadows(bp: WorldBlueprint) -> list[str]:
 async def test_the_social_route_end_to_end(settings: Settings) -> None:
     """
     言辞求艺遇不肯：走交涉，地下城主只在区间（无果 / 碰壁）里推演，Parleyed 入账、开出一条心事线索，好过确定性裁决的那一格欠下戒心；
-    下一份菜单给出没试过的手段（人情，why「换个手段」），并作端倪进 <hooks>；点选它归气运，不请地下城主。
+    下一份菜单给出没试过的手段（人情，why「换个手段」），它也在交给说书人的可供性目录里；点选它归气运，不请地下城主。
     """
     bp = canon()
     learn = _json(action_type="LEARN", target_entity="木婉清", skill_used="晓风拂柳", approach="言辞", aim="求艺")
     verdict = gm(facts=("木婉清的面幕上沾着几点露水",))
     llm = ScriptedLLM("山风猎猎。", learn, verdict, "木婉清不答。", "你又陪了几句好话。")
-    container = await build_container(settings, blueprint=bp, llm=llm)
+    container = await build_container(still(settings), blueprint=bp, llm=llm)
     try:
         pid = await spawned_at(container, "无量山")
         messages, spent, judged = await _turn(container, llm, SubmitText(player_id=pid, text="恳请木婉清传我晓风拂柳"))
@@ -433,7 +448,8 @@ async def test_the_social_route_end_to_end(settings: Settings) -> None:
 
         retry = next(o for o in done.options if o.why == "换个手段")
         assert retry.intent.approach is Approach.FAVOR and retry.intent.skill_used == "晓风拂柳"
-        assert f"<hooks>\n- {retry.label}（换个手段）" in llm.calls[-1][1]  # 菜单先于叙事算好，作端倪交给说书人
+        state, snap = await _state(container, pid)
+        assert retry.id in {o.id for o in container.pipeline.options.catalogue(state, snap)}  # 目录先于叙事算好，交给说书人挑
 
         messages, spent, judged = await _turn(container, llm, ChooseOption(player_id=pid, option_id=retry.id))
         assert (spent, judged) == (1, 0)  # 点选：气运裁决，只花叙事一次
@@ -472,7 +488,7 @@ async def test_the_covert_route_and_what_you_carry(settings: Settings) -> None:
         _json(action_type="TAKE", target_entity="金创药"), "你拾起药瓶。",
         _json(action_type="USE", item_used="金创药"), "药力透入伤处。",
     )
-    container = await build_container(settings, blueprint=bp, llm=llm)
+    container = await build_container(still(settings), blueprint=bp, llm=llm)
     try:
         pid = await spawned_at(container, "剑湖宫")
         opening = (await play(container, ResumePlayer(player_id=pid, quiet=True)))[-1]

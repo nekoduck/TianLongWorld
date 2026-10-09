@@ -133,15 +133,16 @@ async def test_each_role_gets_its_own_model_and_thinking(wire: Any) -> None:
     s = Settings(_env_file=None, llm_provider="gemini", llm_api_key="g", llm_model="flash", llm_thinking="low",  # type: ignore[call-arg]
                  llm_intent_model="flash-lite", llm_intent_thinking="minimal", llm_extraction_model="pro",
                  llm_resolution_thinking="medium")
-    assert list(LLMRole) == [LLMRole.INTENT, LLMRole.NARRATION, LLMRole.EXTRACTION, LLMRole.RESOLUTION]
+    assert list(LLMRole) == [LLMRole.INTENT, LLMRole.NARRATION, LLMRole.EXTRACTION, LLMRole.RESOLUTION, LLMRole.AGENDA]
     for role in LLMRole:
         client = build_llm(s, role)
         assert client is not None
         await client.complete("s", "u")
     urls = [x["url"].rsplit("/", 1)[-1] for x in seen]
     levels = [x["json"]["generationConfig"]["thinkingConfig"]["thinkingLevel"] for x in seen]
-    assert urls == ["flash-lite:generateContent", "flash:generateContent", "pro:generateContent", "flash:generateContent"]
-    assert levels == ["minimal", "low", "low", "medium"]  # 职责专属优先，留空退回缺省档（地下城主只配了思考档位）
+    assert urls == ["flash-lite:generateContent", "flash:generateContent", "pro:generateContent", "flash:generateContent",
+                    "flash:generateContent"]
+    assert levels == ["minimal", "low", "low", "medium", "low"]  # 职责专属优先，留空退回缺省档（地下城主只配了思考档位，议程全留空）
 
 
 async def test_the_call_fuse_blows_before_a_request_leaves(wire: Any) -> None:

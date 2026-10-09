@@ -12,8 +12,8 @@
           言辞讨要、潜行偷取）、重伤逃脱避开去处有仇人的出路、SkillExecuted 记手段、Conversed 记落了地的话题、stakes 门面返回三路赌注之一、
           通用 Proposal 与 CombatProposal 定案一致（别的路线的结局连扣减一并作废）、风险档只看最坏一端；
           语义物理引擎：好过确定性裁决的提议（轻伤代重伤、重伤代毙命）在对象身上记一格旧恨，确定性裁决不欠代价；
-          世界心跳：沉思获准、无事件、无赌注（表外手段退回寻常）；rules.command 的耗时（驳回 1、同一处所内走动 1、换处所 4、LEARN / REST 8、其余 1，
-          意图规整后装进 Command）；MOVE 的 Moved 带此行所为 motivation，夺路而逃的不带
+          世界心跳：沉思获准、无事件、无赌注（表外手段退回寻常）；rules.command 的耗时（驳回 1、移动取那条出路的 ExitView.time_cost、LEARN / REST 8、其余 1，
+          意图规整后装进 Command）；MOVE 的 Moved 带此行所为 motivation，夺路而逃的不带；探索迷雾：问路之后才叫得出名（细节在 test_geography）
 [POS]: tests 的逻辑死线：能力成长、物品获取、人际变化只能由图谱拓扑推导；地下城主只能在领域圈出的区间里挑结局——这里逐条钉死
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -37,6 +37,7 @@ from app.domain.events import (
     ItemConsumed,
     ItemTransferred,
     Moved,
+    PlacesLearned,
     PlayerDied,
     PlayerSpawned,
     RelationChanged,
@@ -137,12 +138,13 @@ async def test_titles_resolve_to_the_true_name() -> None:
 #  移动 / 静观 / 交谈
 # ============================================================
 async def test_move_only_along_connects_to() -> None:
-    state, snap = await scene("loc:无量山")
-    assert decide(act(ActionType.MOVE, target_entity="大理城"), state, snap) == [
+    """只沿出路走（迷雾的细节见 tests/test_geography）：没问过路的大理城叫不出名，问过路才落地。"""
+    told, snap = await scene("loc:无量山", PlacesLearned(location_ids=("loc:大理城",), source_id="chr:左子穆"))
+    assert decide(act(ActionType.MOVE, target_entity="大理城"), told, snap) == [
         Moved(from_location_id="loc:无量山", to_location_id="loc:大理城", exit_label="南下")
     ]
-    failed = failure(decide(act(ActionType.MOVE, target_entity="无锡城"), state, snap))
-    assert failed.reason_code == "NO_PATH" and "南下（大理城）" in failed.reason
+    failed = failure(decide(act(ActionType.MOVE, target_entity="无锡城"), told, snap))
+    assert failed.reason_code == "NO_PATH" and "南（大理城）" in failed.reason and "下（未知区域）" in failed.reason
 
 
 async def test_observe_is_a_pure_query() -> None:
@@ -310,7 +312,7 @@ async def test_weapons_do_not_change_tier_and_unknown_arts_are_refused() -> None
 
 async def test_only_contested_actions_have_stakes() -> None:
     state, snap = await scene("loc:无量山")
-    assert stakes(act(ActionType.MOVE, target_entity="大理城"), state, snap) is None
+    assert stakes(act(ActionType.MOVE, target_entity="南下"), state, snap) is None
     assert stakes(act(ActionType.ATTACK, target_entity="乔峰"), state, snap) is None  # 驳回的举动没有赌注
 
 
@@ -762,20 +764,21 @@ async def test_thinking_is_approved_and_writes_no_event() -> None:
 
 
 async def test_every_command_is_costed_by_the_rules() -> None:
-    """rules.command：驳回只花一刻；同一处所内走动一刻、换处所四刻；修习调息八刻；其余一刻。意图按此情此景规整后装进 Command。"""
+    """rules.command：驳回只花一刻；移动取那条出路的 ExitView.time_cost；修习调息八刻；其余一刻。意图规整后装进 Command。"""
     state, snap = await scene("loc:无量山")
-    palace = ExitView(label="入宫", to_id="loc:无量山·剑湖宫", to_name="无量山·剑湖宫")
-    nested = snap.model_copy(update={"exits": (*snap.exits, palace)})
+    extra = (ExitView(label="入宫", to_id="loc:无量山·剑湖宫", to_name="无量山·剑湖宫", time_cost=1),
+             ExitView(label="渡江", to_id="loc:江南", to_name="江南", time_cost=192))
+    nested = snap.model_copy(update={"exits": (*snap.exits, *extra)})
 
     def cost(intent: PlayerIntent, at: tuple[PlayerState, LocalSnapshot] = (state, nested)) -> int:
         return command(intent, *at).time_cost
 
-    assert cost(act(ActionType.MOVE, target_entity="大理城")) == 4
+    assert cost(act(ActionType.MOVE, target_entity="南下")) == 4  # 内存图谱按 ways 推出：换处所四刻
     assert cost(act(ActionType.MOVE, target_entity="入宫")) == 1  # 无量山 → 无量山·剑湖宫：同一处所之内
-    assert cost(act(ActionType.MOVE, target_entity="无锡城")) == 1  # 无路可走：驳回
-    assert cost(act(ActionType.LEARN, skill_used="六脉神剑")) == 1
-    assert cost(act(ActionType.REST)) == 1  # 无伤可疗：驳回
-    assert cost(act(ActionType.INVALID, reason="飞升成仙")) == 1
+    assert cost(act(ActionType.MOVE, target_entity="渡江")) == 192  # 道路注记的耗时：远行两日
+    for refused in (act(ActionType.MOVE, target_entity="无锡城"), act(ActionType.LEARN, skill_used="六脉神剑"),
+                    act(ActionType.REST), act(ActionType.INVALID, reason="飞升成仙")):  # 无路、无从得知、无伤可疗、天道：驳回
+        assert cost(refused) == 1, refused
     for intent in (act(ActionType.OBSERVE), act(ActionType.THINK), act(ActionType.TALK, target_entity="左子穆"),
                    act(ActionType.ATTACK, target_entity="龚光杰"), act(ActionType.TAKE, target_entity="玉佩")):
         assert cost(intent) == 1, intent
@@ -783,15 +786,14 @@ async def test_every_command_is_costed_by_the_rules() -> None:
     assert cost(act(ActionType.LEARN, skill_used="北冥神功"), cave) == 8
     hurt = await scene("loc:大理城", HealthChanged(delta=-30, cause="磕碰"))
     assert cost(act(ActionType.REST), hurt) == 8
-    sly = command(act(ActionType.THINK, approach=Approach.STEALTH), state, nested)
-    assert sly.intent == act(ActionType.THINK) and sly.time_cost == 1
+    assert command(act(ActionType.THINK, approach=Approach.STEALTH), state, nested).intent == act(ActionType.THINK)
     lost = command(act(ActionType.MOVE, target_entity="无锡城", approach=Approach.FORCE), state, nested)
     assert lost.intent.approach is Approach.PLAIN and lost.time_cost == 1  # 驳回的命令同样是规整过的
 
 
 async def test_a_move_carries_its_motivation_and_a_flight_does_not() -> None:
     state, snap = await scene("loc:无量山")
-    assert decide(act(ActionType.MOVE, target_entity="大理城", motivation="去找段誉问个明白"), state, snap) == [
+    assert decide(act(ActionType.MOVE, target_entity="南下", motivation="去找段誉问个明白"), state, snap) == [
         Moved(from_location_id="loc:无量山", to_location_id="loc:大理城", exit_label="南下", motivation="去找段誉问个明白")
     ]
     fled = decide(act(ActionType.ATTACK, target_entity="龚光杰", motivation="替人出头"), state, snap)

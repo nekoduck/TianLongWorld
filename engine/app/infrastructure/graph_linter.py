@@ -3,7 +3,7 @@
          依赖 infrastructure/knowledge_extractor 的 T0_ANCHOR / escape_markup，依赖 app.errors 的 ExtractionError / LLMError
 [OUTPUT]: 对外提供 HEAL_PROMPT_VERSION、Orphan 与 lint()（被武学获取要求引用却下落不明的物品）、Placement（一条安放：物品 → 持有者 + 理由 + 推断者）、
           HEALER_SYSTEM 自愈铁律、candidate_names()（候选正名，亦即结构化输出的枚举）、candidate_digest()（候选清单指纹）、heal_brief()（孤儿 + 候选清单）、validate_placement()（安放的闸门：只认当前孤儿与候选里精确命中的唯一持有者）、
-          apply_placements()（纯函数：安放写进蓝图，provenance 记为推断，掌故原样带过）、PlacementOracle 抽象与 LLMPlacementOracle（结构化输出 + 重采样，绝不抛错）、
+          apply_placements()（纯函数：安放写进蓝图，provenance 记为推断，掌故与地理注记原样带过）、PlacementOracle 抽象与 LLMPlacementOracle（结构化输出 + 重采样，绝不抛错）、
           load_healing() / save_healing()（data/world/healing.json 自愈缓存）、GraphHealer 与 HealingResult（缓存优先、其余问神谕、写回缓存、套用）、
           heal_export() / ingest_placements()（大模型之外的自愈者——子代理、人工——经同一道闸门入缓存）
 [POS]: infrastructure 的图谱完整性自愈（Healer Agent），播种管道的第四段：组装器宁严勿宽，留下"原著提到却没写在哪"的孤儿物品，
@@ -216,6 +216,7 @@ def _apply(
     blueprint = WorldBlueprint(  # 重新过一遍蓝图闸门：自愈不能让本体不自洽
         locations=bp.locations, characters=bp.characters, martial_arts=bp.martial_arts,
         items=tuple(items), relations=bp.relations, personas=bp.personas, facts=bp.facts, swarms=bp.swarms,  # 安放只添持有者，掌故原样带过
+        passages=bp.passages, sights=bp.sights,  # 地理注记同样原样带过
     )
     return blueprint, applied, lines, rejected
 

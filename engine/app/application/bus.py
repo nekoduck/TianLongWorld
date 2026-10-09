@@ -1,12 +1,16 @@
 """
-[INPUT]: 依赖 pydantic v2 的 BaseModel / Field，依赖 domain/intent 的 PlayerIntent，依赖 application/options 的 ActionOption
-[OUTPUT]: 对外提供 命令 Command / SpawnPlayer / ResumePlayer（quiet 只重新接上、不复述此景）/ SubmitText / ChooseOption、
-          回合消息 SessionOpened / TurnResolved / NarrationDelta / TurnCompleted 与 PlayerStatus（境界 / 伤势 / 武学火候 / 名望皆为语义标签，
+[INPUT]: 依赖 pydantic v2 的 BaseModel / Field，依赖 domain/intent 的 PlayerIntent，依赖 application/options 的 ActionOption，
+         依赖 application/navigation 的 NavigationOption
+[OUTPUT]: 对外提供 命令 Command / SpawnPlayer / ResumePlayer（quiet 只重新接上、不复述此景）/ SubmitText / ChooseOption（option_id 是交互选项或导航项的 id）、
+          回合消息 SessionOpened / TurnResolved / NarrationDelta / TurnCompleted（options 交互选项 3~4 席 + navigation 方位导航，两者分开下发）与 PlayerStatus（境界 / 伤势 / 武学火候 / 名望皆为语义标签，
           另有人情 Bond、心事 Pursuit 两栏与眼前的叙事时钟 ClockInfo，由 application/status 现算；时辰 time「第一日·辰正」取自快照）、
           CommandHandler 抽象、CommandBus（按命令类型分派到处理器，返回回合消息的异步流）
 [POS]: application 的边界契约：命令进、消息流出。presentation 只认识这里的类型，不认识聚合根、图谱与大模型；
        处理器以异步流回传消息，流式叙事因此是协议的一等公民而非事后补丁。新增命令 = 新命令类 + 新处理器 + 注册一行（开闭）。
-       PlayerStatus 只做加法：新栏位一律有缺省值，旧客户端照读；时辰是世界心跳的读数——每条命令都花时间，状态栏据此报时
+       PlayerStatus 只做加法：新栏位一律有缺省值，旧客户端照读；时辰是世界心跳的读数——每条命令都花时间，状态栏据此报时。
+       意图风味封装：TurnCompleted.options 的每一席是 ActionOption（玩家看见 flavor_text，服务端执行 underlying_command），
+       移动从交互选项里剥离为 TurnCompleted.navigation（每条获准的出路一项：方位、去处或「未知区域」、交通方式、耗时、认知、是否脱身之路）；
+       两者的指令都只在服务端，点选只带 id
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -16,6 +20,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.application.navigation import NavigationOption
 from app.application.options import ActionOption
 from app.domain.intent import PlayerIntent
 
@@ -44,7 +49,7 @@ class SubmitText(Command):
 
 class ChooseOption(Command):
     player_id: str
-    option_id: str
+    option_id: str  # 交互选项（ActionOption.id）或导航项（NavigationOption.id，nav- 开头）
 
 
 # ============================================================
@@ -114,9 +119,10 @@ class NarrationDelta(_Message):
 
 class TurnCompleted(_Message):
     narration: str
-    options: tuple[ActionOption, ...]
+    options: tuple[ActionOption, ...]  # 交互选项 3~4 席：说书人挑中并配了风味的，不足由退路菜单补（朴素标签）
     status: PlayerStatus
     game_over: bool
+    navigation: tuple[NavigationOption, ...] = ()  # 方位导航：每条获准的出路一项，死者没有
 
 
 type TurnMessage = SessionOpened | TurnResolved | NarrationDelta | TurnCompleted

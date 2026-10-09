@@ -4,14 +4,16 @@
 [OUTPUT]: 兼容表的单测：整张 (动作, 手段) → 路线表逐格照 PROPOSAL_v2 §3.3 核对（含表外格；THINK 沉思一行是之后添的：寻常 → 定）、TAKE 分地上之物与他人之物两行、
           normalize（表外手段退回寻常、所图不配置空、他人之物以格子写明的所图为准、话题落不了地置空、幂等）、
           所图缺省推断（说了的照说 → 格内隐含 → 威逼或带话题打探 → 敌视戒备化解 → 结交）、
-          rules.normalized 按此情此景落地话题与判定物在谁手
+          rules.normalized 按此情此景落地话题与判定物在谁手；
+          战术维度 axis_of 的封闭表逐格核对（出手恒激化；寻常或言辞的打探、带话题的寻常攀谈、带话题而不写所图的言辞旁观——与所图推断一致；武力激化、计谋 / 潜行 / 借势诡道、言辞 / 人情化解；
+          寻常的攀谈 / 赠物化解；其余旁观）、四根轴都有招落上、轴只看意图的动作 / 手段 / 所图 / 话题而不看措辞与指称、.label 中文
 [POS]: tests 的「招」词汇基线：表是封闭的——改表就改这里的每一格
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
 import pytest
 
-from app.domain.approach import AIMS, MOVES, Route, Row, cell_of, infer_aim, normalize, row_of
+from app.domain.approach import AIMS, MOVES, Route, Row, TacticalAxis, axis_of, cell_of, infer_aim, normalize, row_of
 from app.domain.intent import ActionType, Aim, Approach, PlayerIntent
 from app.domain.models import Attitude
 from app.domain.rules import ground, normalized
@@ -129,3 +131,68 @@ async def test_the_scene_decides_what_grounds_and_who_holds() -> None:
     assert normalized(sword, state, snap).aim is Aim.SEIZE  # 格子写明了所图：偷取即夺物
     jade = act(ActionType.TAKE, target_entity="玉佩", approach=P.STEALTH)
     assert normalized(jade, state, snap).approach is P.PLAIN  # 玉佩在地上：地上之物只有寻常
+
+
+# ============================================================
+#  战术维度 —— 一招落在哪根轴上，由封闭表定，不由措辞定
+# ============================================================
+X = TacticalAxis
+T = ActionType
+
+
+@pytest.mark.parametrize(
+    ("action", "approach", "aim", "topic", "axis"),
+    [
+        (T.ATTACK, P.PLAIN, None, None, X.ESCALATE),
+        (T.ATTACK, P.FORCE, None, None, X.ESCALATE),
+        (T.ATTACK, P.GUILE, None, None, X.ESCALATE),  # 计谋出手也是出手
+        (T.TALK, P.PLAIN, None, None, X.PACIFY),  # 寻常攀谈
+        (T.TALK, P.PLAIN, None, "无量山", X.OBSERVE),  # 带话题的寻常攀谈即打探（问路也在这里）
+        (T.TALK, P.PLAIN, Aim.PROBE, None, X.OBSERVE),
+        (T.TALK, P.WORDS, Aim.PROBE, "辛双清", X.OBSERVE),
+        (T.TALK, P.WORDS, Aim.BEFRIEND, None, X.PACIFY),
+        (T.TALK, P.WORDS, Aim.DEFUSE, None, X.PACIFY),
+        (T.TALK, P.WORDS, None, "辛双清", X.OBSERVE),  # 言辞带话题而不写所图，规则推断为打探（infer_aim），轴与之一致
+        (T.TALK, P.WORDS, Aim.BEFRIEND, "辛双清", X.PACIFY),  # 写明了结交，话题只是由头
+        (T.TALK, P.FAVOR, Aim.BEFRIEND, None, X.PACIFY),
+        (T.TALK, P.FAVOR, Aim.PROBE, None, X.PACIFY),  # 人情打探仍是化解：旁观的打探只认寻常与言辞
+        (T.TALK, P.FORCE, Aim.PROBE, None, X.ESCALATE),  # 威逼打探是激化
+        (T.TALK, P.GUILE, Aim.PROBE, None, X.TRICKERY),  # 套话
+        (T.TALK, P.LEVERAGE, Aim.DEFUSE, None, X.TRICKERY),  # 借势
+        (T.TAKE, P.PLAIN, None, None, X.OBSERVE),
+        (T.TAKE, P.FORCE, Aim.SEIZE, None, X.ESCALATE),
+        (T.TAKE, P.WORDS, Aim.ASK, None, X.PACIFY),
+        (T.TAKE, P.FAVOR, Aim.ASK, None, X.PACIFY),
+        (T.TAKE, P.GUILE, Aim.SEIZE, None, X.TRICKERY),
+        (T.TAKE, P.STEALTH, Aim.SEIZE, None, X.TRICKERY),
+        (T.TAKE, P.LEVERAGE, Aim.ASK, None, X.TRICKERY),
+        (T.GIVE, P.PLAIN, None, None, X.PACIFY),
+        (T.GIVE, P.FAVOR, None, None, X.PACIFY),
+        (T.LEARN, P.PLAIN, None, None, X.OBSERVE),
+        (T.LEARN, P.WORDS, Aim.LEARN, None, X.PACIFY),
+        (T.LEARN, P.FAVOR, Aim.LEARN, None, X.PACIFY),
+        (T.MOVE, P.PLAIN, None, None, X.OBSERVE),
+        (T.OBSERVE, P.PLAIN, None, None, X.OBSERVE),
+        (T.THINK, P.PLAIN, None, None, X.OBSERVE),
+        (T.USE, P.PLAIN, None, None, X.OBSERVE),
+        (T.REST, P.PLAIN, None, None, X.OBSERVE),
+        (T.INVALID, P.PLAIN, None, None, X.OBSERVE),
+    ],
+)
+def test_the_tactical_axis_cell_by_cell(action: ActionType, approach: Approach, aim: Aim | None, topic: str | None,
+                                        axis: TacticalAxis) -> None:
+    intent = PlayerIntent(action_type=action, target_entity="某人", approach=approach, aim=aim, topic=topic)
+    assert axis_of(intent) is axis
+    reworded = intent.model_copy(update={"target_entity": "另一人", "narrative_style": "长啸一声", "motivation": "随口"})
+    assert axis_of(reworded) is axis  # 轴只看动作、手段、所图与话题，不看措辞与指称
+
+
+def test_every_cell_of_the_table_lands_on_one_of_four_axes() -> None:
+    reached = {
+        axis_of(PlayerIntent(action_type=ActionType.TAKE if row in (Row.TAKE_GROUND, Row.TAKE_HELD) else ActionType(row.value),
+                             approach=approach, aim=cell.aim))
+        for row, cells in MOVES.items() for approach, cell in cells.items()
+    }
+    assert reached == set(TacticalAxis)
+    assert [(a.value, a.label) for a in TacticalAxis] == [
+        ("ESCALATE", "激化"), ("TRICKERY", "诡道"), ("PACIFY", "化解"), ("OBSERVE", "旁观")]

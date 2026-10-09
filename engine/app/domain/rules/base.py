@@ -4,7 +4,7 @@
          依赖 domain/snapshot 的 LocalSnapshot / CharacterView / SkillView；PlayerState 仅作类型标注（避免与 aggregates 成环）
 [OUTPUT]: 对外提供 Rejection（驳回：code + reason + unlock 怎样才行 + target_id / subject_id 落了地的对象与标的）/ Approval（获准：指称已落地，route 走哪一路、aim 所图、topic 落了地的话题）/ Verdict、
           resolve()（名称 → 实体的唯一匹配）、ground()（话题 → 实体或见闻 id）、
-          skill_tier() / player_tier() / best_skill()（火候折算后的境界与看家本领）、Rule 抽象（adjudicate / stakes 钩子返回三路赌注之一 / consequences 收三路定案之一）、
+          skill_tier() / player_tier() / best_skill()（火候折算后的境界与看家本领）、fighting_tier()（在场者带伤折一档后的境界：出手与暗取用）、Rule 抽象（adjudicate / stakes 钩子返回三路赌注之一 / consequences 收三路定案之一）、
           present()（指称落到在场之人）、menace()（在场、敌视且行动自如的仇人）、names() / listed() 渲染助手
 [POS]: rules 包的地基：各条 Rule 共用的裁决结果、名称落地、境界折算与"仇人在侧"的判据。纯函数，不做 IO、不调大模型、不看时钟。
        人情只比 rank：仇人只认敌视（戒备不是仇人）
@@ -116,6 +116,14 @@ def skill_tier(view: SkillView, state: PlayerState) -> Tier:
 def player_tier(state: PlayerState, snap: LocalSnapshot) -> Tier:
     tiers = [skill_tier(view, state) for view in snap.skills if view.id in state.skills]
     return max(tiers, key=lambda t: t.rank, default=Tier.NONE)
+
+
+_TIERS = tuple(Tier)
+
+
+def fighting_tier(view: CharacterView) -> Tier:
+    """在场者交手、被暗取时拿得出的境界：此世带伤（CharacterView.wounded）折一档，不入流无可再折。交涉不看它——说话不必运功。"""
+    return _TIERS[max(0, view.tier.rank - 1)] if view.wounded else view.tier
 
 
 def best_skill(state: PlayerState, snap: LocalSnapshot) -> SkillView | None:

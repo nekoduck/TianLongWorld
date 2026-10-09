@@ -6,7 +6,8 @@
 [POS]: options 包的预览：选项露给玩家的两样东西——为什么上榜、最坏能坏到哪一步——都只由 (状态, 快照) 决定，绝不泄露结局。
        why 的先后：物归原主 → 心事线索（「换个手段」：已试过别的手段；「心事未了」）→ 人情与焦点（仇怨未了 / 与你有交情 / 方才 / 先前打过交道 /
        典籍在手 / 新近经手之物）→ 这一类举动本身的理由（P0 原句保留；P1 的新招各有一句：可结善缘、嫌隙或可化解、他或知内情、有势可借、
-       不妨开口相求、可暗中下手、强取亦是一途、恳求或能打动、伤药在身）。席位的缘由（伤重宜调息、仇人在侧，先脱身）由 slate 盖在上面。
+       不妨开口相求、可暗中下手、强取亦是一途、恳求或能打动、伤药在身；问路是「前路未明」）。席位的缘由（伤重宜调息）由 slate 盖在上面；
+       出路的缘由随移动归导航而去（导航只标 retreat：仇人在侧时 rules.retreat 会走的那条）。
        risk = risk_of(rules.stakes(意图))：只看可裁区间最坏的一端，确定之事没有赌注即稳妥
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -66,14 +67,12 @@ def _kind(s: Scored, state: PlayerState, snap: LocalSnapshot, foes: set[str]) ->
             return "伤重宜调息" if state.vitality.rank >= Vitality.WOUNDED.rank else "略作调养"
         case ActionType.USE:
             return "伤药在身"
-        case ActionType.MOVE if ok.target in state.fled_from:
-            return "曾在此遇险"
-        case ActionType.MOVE:
-            return "原路折返" if ok.target == state.came_from else "换个去处"
         case ActionType.ATTACK:
             return "仇人当面" if ok.target in foes else "以武相见"
         case ActionType.TALK if approach is Approach.LEVERAGE:
             return "有势可借"
+        case ActionType.TALK if approach is Approach.PLAIN and s.option.intent.topic == snap.location.name:
+            return "前路未明"  # 问路：话题是此地
         case ActionType.TALK if ok.route is Route.SOCIAL and ok.aim in _TALK_WHY:
             return _TALK_WHY[ok.aim]
         case ActionType.TALK:

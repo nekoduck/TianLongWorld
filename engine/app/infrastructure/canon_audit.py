@@ -7,7 +7,7 @@
           later_conflicts()（与后文冲突的判据，掌故同用）、parse_json()、resolve()、
           作答契约 RelationAnswer / CharacterAnswer / ItemAnswer / Evidence 与缓存条目 RelationVerdict / CharacterVerdict / ItemVerdict / AuditBook、
           AUDIT_SYSTEM 审计铁律、audit_export()（分批题面）、ingest_audit()（闸门：有一条不合格整批拒收）、apply_audit()（纯函数，重过蓝图闸门）、
-          audit_fingerprint() / load_audit() / save_audit()（data/world/audit.json）、current()（人物结论的新鲜度）、
+          apply_audit 原样带过掌故与地理注记，audit_fingerprint() / load_audit() / save_audit()（data/world/audit.json）、current()（人物结论的新鲜度）、
           audit_traces() / unbacked_audit()（已审的蓝图没有可用缓存即拒绝再审）、canonize_audit()（播种时自动套用缓存）、audit_lines()（报告的 [审计] 分节）
 [POS]: infrastructure 的 T=0 审计：抽取员守住了状态字段的时间锚点，却守不住关系与描述——「干光豪—段誉 仇敌」源自第二回，
        「容子矩」开篇其实在厅外、后来才撞进来。审计逐条定下关系结于何时（era）、把人物描述拆成 T=0 描述与后文剧情（foreshadow，只供离线审阅）、
@@ -519,7 +519,7 @@ def _misses(bp: WorldBlueprint, book: AuditBook) -> list[str]:
 
 
 def apply_audit(bp: WorldBlueprint, book: AuditBook) -> WorldBlueprint:
-    """纯函数：关系定 era，人物换上 T=0 描述与后文剧情、arrives_with，物品定物性。结论落不到蓝图上或新蓝图不自洽即抛 ValueError。"""
+    """纯函数：关系定 era，人物换上 T=0 描述与后文剧情、arrives_with，物品定物性（掌故与地理注记原样带过）。结论落不到蓝图上或新蓝图不自洽即抛 ValueError。"""
     if misses := _misses(bp, book):
         raise ValueError("审计结论落不到这份蓝图上：" + "、".join(misses))
     eras = {v.key: v.era for v in book.relations}
@@ -543,7 +543,7 @@ def apply_audit(bp: WorldBlueprint, book: AuditBook) -> WorldBlueprint:
     )
     return WorldBlueprint(
         locations=bp.locations, characters=characters, martial_arts=bp.martial_arts, items=items,
-        relations=relations, personas=bp.personas, facts=bp.facts, swarms=bp.swarms,
+        relations=relations, personas=bp.personas, facts=bp.facts, swarms=bp.swarms, passages=bp.passages, sights=bp.sights,
     )
 
 

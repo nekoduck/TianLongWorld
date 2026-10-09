@@ -2,12 +2,15 @@
  * [INPUT]: 无（与 engine/app/presentation/protocol.py 的帧、engine/app/application/bus.py 的 PlayerStatus 逐字段镜像）
  * [OUTPUT]: 对外提供 客户端帧 SpawnFrame / ResumeFrame / ActFrame / ChooseFrame / ClientFrame，
  *           服务端帧 SessionFrame / TurnResolvedFrame / NarrationDeltaFrame / TurnCompletedFrame / ErrorFrame / ServerFrame，
- *           以及 EngineActionType、Approach、Aim、EngineIntent、Risk、EngineOption、Bond、Pursuit、ClockKind、ClockInfo、PlayerStatus
+ *           以及 EngineActionType、Approach、Aim、EngineIntent、Risk、TacticalAxis、EngineOption、Direction、TravelMethod、Discovery、
+ *           NavigationOption、Bond、Pursuit、ClockKind、ClockInfo、PlayerStatus
  * [POS]: frontend 的 engine 线协议类型，与 types.ts（backend 协议）并列；只被 api/ws.ts 与 hooks/useEngineGame.ts 引用。
  *        ResumeFrame.quiet 为真即悄悄续局：只回 session 与叙事为空的终帧，零大模型。
  *        P1 加法一律可缺省（旧 engine 不下发）：intent 的手段 / 所图 / 话题、option.risk、status 的人情 bonds 与心事 pursuits；
  *        语义物理引擎的加法同样可缺省：status 的眼前暗流 clocks（id 与挂处不下发）与名望 renown（语义标签）；
- *        世界心跳的加法同样可缺省：动作 THINK（沉思）、intent 的此行所为 motivation、status 的时辰 time（「第一日·辰正」）
+ *        世界心跳的加法同样可缺省：动作 THINK（沉思）、intent 的此行所为 motivation、status 的时辰 time（「第一日·辰正」）；
+ *        意图风味封装：选项下发 flavor_text（玩家看见的那句）与 tactical_axis（战术维度），朴素标签 label 不再下发；
+ *        空间迷雾：turn_completed 另带 navigation（方位导航，与选项分开；去处未知即「未知区域」），点导航项同样只发 choose{option_id}
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md；字段变化必须与 engine 的 protocol.py / bus.py 同步
  */
 
@@ -86,16 +89,48 @@ export interface EngineIntent {
 /** 风险档：只看可裁区间最坏的一端，不露结局 */
 export type Risk = '稳妥' | '有险' | '凶险'
 
-/** application/options.ActionOption 的下发子集：意图留在服务端，前端只能点选 id */
+/** domain/approach.TacticalAxis：战术维度（激化 / 诡道 / 化解 / 旁观），值即英文键 */
+export type TacticalAxis = 'ESCALATE' | 'TRICKERY' | 'PACIFY' | 'OBSERVE'
+
+/** application/options.ActionOption 的下发子集：朴素标签与标准指令留在服务端，前端只能点选 id */
 export interface EngineOption {
   id: string
-  label: string
+  /** 玩家看见的那句：说书人配的武侠风味，没配或不合格时是确定性的朴素标签 */
+  flavor_text: string
+  /** 战术维度：前端渲染成徽记 */
+  tactical_axis: TacticalAxis
   /** 战斗 / 交涉 / 探索 / 修习 / 取物 / 休养 */
   category: string
   /** 为何在菜单上：≤12 字的确定性短语（P0 起下发） */
   why?: string
   /** 风险档：只露区间最坏的一端（P1 起下发） */
   risk?: Risk
+}
+
+/** domain/geography.Direction：出路的方位（导航按此次序排） */
+export type Direction = '东' | '南' | '西' | '北' | '东北' | '东南' | '西北' | '西南' | '上' | '下' | '内部' | '外部' | '不明'
+
+/** domain/geography.TravelMethod：交通方式 */
+export type TravelMethod = '步行' | '骑马' | '乘船' | '攀援' | '轻功' | '坠落'
+
+/** domain/geography.DiscoveryStatus：玩家对去处的认知（亲历 > 问路 > 远眺 > 名胜；未知即「未知区域」） */
+export type Discovery = '亲历' | '问路' | '远眺' | '名胜' | '未知'
+
+/** application/navigation.NavigationOption 的下发子集：MOVE 指令留在服务端，点的也只是 id */
+export interface NavigationOption {
+  /** nav- 开头 */
+  id: string
+  direction: Direction
+  /** 去处：认得即其名，否则「未知区域」 */
+  target: string
+  travel_method: TravelMethod
+  /** 耗时：刻（一刻十五分钟） */
+  time_cost: number
+  /** 「一刻」「约一个时辰」「约两日」 */
+  time_label: string
+  discovery: Discovery
+  /** 仇人在侧时的脱身之路 */
+  retreat: boolean
 }
 
 /** 人情：对玩家态度不是漠然的人（在场者优先，至多 6 条） */
@@ -180,7 +215,10 @@ export interface NarrationDeltaFrame {
 export interface TurnCompletedFrame {
   type: 'turn_completed'
   narration: string
+  /** 交互选项 3~4 席（移动不在其中） */
   options: EngineOption[]
+  /** 方位导航：每条获准的出路一项；死者为空（空间迷雾起下发，缺省视同无路） */
+  navigation?: NavigationOption[]
   status: PlayerStatus
   game_over: boolean
 }

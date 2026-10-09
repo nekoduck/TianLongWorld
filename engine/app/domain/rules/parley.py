@@ -1,5 +1,5 @@
 """
-[INPUT]: 依赖 rules/base 的 Approval / player_tier，依赖 domain/social 的 assess_social / SocialStakes / SocialRuling / effects / LEARN_DIFFICULTY / CAP，
+[INPUT]: 依赖 rules/base 的 Approval / player_tier / fighting_tier，依赖 domain/social 的 assess_social / SocialStakes / SocialRuling / effects / LEARN_DIFFICULTY / CAP，
          依赖 domain/covert 的 assess_covert / CovertStakes / CovertRuling / effects，依赖 domain/threads 的 pursuing，
          依赖 domain/events 的 DomainEvent，依赖 domain/intent 的 Aim / Approach，依赖 domain/models 的 Attitude / Era / RelationKind / Tier，
          依赖 domain/snapshot 的 LocalSnapshot / CharacterView / FactView；PlayerState 仅作类型标注
@@ -11,7 +11,8 @@
        言辞 / 人情 = 已知的 MOTIVE 见闻（知其所好）；威逼 = 已知的 LEVERAGE 见闻（把柄）；套话没有筹码。
        见闻只认快照里的：筹码只取 known=True 者（玩家已知，图谱把主体或 unlock 目标在场的已知见闻带进快照——从甲处听来的把柄，
        甲不在场照样能用在乙身上）；打探只取 known=False 且此人正是知情人者（他就站在你面前）、unlock 的目标落得了地（在名称表里）；
-       有话题则只取牵涉话题的那几条；按 id 取第一条
+       有话题则只取牵涉话题的那几条；按 id 取第一条。
+       带伤（CharacterView.wounded）只折暗取的失主境界，交涉不折——威逼看的是名头与气势，不是此刻能不能运功
 [PROTOCOL]: 变更时更新此头部，然后检查 rules/CLAUDE.md
 """
 
@@ -23,7 +24,7 @@ from app.domain import covert, social
 from app.domain.events import DomainEvent
 from app.domain.intent import Aim, Approach
 from app.domain.models import Attitude, Era, RelationKind, Tier
-from app.domain.rules.base import Approval, player_tier
+from app.domain.rules.base import Approval, fighting_tier, player_tier
 from app.domain.snapshot import CharacterView, FactView, LocalSnapshot, SkillView
 from app.domain.threads import pursuing
 
@@ -113,13 +114,13 @@ def parley(ok: Approval, state: PlayerState, snap: LocalSnapshot) -> social.Soci
 
 
 def filch(ok: Approval, state: PlayerState, snap: LocalSnapshot) -> covert.CovertStakes:
-    """获准的暗中取物 → 可裁区间。ok.source 是失主，ok.item 是那件东西。"""
+    """获准的暗中取物 → 可裁区间。ok.source 是失主，ok.item 是那件东西；失主此世带伤即境界折一档（耳目不灵）。"""
     assert ok.source and ok.item
     holder = snap.character(ok.source)
     assert holder is not None
     return covert.assess_covert(
         target_id=holder.id, item_id=ok.item, approach=ok.intent.approach, attitude=holder.attitude,
-        player=player_tier(state, snap), holder=holder.tier, subdued=holder.subdued,
+        player=player_tier(state, snap), holder=fighting_tier(holder), subdued=holder.subdued,
     )
 
 

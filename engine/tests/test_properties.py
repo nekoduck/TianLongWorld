@@ -1,5 +1,5 @@
 """
-[INPUT]: 依赖 app.domain.rules 的 decide / stakes / normalized / command，依赖 app.domain.commands 的 REFUSED_COST，依赖 app.domain.stakes 的 Proposal / settle_any / route_of，
+[INPUT]: 依赖 app.domain.rules 的 decide / stakes / normalized / command / resolve（与 rules.base 的 names），依赖 app.domain.commands 的 REFUSED_COST，依赖 app.domain.stakes 的 Proposal / settle_any / route_of，
          依赖 app.domain.combat / social / covert 的三路赌注，依赖 app.domain.aggregates 的 Player，依赖 InMemoryWorldGraph，依赖 tests/world 的 WORLD
 [OUTPUT]: 裁决的性质测试：200 条随机意图序列（随机动作 × 手段 × 所图 × 指称 × 话题 × 随机提议，含别的路线的结局与离谱的扣减，
           以及随机的推演 ResolutionOutput：随机量级、属性键（含落不了地的名字）、时钟指令（含眼前没有的挂处与时钟）、事实（含夹带状态字眼的）、路由）
@@ -8,7 +8,9 @@
           暗取差了两境以上只有失手、东西绝不到手；威逼从不图结交 / 化解 / 求艺，这三种所图如愿时对方的人情不降（旁人的人情可作等价交换的代价降一档）；交涉与暗中永不产出 PlayerDied、永不伤人，
           也永不把人推上信赖（交涉的气血只可能来自危机时钟坍缩，暗取的代价至多 20 点）；没有赌注的举动不产出 Parleyed / Maneuvered / SkillExecuted；
           名望每回合的闸门涨落在 [−20, +5] 且只有得手类结局才涨、折叠后钳在 ±100；时钟从不满格悬着，总数与每个挂处都不超上限；
-          世界心跳：随机意图含 THINK（沉思与静观同为确定之事），每一招的 rules.command 都花时间（≥1 刻，驳回恰一刻）且装的是规整过的意图
+          世界心跳：随机意图含 THINK（沉思与静观同为确定之事），每一招的 rules.command 都花时间（≥1 刻，驳回恰一刻）且装的是规整过的意图；
+          空间与迷雾：去向随机取标签、方位把手与去处真名（含未知的），获准的移动恰落在 exit_names 认得出的那条出路上且耗时即其 time_cost，
+          驳回的理由不露未知去处的标签与真名；问路（话题随机取此地与去处之名）只出在寻常攀谈里，得知的都是此地相邻、此前还不认得的去处，指路人即交谈对象
 [POS]: tests 的不变量网：单测钉的是例子，这里钉的是「无论大模型提议什么、玩家怎么出招」都成立的东西
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -33,7 +35,9 @@ from app.domain.events import (
     HealthChanged,
     ItemTransferred,
     Maneuvered,
+    Moved,
     Parleyed,
+    PlacesLearned,
     PlayerDied,
     PlayerSpawned,
     RelationChanged,
@@ -55,7 +59,8 @@ from app.domain.resolution import (
     delta_keys,
     settle,
 )
-from app.domain.rules import TRUST_RESTORED, command, decide, envelope, normalized, stakes
+from app.domain.rules import TRUST_RESTORED, command, decide, envelope, normalized, resolve, stakes
+from app.domain.rules.base import names
 from app.domain.snapshot import LocalSnapshot
 from app.domain.social import SocialStakes
 from app.domain.stakes import Proposal, settle_any
@@ -84,7 +89,8 @@ def _intent(rng: random.Random, snap: LocalSnapshot) -> PlayerIntent:
     things = [i.name for i in snap.items] or _JUNK
     pack = [i.name for i in snap.inventory] or _JUNK
     arts = [s.name for s in snap.skills] or _JUNK
-    roads = [e.label for e in snap.exits] or _JUNK
+    roads = [n for e in snap.exits for n in (e.label, snap.handle(e), e.to_name)] or _JUNK  # 连未知去处的真名也试：迷雾须守住
+    places = [snap.location.name, *(e.to_name for e in snap.exits)]
     pool = {ActionType.TALK: people, ActionType.ATTACK: people, ActionType.GIVE: people, ActionType.TAKE: things,
             ActionType.MOVE: roads, ActionType.LEARN: arts, ActionType.USE: pack}
 
@@ -99,7 +105,7 @@ def _intent(rng: random.Random, snap: LocalSnapshot) -> PlayerIntent:
         item_used=pick(pack) if action in (ActionType.GIVE, ActionType.ATTACK) and rng.random() < 0.6 else None,
         skill_used=pick(arts) if action in (ActionType.ATTACK, ActionType.LEARN) and rng.random() < 0.5 else None,
         approach=rng.choice(list(Approach)), aim=rng.choice([None, None, *Aim]),
-        topic=pick([*people, *things, *arts]) if rng.random() < 0.3 else None,
+        topic=pick([*people, *things, *arts, *places]) if rng.random() < 0.3 else None,
         reason="不合天道" if action is ActionType.INVALID else None,
     )
 
@@ -160,6 +166,7 @@ async def test_two_hundred_random_sequences_keep_every_rail() -> None:
     await graph.seed(WORLD)
     spawns = sorted(loc.id for loc in WORLD.locations)
     seen_routes: set[str] = set()
+    asked_the_way = 0
     for seq in range(SEQUENCES):
         rng = random.Random(seq)
         pid = f"ply:prop{seq}"
@@ -197,6 +204,23 @@ async def test_two_hundred_random_sequences_keep_every_rail() -> None:
             refused = len(events) == 1 and isinstance(events[0], ActionFailed)
             assert cmd.time_cost >= 1 and cmd.intent == plain and (not refused or cmd.time_cost == REFUSED_COST), label
 
+            # 空间与迷雾：移动只落在 exit_names 认得出的那条出路上、耗时即那条出路的耗时；驳回不露未知去处的标签与真名；
+            # 问路只出在寻常攀谈里，得知的都是此地相邻、此前还不认得的去处，指路人即交谈对象
+            fog = [e for e in snap.exits if not e.known]
+            if plain.action_type is ActionType.MOVE and events and isinstance(events[0], Moved) and not events[0].fleeing:
+                way = resolve(plain.target_entity, snap.exits, snap.exit_names)
+                assert way is not None and way.to_id == events[0].to_location_id and cmd.time_cost == way.time_cost, label
+            if refused and plain.action_type is ActionType.MOVE and isinstance(events[0], ActionFailed):
+                told = events[0].reason.replace(f"「{plain.target_entity}」", "")
+                assert not any(e.to_name in told or e.label in told for e in fog), label
+            for e in events:
+                if isinstance(e, PlacesLearned):
+                    asked_the_way += 1
+                    known = state.visited | state.heard | {x.to_id for x in snap.exits if x.known}
+                    assert plain.action_type is ActionType.TALK and plain.approach is Approach.PLAIN, label
+                    assert set(e.location_ids) <= {x.to_id for x in snap.exits} | {snap.location.id}, label
+                    assert not set(e.location_ids) & known and list(e.location_ids) == sorted(set(e.location_ids)), label
+                    assert e.source_id == resolve(plain.target_entity, snap.characters, names).id, label  # type: ignore[union-attr]
             # 确定之事没有赌注
             if plain.action_type in _FIXED_ACTIONS or (plain.action_type in _PLAIN_FIXED and plain.approach is Approach.PLAIN):
                 assert at_stake is None, label
@@ -258,3 +282,4 @@ async def test_two_hundred_random_sequences_keep_every_rail() -> None:
                 assert CombatOutcome.DEATH in at_stake.admissible, label
             history = events
     assert seen_routes == {"Stakes", "SocialStakes", "CovertStakes", "推演", "坍缩"}  # 三路、推演与坍缩都真的走到了
+    assert asked_the_way > 0  # 问路也真的走到了

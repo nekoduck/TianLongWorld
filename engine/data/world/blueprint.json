@@ -5839,5 +5839,2935 @@
         "chunk:1"
       ]
     }
+  ],
+  "passages": [
+    {
+      "from_id": "loc:万劫谷",
+      "to_id": "loc:万劫谷·后森林",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "古木林在谷后深处，须绕斜坡走上一阵",
+      "sources": [
+        "chunk:34"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷",
+      "to_id": "loc:万劫谷·地道",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "树洞下的暗道，揭开木板即入",
+      "sources": [
+        "chunk:9"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷",
+      "to_id": "loc:万劫谷·大厅",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "待客厅堂就在谷中",
+      "sources": [
+        "chunk:35"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷",
+      "to_id": "loc:万劫谷·正屋",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "谷主正屋就在谷中",
+      "sources": [
+        "chunk:31"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷",
+      "to_id": "loc:万劫谷·瓦屋小厅",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "穿过树林沿小径到瓦屋待客厅",
+      "sources": [
+        "chunk:6"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷",
+      "to_id": "loc:万劫谷·石屋",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "石屋藏在谷后树墙之后",
+      "sources": [
+        "chunk:34"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷",
+      "to_id": "loc:万劫谷·草地",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "暗道出口外的一片草地，同在谷中",
+      "sources": [
+        "chunk:6"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷",
+      "to_id": "loc:万劫谷·藏药室",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "藏药室是谷主居室的后间",
+      "sources": [
+        "chunk:34"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷",
+      "to_id": "loc:万劫谷·谷口",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "谷口是谷外的松林，由暗道出谷方到",
+      "sources": [
+        "chunk:6"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷",
+      "to_id": "loc:万劫谷·谷口树林",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "谷口外的树林隶属此谷，由谷中走出即到",
+      "sources": [
+        "chunk:31"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷",
+      "to_id": "loc:万劫谷·钟万仇家里",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "谷主宅院就在谷中",
+      "sources": [
+        "chunk:17"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷",
+      "to_id": "loc:万劫谷·钟夫人卧室",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "钟家堂屋东边的厢房",
+      "sources": [
+        "chunk:6",
+        "chunk:7"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷",
+      "to_id": "loc:北庄",
+      "direction": "北",
+      "travel_method": "步行",
+      "time_cost": 8,
+      "basis": "庄名为北，家仆出谷往北迎客，约一个时辰",
+      "sources": [
+        "chunk:7"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷",
+      "to_id": "loc:善人渡",
+      "direction": "东",
+      "travel_method": "步行",
+      "time_cost": 8,
+      "basis": "铁索桥渡口在谷东，约大半个时辰的路",
+      "sources": [
+        "chunk:6",
+        "chunk:31"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷",
+      "to_id": "loc:大理",
+      "direction": "北",
+      "travel_method": "步行",
+      "time_cost": 48,
+      "basis": "出谷向北便是上大理的大路，步行约半日",
+      "sources": [
+        "chunk:9",
+        "chunk:31"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷",
+      "to_id": "loc:无量山",
+      "direction": "东",
+      "travel_method": "步行",
+      "time_cost": 32,
+      "basis": "由谷中东行过江，回到无量山",
+      "sources": [
+        "chunk:9",
+        "chunk:31"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷",
+      "to_id": "loc:澜沧江畔",
+      "direction": "东",
+      "travel_method": "步行",
+      "time_cost": 16,
+      "basis": "谷在澜沧江西岸，向东翻山方到江边",
+      "sources": [
+        "chunk:6",
+        "chunk:10"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷",
+      "to_id": "loc:镇南王府",
+      "direction": "北",
+      "travel_method": "骑马",
+      "time_cost": 22,
+      "basis": "谷在大理之南，段氏一行事后策马径回王府",
+      "sources": [
+        "chunk:31",
+        "chunk:36"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·后森林",
+      "to_id": "loc:万劫谷",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "出林回到谷中",
+      "sources": [
+        "chunk:34"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·后森林",
+      "to_id": "loc:万劫谷·后森林地道",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "暗道由林中掘入，长数十丈",
+      "sources": [
+        "chunk:34"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·后森林",
+      "to_id": "loc:万劫谷·石屋",
+      "direction": "内部",
+      "travel_method": "攀援",
+      "time_cost": 1,
+      "basis": "石屋在古木林深处树墙围住的空地里，须攀树翻墙而入",
+      "sources": [
+        "chunk:34"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·后森林地道",
+      "to_id": "loc:万劫谷·后森林",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "沿暗道退回林中",
+      "sources": [
+        "chunk:34"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·后森林地道",
+      "to_id": "loc:万劫谷·藏药室",
+      "direction": "上",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "暗道尽头顶着屋里的地板，掀开即上",
+      "sources": [
+        "chunk:34"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·地道",
+      "to_id": "loc:万劫谷",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "循石级出暗道回到谷中",
+      "sources": [
+        "chunk:9"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·地道",
+      "to_id": "loc:万劫谷·石屋",
+      "direction": "上",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "暗道在石屋地下，由下往上掘通",
+      "sources": [
+        "chunk:35"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·地道",
+      "to_id": "loc:万劫谷·草地",
+      "direction": "上",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "暗道石级先下后上，上行三十余级到平地",
+      "sources": [
+        "chunk:6"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·地道",
+      "to_id": "loc:万劫谷·谷口",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "顺石级回到树洞",
+      "sources": [
+        "chunk:31"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·地道",
+      "to_id": "loc:万劫谷·钟夫人卧室",
+      "direction": "上",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "暗道由地下通到厢房",
+      "sources": [
+        "chunk:7"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·大厅",
+      "to_id": "loc:万劫谷",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "出厅即是谷中",
+      "sources": [
+        "chunk:35"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·大厅",
+      "to_id": "loc:万劫谷·石屋",
+      "direction": "北",
+      "travel_method": "攀援",
+      "time_cost": 2,
+      "basis": "由前面厅堂往谷后林中去，到树墙前攀越过去",
+      "sources": [
+        "chunk:35"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·大厅",
+      "to_id": "loc:万劫谷·藏药室",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "由厅上走进后面主人居室，里间即是",
+      "sources": [
+        "chunk:34"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·大厅",
+      "to_id": "loc:万劫谷·谷口",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "出厅往谷口走去",
+      "sources": [
+        "chunk:35"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·正屋",
+      "to_id": "loc:万劫谷",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "出正屋即是谷中",
+      "sources": [
+        "chunk:31"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·正屋",
+      "to_id": "loc:万劫谷·石屋",
+      "direction": "北",
+      "travel_method": "攀援",
+      "time_cost": 2,
+      "basis": "石屋在谷后林中，由正屋往后走片刻再翻树墙",
+      "sources": [
+        "chunk:31",
+        "chunk:32"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·瓦屋小厅",
+      "to_id": "loc:万劫谷",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "出厅门回到谷中小径",
+      "sources": [
+        "chunk:6"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·瓦屋小厅",
+      "to_id": "loc:万劫谷·草地",
+      "direction": "南",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "出瓦屋往南穿林回到草地",
+      "sources": [
+        "chunk:6"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·瓦屋小厅",
+      "to_id": "loc:万劫谷·谷口树林",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "由屋中暗道钻出树洞即到谷口树林",
+      "sources": [
+        "chunk:6"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·瓦屋小厅",
+      "to_id": "loc:万劫谷·钟夫人卧室",
+      "direction": "东",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "卧室是堂屋东边的厢房",
+      "sources": [
+        "chunk:7"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·石屋",
+      "to_id": "loc:万劫谷",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "离开石屋回到谷中",
+      "sources": [
+        "chunk:34"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·石屋",
+      "to_id": "loc:万劫谷·后森林",
+      "direction": "外部",
+      "travel_method": "攀援",
+      "time_cost": 1,
+      "basis": "攀上树墙另一面跳下，便回到外围林中",
+      "sources": [
+        "chunk:34"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·石屋",
+      "to_id": "loc:万劫谷·地道",
+      "direction": "下",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "由石屋地面下到暗道",
+      "sources": [
+        "chunk:35"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·石屋",
+      "to_id": "loc:万劫谷·大厅",
+      "direction": "南",
+      "travel_method": "攀援",
+      "time_cost": 2,
+      "basis": "翻出树墙，向谷前屋舍走回待客厅堂",
+      "sources": [
+        "chunk:35"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·石屋",
+      "to_id": "loc:万劫谷·正屋",
+      "direction": "南",
+      "travel_method": "攀援",
+      "time_cost": 2,
+      "basis": "翻过树墙循谷中曲折小路回到前面的正屋",
+      "sources": [
+        "chunk:31",
+        "chunk:32"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·草地",
+      "to_id": "loc:万劫谷",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "走过草地回到谷中",
+      "sources": [
+        "chunk:6"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·草地",
+      "to_id": "loc:万劫谷·地道",
+      "direction": "下",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "自草地循石级下入暗道",
+      "sources": [
+        "chunk:6"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·草地",
+      "to_id": "loc:万劫谷·瓦屋小厅",
+      "direction": "北",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "穿林循小径到瓦屋，屋舍向南开门，推为北行",
+      "sources": [
+        "chunk:6"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·藏药室",
+      "to_id": "loc:万劫谷",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "出后间回到谷中",
+      "sources": [
+        "chunk:34"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·藏药室",
+      "to_id": "loc:万劫谷·后森林地道",
+      "direction": "下",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "地板下开着洞口，钻下去便是暗道",
+      "sources": [
+        "chunk:34"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·藏药室",
+      "to_id": "loc:万劫谷·大厅",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "藏药室是主人居室的后间，出房便到厅上",
+      "sources": [
+        "chunk:34"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·谷口",
+      "to_id": "loc:万劫谷",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "钻进松树洞走暗道，方才入谷",
+      "sources": [
+        "chunk:6"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·谷口",
+      "to_id": "loc:万劫谷·地道",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "树洞里掀开木板即是暗道",
+      "sources": [
+        "chunk:31"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·谷口",
+      "to_id": "loc:万劫谷·大厅",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "由谷口进谷方到厅堂",
+      "sources": [
+        "chunk:35"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·谷口",
+      "to_id": "loc:万劫谷·谷口树林",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "谷口之外是挡路的大树林",
+      "sources": [
+        "chunk:31"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·谷口",
+      "to_id": "loc:善人渡",
+      "direction": "东",
+      "travel_method": "步行",
+      "time_cost": 6,
+      "basis": "出谷口东行过铁索桥回到渡口",
+      "sources": [
+        "chunk:6",
+        "chunk:31"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·谷口树林",
+      "to_id": "loc:万劫谷",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "自谷口树林走进谷中",
+      "sources": [
+        "chunk:31"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·谷口树林",
+      "to_id": "loc:万劫谷·瓦屋小厅",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "自树洞经暗道进谷到瓦屋",
+      "sources": [
+        "chunk:6"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·谷口树林",
+      "to_id": "loc:万劫谷·谷口",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "穿过林中大树方到谷口",
+      "sources": [
+        "chunk:31"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·谷口树林",
+      "to_id": "loc:镇南王府",
+      "direction": "北",
+      "travel_method": "骑马",
+      "time_cost": 20,
+      "basis": "王府在北，段氏一行事后策马径回大理",
+      "sources": [
+        "chunk:31"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·钟万仇家里",
+      "to_id": "loc:万劫谷",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "出宅门即是谷中",
+      "sources": [
+        "chunk:17"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·钟夫人卧室",
+      "to_id": "loc:万劫谷",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "出厢房回到堂屋与谷中",
+      "sources": [
+        "chunk:6",
+        "chunk:7"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·钟夫人卧室",
+      "to_id": "loc:万劫谷·地道",
+      "direction": "下",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "掀开地板下到暗道",
+      "sources": [
+        "chunk:7"
+      ]
+    },
+    {
+      "from_id": "loc:万劫谷·钟夫人卧室",
+      "to_id": "loc:万劫谷·瓦屋小厅",
+      "direction": "西",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "出厢房往西回到堂屋",
+      "sources": [
+        "chunk:7"
+      ]
+    },
+    {
+      "from_id": "loc:剑湖",
+      "to_id": "loc:剑湖·第一间石室",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "推开岩门入洞，循斜下的暗道到湖底石室",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:剑湖",
+      "to_id": "loc:剑湖·第三间石室",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "湖底石室之一，在玉像室旁的月洞门内",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:剑湖",
+      "to_id": "loc:无量山",
+      "direction": "外部",
+      "travel_method": "攀援",
+      "time_cost": 16,
+      "basis": "湖在深谷之中，攀峭壁才回得到山上",
+      "sources": [
+        "chunk:4"
+      ]
+    },
+    {
+      "from_id": "loc:剑湖",
+      "to_id": "loc:琅嬛福地",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 3,
+      "basis": "穿过湖底几间石室，再进一道月洞门",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:剑湖·第一间石室",
+      "to_id": "loc:剑湖",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "循暗道上行出洞，回到湖畔",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:剑湖·第一间石室",
+      "to_id": "loc:幽谷·洞穴",
+      "direction": "上",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "暗道一路下斜通往湖底石室，回程即是上坡",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:剑湖·第一间石室",
+      "to_id": "loc:幽谷·玉像石室",
+      "direction": "下",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "石壁暗门后石级向下十余级即是玉像室",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:剑湖·第三间石室",
+      "to_id": "loc:剑湖",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "穿回前面的石室，循暗道出洞到湖畔",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:剑湖·第三间石室",
+      "to_id": "loc:琅嬛福地",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "床尾月洞门内便是大石洞",
+      "sources": [
+        "chunk:6"
+      ]
+    },
+    {
+      "from_id": "loc:剑湖宫",
+      "to_id": "loc:剑湖宫·练武厅",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "宫中的大厅，同一院落之内几步即到",
+      "sources": [
+        "chunk:0"
+      ]
+    },
+    {
+      "from_id": "loc:剑湖宫",
+      "to_id": "loc:小市镇",
+      "direction": "东南",
+      "travel_method": "步行",
+      "time_cost": 28,
+      "basis": "小镇在剑湖宫东南，下山走大半日可到",
+      "sources": [
+        "chunk:10",
+        "chunk:11"
+      ]
+    },
+    {
+      "from_id": "loc:剑湖宫",
+      "to_id": "loc:无量山",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "剑湖宫是主峰脚下一片大屋，出宫门便是山道",
+      "sources": [
+        "chunk:0",
+        "chunk:11"
+      ]
+    },
+    {
+      "from_id": "loc:剑湖宫",
+      "to_id": "loc:无量山·后山",
+      "direction": "西",
+      "travel_method": "步行",
+      "time_cost": 8,
+      "basis": "段誉自宫外向西走了十余里，绕到主峰背后的禁地",
+      "sources": [
+        "chunk:1",
+        "chunk:4"
+      ]
+    },
+    {
+      "from_id": "loc:剑湖宫",
+      "to_id": "loc:无量山·西北角山坡",
+      "direction": "西北",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "出宫往西北走不多远就是那片山坡",
+      "sources": [
+        "chunk:0",
+        "chunk:2"
+      ]
+    },
+    {
+      "from_id": "loc:剑湖宫",
+      "to_id": "loc:无量洞·小屋",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "要穿过几进屋宇和花园才到关人的小屋",
+      "sources": [
+        "chunk:19"
+      ]
+    },
+    {
+      "from_id": "loc:剑湖宫",
+      "to_id": "loc:高崖",
+      "direction": "上",
+      "travel_method": "步行",
+      "time_cost": 12,
+      "basis": "高崖在后山之上，从宫中须登山而去",
+      "sources": [
+        "chunk:4",
+        "chunk:19"
+      ]
+    },
+    {
+      "from_id": "loc:剑湖宫·练武厅",
+      "to_id": "loc:剑湖宫",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "比剑大厅在宫中，出了厅门便回到宫内院落",
+      "sources": [
+        "chunk:0"
+      ]
+    },
+    {
+      "from_id": "loc:北庄",
+      "to_id": "loc:万劫谷",
+      "direction": "南",
+      "travel_method": "步行",
+      "time_cost": 8,
+      "basis": "由北庄南行回谷",
+      "sources": [
+        "chunk:7"
+      ]
+    },
+    {
+      "from_id": "loc:南阳",
+      "to_id": "loc:吕庆图家",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "吕家宅院就在南阳府城里，穿街过巷便到",
+      "sources": [
+        "chunk:37"
+      ]
+    },
+    {
+      "from_id": "loc:吕庆图家",
+      "to_id": "loc:南阳",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "出了吕家大门即回到府城街市",
+      "sources": [
+        "chunk:37"
+      ]
+    },
+    {
+      "from_id": "loc:吕庆图家",
+      "to_id": "loc:吕庆图家·书房",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "书房在后园小楼之上，须先穿过花园再登楼",
+      "sources": [
+        "chunk:37"
+      ]
+    },
+    {
+      "from_id": "loc:吕庆图家",
+      "to_id": "loc:吕庆图家·后花园",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "后园在吕宅深处，由前院穿过几进屋宇即至",
+      "sources": [
+        "chunk:37"
+      ]
+    },
+    {
+      "from_id": "loc:吕庆图家·书房",
+      "to_id": "loc:吕庆图家",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "下了小楼穿出花园，回到宅院前进",
+      "sources": [
+        "chunk:37"
+      ]
+    },
+    {
+      "from_id": "loc:吕庆图家·书房",
+      "to_id": "loc:吕庆图家·后花园",
+      "direction": "下",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "从楼上书房循梯而下，便回到园中",
+      "sources": [
+        "chunk:37"
+      ]
+    },
+    {
+      "from_id": "loc:吕庆图家·后花园",
+      "to_id": "loc:吕庆图家",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "出了园门便回到吕宅前面各进院落",
+      "sources": [
+        "chunk:37"
+      ]
+    },
+    {
+      "from_id": "loc:吕庆图家·后花园",
+      "to_id": "loc:吕庆图家·书房",
+      "direction": "上",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "园中小楼的楼上便是书房，拾级而上即到",
+      "sources": [
+        "chunk:37"
+      ]
+    },
+    {
+      "from_id": "loc:善人渡",
+      "to_id": "loc:万劫谷",
+      "direction": "西",
+      "travel_method": "步行",
+      "time_cost": 8,
+      "basis": "走过铁索桥向西，约大半个时辰到谷口",
+      "sources": [
+        "chunk:6",
+        "chunk:31"
+      ]
+    },
+    {
+      "from_id": "loc:善人渡",
+      "to_id": "loc:万劫谷·谷口",
+      "direction": "西",
+      "travel_method": "步行",
+      "time_cost": 6,
+      "basis": "万劫谷在大江西岸，过铁索桥再走大半个时辰",
+      "sources": [
+        "chunk:6",
+        "chunk:31"
+      ]
+    },
+    {
+      "from_id": "loc:善人渡",
+      "to_id": "loc:澜沧江畔",
+      "direction": "北",
+      "travel_method": "步行",
+      "time_cost": 16,
+      "basis": "由渡口沿江岸往北回到江畔",
+      "sources": [
+        "chunk:6"
+      ]
+    },
+    {
+      "from_id": "loc:圣慈宫",
+      "to_id": "loc:大理",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "出宫门沿石路回到城中",
+      "sources": [
+        "chunk:25"
+      ]
+    },
+    {
+      "from_id": "loc:圣慈宫",
+      "to_id": "loc:镇南王府",
+      "direction": "东",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "出牌坊向东约两里即到王府门前",
+      "sources": [
+        "chunk:25"
+      ]
+    },
+    {
+      "from_id": "loc:大屋",
+      "to_id": "loc:大屋·大厅",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "穿过院子沿石道走到尽头便是厅堂",
+      "sources": [
+        "chunk:9"
+      ]
+    },
+    {
+      "from_id": "loc:大屋",
+      "to_id": "loc:大屋·院子",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "进了大门便是庭院",
+      "sources": [
+        "chunk:9"
+      ]
+    },
+    {
+      "from_id": "loc:大屋",
+      "to_id": "loc:大松林",
+      "direction": "南",
+      "travel_method": "步行",
+      "time_cost": 4,
+      "basis": "庄院在松林以北六七里，回头南行即到林边",
+      "sources": [
+        "chunk:9"
+      ]
+    },
+    {
+      "from_id": "loc:大屋",
+      "to_id": "loc:大理",
+      "direction": "北",
+      "travel_method": "步行",
+      "time_cost": 44,
+      "basis": "出大屋一路向北即是上大理的大路",
+      "sources": [
+        "chunk:9"
+      ]
+    },
+    {
+      "from_id": "loc:大屋·大厅",
+      "to_id": "loc:大屋",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "出厅沿石道穿院走回门口",
+      "sources": [
+        "chunk:9"
+      ]
+    },
+    {
+      "from_id": "loc:大屋·大厅",
+      "to_id": "loc:大屋·院子",
+      "direction": "南",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "出厅沿石道走回玫瑰丛间的庭院",
+      "sources": [
+        "chunk:9"
+      ]
+    },
+    {
+      "from_id": "loc:大屋·院子",
+      "to_id": "loc:大屋",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "出院门即到庄前",
+      "sources": [
+        "chunk:9"
+      ]
+    },
+    {
+      "from_id": "loc:大屋·院子",
+      "to_id": "loc:大屋·大厅",
+      "direction": "北",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "石道曲折穿过月洞门，尽头便是厅堂",
+      "sources": [
+        "chunk:9"
+      ]
+    },
+    {
+      "from_id": "loc:大松林",
+      "to_id": "loc:大屋",
+      "direction": "北",
+      "travel_method": "步行",
+      "time_cost": 4,
+      "basis": "穿出松林折向北走小路六七里便到",
+      "sources": [
+        "chunk:9"
+      ]
+    },
+    {
+      "from_id": "loc:大理",
+      "to_id": "loc:万劫谷",
+      "direction": "南",
+      "travel_method": "步行",
+      "time_cost": 48,
+      "basis": "大理在北，南下往谷约需半日脚程",
+      "sources": [
+        "chunk:9",
+        "chunk:31"
+      ]
+    },
+    {
+      "from_id": "loc:大理",
+      "to_id": "loc:圣慈宫",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "进城过几条街，石路尽头便是宫门",
+      "sources": [
+        "chunk:25"
+      ]
+    },
+    {
+      "from_id": "loc:大理",
+      "to_id": "loc:大屋",
+      "direction": "南",
+      "travel_method": "步行",
+      "time_cost": 44,
+      "basis": "大屋在大理之南，与万劫谷相距不远",
+      "sources": [
+        "chunk:9"
+      ]
+    },
+    {
+      "from_id": "loc:大理",
+      "to_id": "loc:大理皇宫",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "皇宫在大理城中大路尽头",
+      "sources": [
+        "chunk:25"
+      ]
+    },
+    {
+      "from_id": "loc:大理",
+      "to_id": "loc:拈花寺",
+      "direction": "西",
+      "travel_method": "步行",
+      "time_cost": 16,
+      "basis": "出城走二十余里再上山，推为城西山中",
+      "sources": [
+        "chunk:33"
+      ]
+    },
+    {
+      "from_id": "loc:大理",
+      "to_id": "loc:江南",
+      "direction": "东北",
+      "travel_method": "步行",
+      "time_cost": 672,
+      "basis": "江南远在大理东北",
+      "sources": [
+        "chunk:9"
+      ]
+    },
+    {
+      "from_id": "loc:大理",
+      "to_id": "loc:玉虚观",
+      "direction": "南",
+      "travel_method": "步行",
+      "time_cost": 24,
+      "basis": "出城沿大道南下，到柳林小湖边的道观",
+      "sources": [
+        "chunk:23",
+        "chunk:24"
+      ]
+    },
+    {
+      "from_id": "loc:大理",
+      "to_id": "loc:苏州",
+      "direction": "东北",
+      "travel_method": "步行",
+      "time_cost": 672,
+      "basis": "姑苏在江南，远在大理东北，万里迢迢",
+      "sources": [
+        "chunk:9"
+      ]
+    },
+    {
+      "from_id": "loc:大理",
+      "to_id": "loc:范骅府",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "司马府邸在京城之中",
+      "sources": [
+        "chunk:33"
+      ]
+    },
+    {
+      "from_id": "loc:大理",
+      "to_id": "loc:身戒寺",
+      "direction": "东",
+      "travel_method": "步行",
+      "time_cost": 576,
+      "basis": "陆凉州在大理以东，相去近千里",
+      "sources": [
+        "chunk:37"
+      ]
+    },
+    {
+      "from_id": "loc:大理",
+      "to_id": "loc:镇南王府",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "王府在大理城中",
+      "sources": [
+        "chunk:25"
+      ]
+    },
+    {
+      "from_id": "loc:大理皇宫",
+      "to_id": "loc:大理",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "出宫即是城中街巷",
+      "sources": [
+        "chunk:25"
+      ]
+    },
+    {
+      "from_id": "loc:大理皇宫",
+      "to_id": "loc:大理皇宫·书房",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "书房在宫中，同处一片宫院",
+      "sources": [
+        "chunk:32"
+      ]
+    },
+    {
+      "from_id": "loc:大理皇宫",
+      "to_id": "loc:拈花寺",
+      "direction": "西",
+      "travel_method": "步行",
+      "time_cost": 12,
+      "basis": "出城二十余里再上山，大理群山多在城西",
+      "sources": [
+        "chunk:33"
+      ]
+    },
+    {
+      "from_id": "loc:大理皇宫",
+      "to_id": "loc:范骅府",
+      "direction": "南",
+      "travel_method": "步行",
+      "time_cost": 3,
+      "basis": "宫城居北，大臣府第多在宫前城中",
+      "sources": [
+        "chunk:33"
+      ]
+    },
+    {
+      "from_id": "loc:大理皇宫",
+      "to_id": "loc:镇南王府",
+      "direction": "东",
+      "travel_method": "步行",
+      "time_cost": 3,
+      "basis": "出宫沿大路折向东行约两里便是王府",
+      "sources": [
+        "chunk:25",
+        "chunk:26"
+      ]
+    },
+    {
+      "from_id": "loc:大理皇宫·书房",
+      "to_id": "loc:大理皇宫",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "出书房即在宫中",
+      "sources": [
+        "chunk:32"
+      ]
+    },
+    {
+      "from_id": "loc:对崖",
+      "to_id": "loc:深涧",
+      "direction": "下",
+      "travel_method": "攀援",
+      "time_cost": 6,
+      "basis": "敌人须由崖上攀下谷底才过得来",
+      "sources": [
+        "chunk:13"
+      ]
+    },
+    {
+      "from_id": "loc:小市镇",
+      "to_id": "loc:剑湖宫",
+      "direction": "西北",
+      "travel_method": "步行",
+      "time_cost": 32,
+      "basis": "由小镇向西北登山，午后动身入夜方到",
+      "sources": [
+        "chunk:10",
+        "chunk:11"
+      ]
+    },
+    {
+      "from_id": "loc:小市镇",
+      "to_id": "loc:小市镇·米店",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "镇上的店铺，同一处几步即到",
+      "sources": [
+        "chunk:10"
+      ]
+    },
+    {
+      "from_id": "loc:小市镇",
+      "to_id": "loc:小市镇·饭铺",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "镇上的小饭店，几步即到",
+      "sources": [
+        "chunk:10"
+      ]
+    },
+    {
+      "from_id": "loc:小市镇",
+      "to_id": "loc:澜沧江畔",
+      "direction": "西",
+      "travel_method": "步行",
+      "time_cost": 12,
+      "basis": "小镇西去二十余里便是澜沧江铁索桥",
+      "sources": [
+        "chunk:10"
+      ]
+    },
+    {
+      "from_id": "loc:小市镇·米店",
+      "to_id": "loc:小市镇",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "出店门便是镇街",
+      "sources": [
+        "chunk:10"
+      ]
+    },
+    {
+      "from_id": "loc:小市镇·饭铺",
+      "to_id": "loc:小市镇",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "出店门便是镇街",
+      "sources": [
+        "chunk:10"
+      ]
+    },
+    {
+      "from_id": "loc:少林寺",
+      "to_id": "loc:身戒寺",
+      "direction": "南",
+      "travel_method": "步行",
+      "time_cost": 672,
+      "basis": "由中原南下入大理国境，路途极远",
+      "sources": [
+        "chunk:37"
+      ]
+    },
+    {
+      "from_id": "loc:幽谷",
+      "to_id": "loc:幽谷·大岩石",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "巨岩在谷中小石壁以北不远",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:幽谷",
+      "to_id": "loc:幽谷·小石壁",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "小石壁在湖东岸酸果树丛后",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:幽谷",
+      "to_id": "loc:幽谷·峭壁",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "峭壁是谷西的陡壁，走到壁脚不远",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:幽谷",
+      "to_id": "loc:幽谷·洞穴",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "转开巨岩，弯腰钻进岩后的低矮洞口",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:幽谷",
+      "to_id": "loc:幽谷·湖畔",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "谷底绝壁环湖，湖边就在谷中",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:幽谷",
+      "to_id": "loc:幽谷·玉像石室",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "入岩后洞口，摸黑走下斜暗道，过铁门方到",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:幽谷·大岩石",
+      "to_id": "loc:幽谷",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "离开巨岩回到谷中",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:幽谷·大岩石",
+      "to_id": "loc:幽谷·洞穴",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "巨岩像门一般转开，后面便是洞口",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:幽谷·大岩石",
+      "to_id": "loc:幽谷·湖畔",
+      "direction": "南",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "剑影由小石壁斜指北方巨岩，湖边在其南",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:幽谷·小石壁",
+      "to_id": "loc:幽谷",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "拨开树丛回到谷中",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:幽谷·峭壁",
+      "to_id": "loc:幽谷",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "由壁脚走回谷中湖畔",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:幽谷·洞穴",
+      "to_id": "loc:剑湖·第一间石室",
+      "direction": "下",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "暗道越走越低，尽头推门便入湖底石室",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:幽谷·洞穴",
+      "to_id": "loc:幽谷",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "循斜坡暗道往上走出岩后洞口，便回谷中",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:幽谷·洞穴",
+      "to_id": "loc:幽谷·大岩石",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "洞口就在巨岩背后，出洞即到岩边",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:幽谷·湖畔",
+      "to_id": "loc:幽谷",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "离开湖边回到谷中花树间",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:幽谷·湖畔",
+      "to_id": "loc:幽谷·大岩石",
+      "direction": "北",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "顺着剑影所指向北，走几步便到巨岩",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:幽谷·玉像石室",
+      "to_id": "loc:剑湖·第一间石室",
+      "direction": "上",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "循原石级上行回到圆形石室",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:幽谷·玉像石室",
+      "to_id": "loc:幽谷",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "由湖底石室循黑暗暗道上行，从巨岩后出洞",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:幽谷·玉像石室",
+      "to_id": "loc:澜沧江畔·洞穴",
+      "direction": "上",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "石室旁石级斜向上引，转三个弯到江边崖洞",
+      "sources": [
+        "chunk:6"
+      ]
+    },
+    {
+      "from_id": "loc:拈花寺",
+      "to_id": "loc:大理",
+      "direction": "东",
+      "travel_method": "步行",
+      "time_cost": 14,
+      "basis": "下山东行二十余里回城",
+      "sources": [
+        "chunk:33"
+      ]
+    },
+    {
+      "from_id": "loc:拈花寺",
+      "to_id": "loc:大理皇宫",
+      "direction": "东",
+      "travel_method": "步行",
+      "time_cost": 10,
+      "basis": "下山出山坳，再走二十余里回城入宫",
+      "sources": [
+        "chunk:33"
+      ]
+    },
+    {
+      "from_id": "loc:拈花寺",
+      "to_id": "loc:拈花寺·后院",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "穿过寺院踏着落叶便到后院",
+      "sources": [
+        "chunk:33"
+      ]
+    },
+    {
+      "from_id": "loc:拈花寺·后院",
+      "to_id": "loc:拈花寺",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "由后院走回前面寺门",
+      "sources": [
+        "chunk:33"
+      ]
+    },
+    {
+      "from_id": "loc:无量山",
+      "to_id": "loc:万劫谷",
+      "direction": "西",
+      "travel_method": "步行",
+      "time_cost": 32,
+      "basis": "万劫谷在澜沧江西岸，从无量山须西行过江",
+      "sources": [
+        "chunk:9",
+        "chunk:31"
+      ]
+    },
+    {
+      "from_id": "loc:无量山",
+      "to_id": "loc:剑湖",
+      "direction": "内部",
+      "travel_method": "攀援",
+      "time_cost": 12,
+      "basis": "剑湖在绝壁合围的谷底，须攀崖下去",
+      "sources": [
+        "chunk:4"
+      ]
+    },
+    {
+      "from_id": "loc:无量山",
+      "to_id": "loc:剑湖宫",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "由山道进宫门，宫就建在无量山中",
+      "sources": [
+        "chunk:0",
+        "chunk:11"
+      ]
+    },
+    {
+      "from_id": "loc:无量山",
+      "to_id": "loc:无量山·乱石堆",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "山坳里的乱石滩，转过山坳片刻即到",
+      "sources": [
+        "chunk:2"
+      ]
+    },
+    {
+      "from_id": "loc:无量山",
+      "to_id": "loc:无量山·后山",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 8,
+      "basis": "后山在主峰背后，要绕十余里山路",
+      "sources": [
+        "chunk:4"
+      ]
+    },
+    {
+      "from_id": "loc:无量山",
+      "to_id": "loc:无量山·山冈",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 4,
+      "basis": "山中迂回难辨的一处山冈，前临深谷",
+      "sources": [
+        "chunk:12"
+      ]
+    },
+    {
+      "from_id": "loc:无量山",
+      "to_id": "loc:无量山·无量玉壁",
+      "direction": "内部",
+      "travel_method": "攀援",
+      "time_cost": 12,
+      "basis": "玉壁在绝壁合围的深谷湖西，只能攀崖而下",
+      "sources": [
+        "chunk:4"
+      ]
+    },
+    {
+      "from_id": "loc:无量山",
+      "to_id": "loc:无量山·白龙峰",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 6,
+      "basis": "白龙峰是山中一座峰头，登峰稍费工夫",
+      "sources": [
+        "chunk:1"
+      ]
+    },
+    {
+      "from_id": "loc:无量山",
+      "to_id": "loc:无量山·西北角山坡",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "山中一片坡地，离剑湖宫不远",
+      "sources": [
+        "chunk:2"
+      ]
+    },
+    {
+      "from_id": "loc:无量山",
+      "to_id": "loc:无量山·谷底",
+      "direction": "内部",
+      "travel_method": "攀援",
+      "time_cost": 12,
+      "basis": "深谷四面绝壁，只能顺着崖缝攀援下去",
+      "sources": [
+        "chunk:4"
+      ]
+    },
+    {
+      "from_id": "loc:无量山",
+      "to_id": "loc:普洱",
+      "direction": "南",
+      "travel_method": "步行",
+      "time_cost": 192,
+      "basis": "普洱在滇南，由无量山南下约两日路程",
+      "sources": [
+        "chunk:0",
+        "chunk:2"
+      ]
+    },
+    {
+      "from_id": "loc:无量山",
+      "to_id": "loc:玉虚观",
+      "direction": "东",
+      "travel_method": "步行",
+      "time_cost": 96,
+      "basis": "离山向东上大路，约一日到大理城南的道观",
+      "sources": [
+        "chunk:23"
+      ]
+    },
+    {
+      "from_id": "loc:无量山",
+      "to_id": "loc:马五德家",
+      "direction": "南",
+      "travel_method": "步行",
+      "time_cost": 192,
+      "basis": "马五德家在普洱，由无量山南下约两日",
+      "sources": [
+        "chunk:23"
+      ]
+    },
+    {
+      "from_id": "loc:无量山·乱石堆",
+      "to_id": "loc:无量山",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "出山坳回到山道",
+      "sources": [
+        "chunk:2"
+      ]
+    },
+    {
+      "from_id": "loc:无量山·后山",
+      "to_id": "loc:剑湖宫",
+      "direction": "东",
+      "travel_method": "步行",
+      "time_cost": 8,
+      "basis": "由后山禁地向东绕回十余里山路",
+      "sources": [
+        "chunk:1",
+        "chunk:4"
+      ]
+    },
+    {
+      "from_id": "loc:无量山·后山",
+      "to_id": "loc:无量山",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 8,
+      "basis": "由主峰背后绕回前山",
+      "sources": [
+        "chunk:4"
+      ]
+    },
+    {
+      "from_id": "loc:无量山·后山",
+      "to_id": "loc:无量山·谷底",
+      "direction": "下",
+      "travel_method": "坠落",
+      "time_cost": 4,
+      "basis": "禁地崖边一脚踏空，直坠深谷",
+      "sources": [
+        "chunk:4"
+      ]
+    },
+    {
+      "from_id": "loc:无量山·山冈",
+      "to_id": "loc:无量山",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 4,
+      "basis": "冈前无路，只得下冈回到山道",
+      "sources": [
+        "chunk:12"
+      ]
+    },
+    {
+      "from_id": "loc:无量山·无量玉壁",
+      "to_id": "loc:无量山",
+      "direction": "外部",
+      "travel_method": "攀援",
+      "time_cost": 16,
+      "basis": "由谷中攀峭壁回到山上，比下去更难",
+      "sources": [
+        "chunk:4"
+      ]
+    },
+    {
+      "from_id": "loc:无量山·白龙峰",
+      "to_id": "loc:无量山",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 4,
+      "basis": "下峰回到山道，比上峰快些",
+      "sources": [
+        "chunk:1"
+      ]
+    },
+    {
+      "from_id": "loc:无量山·西北角山坡",
+      "to_id": "loc:剑湖宫",
+      "direction": "东南",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "山坡在宫的西北，折回东南不远即到",
+      "sources": [
+        "chunk:0",
+        "chunk:2"
+      ]
+    },
+    {
+      "from_id": "loc:无量山·西北角山坡",
+      "to_id": "loc:无量山",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "由坡地回到山道",
+      "sources": [
+        "chunk:2"
+      ]
+    },
+    {
+      "from_id": "loc:无量山·谷底",
+      "to_id": "loc:无量山",
+      "direction": "外部",
+      "travel_method": "攀援",
+      "time_cost": 16,
+      "basis": "谷中绝壁合围，出谷只能攀崖，极为艰难",
+      "sources": [
+        "chunk:4"
+      ]
+    },
+    {
+      "from_id": "loc:无量山·谷底",
+      "to_id": "loc:无量山·后山",
+      "direction": "上",
+      "travel_method": "攀援",
+      "time_cost": 16,
+      "basis": "谷底只能攀绝壁上去，极难",
+      "sources": [
+        "chunk:4"
+      ]
+    },
+    {
+      "from_id": "loc:无量山·谷底",
+      "to_id": "loc:无量山·谷底·小石壁",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "湖畔酸果树丛之后即是这片石壁",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:无量山·谷底·小石壁",
+      "to_id": "loc:无量山·谷底",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "拨开树丛回到湖畔",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:无量洞·小屋",
+      "to_id": "loc:剑湖宫",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "开锁出屋，穿回花园与前面各进屋宇",
+      "sources": [
+        "chunk:19"
+      ]
+    },
+    {
+      "from_id": "loc:普洱",
+      "to_id": "loc:无量山",
+      "direction": "北",
+      "travel_method": "步行",
+      "time_cost": 192,
+      "basis": "由滇南茶乡北上，约两日到无量山",
+      "sources": [
+        "chunk:0",
+        "chunk:2"
+      ]
+    },
+    {
+      "from_id": "loc:江南",
+      "to_id": "loc:大理",
+      "direction": "西南",
+      "travel_method": "步行",
+      "time_cost": 672,
+      "basis": "由江南一路南下西行到大理",
+      "sources": [
+        "chunk:9"
+      ]
+    },
+    {
+      "from_id": "loc:汴梁",
+      "to_id": "loc:青豹冈",
+      "direction": "东",
+      "travel_method": "步行",
+      "time_cost": 192,
+      "basis": "冈在京城去山东的路上，山东位于汴梁之东，约两日行程",
+      "sources": [
+        "chunk:37"
+      ]
+    },
+    {
+      "from_id": "loc:深涧",
+      "to_id": "loc:对崖",
+      "direction": "上",
+      "travel_method": "攀援",
+      "time_cost": 8,
+      "basis": "由涧底攀上对面山崖，上行最慢",
+      "sources": [
+        "chunk:13"
+      ]
+    },
+    {
+      "from_id": "loc:深涧",
+      "to_id": "loc:长岭",
+      "direction": "西",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "自深涧回头向西退上长岭",
+      "sources": [
+        "chunk:13"
+      ]
+    },
+    {
+      "from_id": "loc:深涧",
+      "to_id": "loc:高崖",
+      "direction": "上",
+      "travel_method": "攀援",
+      "time_cost": 12,
+      "basis": "由涧中攀崖而上，比下去更费力",
+      "sources": [
+        "chunk:13"
+      ]
+    },
+    {
+      "from_id": "loc:澜沧江畔",
+      "to_id": "loc:万劫谷",
+      "direction": "西",
+      "travel_method": "步行",
+      "time_cost": 20,
+      "basis": "由江边向西翻山越岭，入谷较费力",
+      "sources": [
+        "chunk:6",
+        "chunk:10"
+      ]
+    },
+    {
+      "from_id": "loc:澜沧江畔",
+      "to_id": "loc:善人渡",
+      "direction": "南",
+      "travel_method": "步行",
+      "time_cost": 16,
+      "basis": "顺江岸乱石行二十余里方到渡口，推为顺流而南",
+      "sources": [
+        "chunk:6"
+      ]
+    },
+    {
+      "from_id": "loc:澜沧江畔",
+      "to_id": "loc:小市镇",
+      "direction": "东",
+      "travel_method": "步行",
+      "time_cost": 12,
+      "basis": "过铁索桥东行二十余里到小镇",
+      "sources": [
+        "chunk:10"
+      ]
+    },
+    {
+      "from_id": "loc:澜沧江畔",
+      "to_id": "loc:澜沧江畔·洞穴",
+      "direction": "内部",
+      "travel_method": "攀援",
+      "time_cost": 2,
+      "basis": "洞口悬在江面之上的峭壁间，须攀援才进得去",
+      "sources": [
+        "chunk:6"
+      ]
+    },
+    {
+      "from_id": "loc:澜沧江畔",
+      "to_id": "loc:镇南王府",
+      "direction": "北",
+      "travel_method": "步行",
+      "time_cost": 44,
+      "basis": "江畔在大理之南，北上回城约需半日",
+      "sources": [
+        "chunk:29"
+      ]
+    },
+    {
+      "from_id": "loc:澜沧江畔·洞穴",
+      "to_id": "loc:幽谷·玉像石室",
+      "direction": "下",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "由江边崖洞循三百多级石级盘旋而下",
+      "sources": [
+        "chunk:6"
+      ]
+    },
+    {
+      "from_id": "loc:澜沧江畔·洞穴",
+      "to_id": "loc:澜沧江畔",
+      "direction": "外部",
+      "travel_method": "攀援",
+      "time_cost": 2,
+      "basis": "洞口离江面甚高，手脚并用方能爬上江岸",
+      "sources": [
+        "chunk:6"
+      ]
+    },
+    {
+      "from_id": "loc:灵鹫宫",
+      "to_id": "loc:缥缈峰",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 6,
+      "basis": "出了宫门便是峰上山道，下行较来时省力",
+      "sources": [
+        "chunk:19"
+      ]
+    },
+    {
+      "from_id": "loc:玉虚观",
+      "to_id": "loc:大理",
+      "direction": "北",
+      "travel_method": "步行",
+      "time_cost": 24,
+      "basis": "道观在大理城南，沿大道北上大半日可到",
+      "sources": [
+        "chunk:23",
+        "chunk:24"
+      ]
+    },
+    {
+      "from_id": "loc:玉虚观",
+      "to_id": "loc:无量山",
+      "direction": "西",
+      "travel_method": "步行",
+      "time_cost": 96,
+      "basis": "由道观西行回山，约需一日",
+      "sources": [
+        "chunk:23"
+      ]
+    },
+    {
+      "from_id": "loc:琅嬛福地",
+      "to_id": "loc:剑湖",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 3,
+      "basis": "退回石室，循暗道出洞回到湖畔",
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "from_id": "loc:琅嬛福地",
+      "to_id": "loc:剑湖·第三间石室",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "出月洞门回到外面的石室",
+      "sources": [
+        "chunk:6"
+      ]
+    },
+    {
+      "from_id": "loc:缥缈峰",
+      "to_id": "loc:灵鹫宫",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 8,
+      "basis": "宫筑在缥缈峰顶，须沿峰上山道一路攀登方到宫门",
+      "sources": [
+        "chunk:19"
+      ]
+    },
+    {
+      "from_id": "loc:群山最高峰",
+      "to_id": "loc:高崖",
+      "direction": "下",
+      "travel_method": "步行",
+      "time_cost": 40,
+      "basis": "由绝顶下山，越谷翻岭回到高崖",
+      "sources": [
+        "chunk:13",
+        "chunk:16"
+      ]
+    },
+    {
+      "from_id": "loc:苏州",
+      "to_id": "loc:大理",
+      "direction": "西南",
+      "travel_method": "步行",
+      "time_cost": 672,
+      "basis": "由姑苏南下西行到大理，路途极远",
+      "sources": [
+        "chunk:9"
+      ]
+    },
+    {
+      "from_id": "loc:范骅府",
+      "to_id": "loc:大理",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "出府即是城中街巷",
+      "sources": [
+        "chunk:33"
+      ]
+    },
+    {
+      "from_id": "loc:范骅府",
+      "to_id": "loc:大理皇宫",
+      "direction": "北",
+      "travel_method": "步行",
+      "time_cost": 3,
+      "basis": "由城中府第往北走到宫门",
+      "sources": [
+        "chunk:33"
+      ]
+    },
+    {
+      "from_id": "loc:身戒寺",
+      "to_id": "loc:大理",
+      "direction": "西",
+      "travel_method": "步行",
+      "time_cost": 576,
+      "basis": "由陆凉州西行赶赴大理，路途遥远",
+      "sources": [
+        "chunk:37"
+      ]
+    },
+    {
+      "from_id": "loc:身戒寺",
+      "to_id": "loc:少林寺",
+      "direction": "北",
+      "travel_method": "步行",
+      "time_cost": 672,
+      "basis": "少林在中原，由滇中北上路途极远，按远行上限计",
+      "sources": [
+        "chunk:37"
+      ]
+    },
+    {
+      "from_id": "loc:身戒寺",
+      "to_id": "loc:身戒寺·大殿",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "大殿在寺中，进山门即到",
+      "sources": [
+        "chunk:37"
+      ]
+    },
+    {
+      "from_id": "loc:身戒寺",
+      "to_id": "loc:陆凉州",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "寺在州中，出寺门即到州里街市",
+      "sources": [
+        "chunk:37",
+        "chunk:38"
+      ]
+    },
+    {
+      "from_id": "loc:身戒寺·大殿",
+      "to_id": "loc:身戒寺",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "出殿即在寺院之中",
+      "sources": [
+        "chunk:37"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府",
+      "to_id": "loc:万劫谷",
+      "direction": "南",
+      "travel_method": "骑马",
+      "time_cost": 22,
+      "basis": "黎明自王府快马出发，未到正午即抵谷外",
+      "sources": [
+        "chunk:31",
+        "chunk:36"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府",
+      "to_id": "loc:万劫谷·谷口树林",
+      "direction": "南",
+      "travel_method": "骑马",
+      "time_cost": 20,
+      "basis": "黎明快马出府，未到正午即抵谷外树林",
+      "sources": [
+        "chunk:31"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府",
+      "to_id": "loc:圣慈宫",
+      "direction": "西",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "圣慈宫在王府以西约两里的大路尽头",
+      "sources": [
+        "chunk:25"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府",
+      "to_id": "loc:大理",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "出府即是城中街巷",
+      "sources": [
+        "chunk:25"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府",
+      "to_id": "loc:大理皇宫",
+      "direction": "西",
+      "travel_method": "步行",
+      "time_cost": 3,
+      "basis": "宫殿在大路尽头，王府在其东面约两里",
+      "sources": [
+        "chunk:25",
+        "chunk:26"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府",
+      "to_id": "loc:澜沧江畔",
+      "direction": "南",
+      "travel_method": "步行",
+      "time_cost": 40,
+      "basis": "木婉清出府在荒野奔了一夜，黎明见到大江",
+      "sources": [
+        "chunk:29"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府",
+      "to_id": "loc:镇南王府·书房",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "王爷书房在府内，须穿过几进屋宇",
+      "sources": [
+        "chunk:38"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府",
+      "to_id": "loc:镇南王府·内堂",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "内堂在王府深处，须穿过前厅",
+      "sources": [
+        "chunk:25",
+        "chunk:31"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府",
+      "to_id": "loc:镇南王府·内室",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "王妃起居之所在府内深处",
+      "sources": [
+        "chunk:38"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府",
+      "to_id": "loc:镇南王府·后花园",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "花园在府邸最后，须穿过前后各进",
+      "sources": [
+        "chunk:38"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府",
+      "to_id": "loc:镇南王府·大厅",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "进府门不远便是正厅",
+      "sources": [
+        "chunk:25"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府",
+      "to_id": "loc:镇南王府·暖阁",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "暖阁属内堂一角，在府内深处",
+      "sources": [
+        "chunk:27"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府",
+      "to_id": "loc:镇南王府·花厅",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "要穿长廊过庭院，经过许多屋子才到",
+      "sources": [
+        "chunk:25"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府",
+      "to_id": "loc:镇南王府·账房",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "管账的房间在府内，离前厅不远",
+      "sources": [
+        "chunk:36"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府·书房",
+      "to_id": "loc:镇南王府",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "出书房穿过几进屋宇回到前院",
+      "sources": [
+        "chunk:38"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府·内堂",
+      "to_id": "loc:镇南王府",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "由府中深处往外走回前院",
+      "sources": [
+        "chunk:25",
+        "chunk:31"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府·内堂",
+      "to_id": "loc:镇南王府·大厅",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "由内堂往外走出，便到正厅",
+      "sources": [
+        "chunk:25"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府·内堂",
+      "to_id": "loc:镇南王府·暖阁",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "暖阁是内堂里设宴的一间，同处一院",
+      "sources": [
+        "chunk:27"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府·内室",
+      "to_id": "loc:镇南王府",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "由内宅深处走回府中前院",
+      "sources": [
+        "chunk:38"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府·后花园",
+      "to_id": "loc:镇南王府",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "由园中往前走回府中各进",
+      "sources": [
+        "chunk:38"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府·大厅",
+      "to_id": "loc:镇南王府",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "出正厅即回府中前院",
+      "sources": [
+        "chunk:25"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府·大厅",
+      "to_id": "loc:镇南王府·内堂",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "内堂在正厅之后，由厅里往里走",
+      "sources": [
+        "chunk:25"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府·大厅",
+      "to_id": "loc:镇南王府·暖阁",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "暖阁在内堂里，由正厅引入即到",
+      "sources": [
+        "chunk:36"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府·大厅",
+      "to_id": "loc:镇南王府·花厅",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "由正厅穿长廊过庭院，走过多间屋子才到",
+      "sources": [
+        "chunk:25",
+        "chunk:36"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府·大厅",
+      "to_id": "loc:镇南王府·账房",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "账房在厅后，家丁由厅上进去传话",
+      "sources": [
+        "chunk:36"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府·暖阁",
+      "to_id": "loc:镇南王府",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "由内堂暖阁往外走回府中",
+      "sources": [
+        "chunk:27"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府·暖阁",
+      "to_id": "loc:镇南王府·内堂",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "出暖阁即回内堂",
+      "sources": [
+        "chunk:27"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府·暖阁",
+      "to_id": "loc:镇南王府·大厅",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "出暖阁经内堂往外走到正厅",
+      "sources": [
+        "chunk:36"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府·花厅",
+      "to_id": "loc:镇南王府",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "循长廊庭院一路走回府前",
+      "sources": [
+        "chunk:25"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府·花厅",
+      "to_id": "loc:镇南王府·大厅",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "出花厅循长廊庭院走回正厅",
+      "sources": [
+        "chunk:25",
+        "chunk:36"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府·账房",
+      "to_id": "loc:镇南王府",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "出账房即回到府中",
+      "sources": [
+        "chunk:36"
+      ]
+    },
+    {
+      "from_id": "loc:镇南王府·账房",
+      "to_id": "loc:镇南王府·大厅",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "由账房经后堂走出来便进正厅",
+      "sources": [
+        "chunk:36"
+      ]
+    },
+    {
+      "from_id": "loc:长岭",
+      "to_id": "loc:深涧",
+      "direction": "东",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "人在江西岸，沿岭前行里许即到临江的深涧",
+      "sources": [
+        "chunk:13"
+      ]
+    },
+    {
+      "from_id": "loc:长岭",
+      "to_id": "loc:高崖",
+      "direction": "西",
+      "travel_method": "攀援",
+      "time_cost": 20,
+      "basis": "涧宽数丈人马难越，只能下到涧底再攀上崖",
+      "sources": [
+        "chunk:13"
+      ]
+    },
+    {
+      "from_id": "loc:陆凉州",
+      "to_id": "loc:身戒寺",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 2,
+      "basis": "州中佛寺，由街市走进山门",
+      "sources": [
+        "chunk:37",
+        "chunk:38"
+      ]
+    },
+    {
+      "from_id": "loc:青豹冈",
+      "to_id": "loc:汴梁",
+      "direction": "西",
+      "travel_method": "步行",
+      "time_cost": 192,
+      "basis": "由冈下大道折回西面的京城，路程与来时相当",
+      "sources": [
+        "chunk:37"
+      ]
+    },
+    {
+      "from_id": "loc:马五德家",
+      "to_id": "loc:无量山",
+      "direction": "北",
+      "travel_method": "步行",
+      "time_cost": 192,
+      "basis": "由普洱马家北上，约两日到无量山",
+      "sources": [
+        "chunk:23"
+      ]
+    },
+    {
+      "from_id": "loc:高崖",
+      "to_id": "loc:剑湖宫",
+      "direction": "下",
+      "travel_method": "步行",
+      "time_cost": 8,
+      "basis": "由崖上下山回到宫中，下坡较快",
+      "sources": [
+        "chunk:4",
+        "chunk:19"
+      ]
+    },
+    {
+      "from_id": "loc:高崖",
+      "to_id": "loc:深涧",
+      "direction": "下",
+      "travel_method": "攀援",
+      "time_cost": 8,
+      "basis": "由崖边攀援下到雾气封底的涧中",
+      "sources": [
+        "chunk:13"
+      ]
+    },
+    {
+      "from_id": "loc:高崖",
+      "to_id": "loc:群山最高峰",
+      "direction": "上",
+      "travel_method": "步行",
+      "time_cost": 48,
+      "basis": "先下崖再连翻几座山头，方登群山绝顶",
+      "sources": [
+        "chunk:13",
+        "chunk:16"
+      ]
+    },
+    {
+      "from_id": "loc:高崖",
+      "to_id": "loc:长岭",
+      "direction": "东",
+      "travel_method": "攀援",
+      "time_cost": 20,
+      "basis": "高崖临江在西，长岭隔着深涧，须下涧再攀上对岸",
+      "sources": [
+        "chunk:13"
+      ]
+    },
+    {
+      "from_id": "loc:高崖",
+      "to_id": "loc:高崖·山溪",
+      "direction": "内部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "崖顶的一道清溪，就在近旁",
+      "sources": [
+        "chunk:13"
+      ]
+    },
+    {
+      "from_id": "loc:高崖·山溪",
+      "to_id": "loc:高崖",
+      "direction": "外部",
+      "travel_method": "步行",
+      "time_cost": 1,
+      "basis": "由溪边回到崖顶",
+      "sources": [
+        "chunk:13"
+      ]
+    }
+  ],
+  "sights": [
+    {
+      "location_id": "loc:剑湖",
+      "landmark": true,
+      "renowned": false,
+      "sources": [
+        "chunk:4"
+      ]
+    },
+    {
+      "location_id": "loc:大理",
+      "landmark": false,
+      "renowned": true,
+      "sources": [
+        "chunk:0"
+      ]
+    },
+    {
+      "location_id": "loc:天龙寺",
+      "landmark": false,
+      "renowned": true,
+      "sources": [
+        "chunk:32",
+        "chunk:33"
+      ]
+    },
+    {
+      "location_id": "loc:少林寺",
+      "landmark": false,
+      "renowned": true,
+      "sources": [
+        "chunk:36"
+      ]
+    },
+    {
+      "location_id": "loc:山西",
+      "landmark": false,
+      "renowned": true,
+      "sources": [
+        "chunk:0"
+      ]
+    },
+    {
+      "location_id": "loc:幽谷·峭壁",
+      "landmark": true,
+      "renowned": false,
+      "sources": [
+        "chunk:5"
+      ]
+    },
+    {
+      "location_id": "loc:无量山",
+      "landmark": true,
+      "renowned": false,
+      "sources": [
+        "chunk:0"
+      ]
+    },
+    {
+      "location_id": "loc:无量山·无量玉壁",
+      "landmark": true,
+      "renowned": false,
+      "sources": [
+        "chunk:4"
+      ]
+    },
+    {
+      "location_id": "loc:无量山·白龙峰",
+      "landmark": true,
+      "renowned": false,
+      "sources": [
+        "chunk:1"
+      ]
+    },
+    {
+      "location_id": "loc:星宿海",
+      "landmark": false,
+      "renowned": true,
+      "sources": [
+        "chunk:35"
+      ]
+    },
+    {
+      "location_id": "loc:江南",
+      "landmark": false,
+      "renowned": true,
+      "sources": [
+        "chunk:9",
+        "chunk:10"
+      ]
+    },
+    {
+      "location_id": "loc:江南临安府",
+      "landmark": false,
+      "renowned": true,
+      "sources": [
+        "chunk:7"
+      ]
+    },
+    {
+      "location_id": "loc:汴梁",
+      "landmark": false,
+      "renowned": true,
+      "sources": [
+        "chunk:30",
+        "chunk:37"
+      ]
+    },
+    {
+      "location_id": "loc:澜沧江",
+      "landmark": true,
+      "renowned": false,
+      "sources": [
+        "chunk:3",
+        "chunk:10"
+      ]
+    },
+    {
+      "location_id": "loc:澜沧江畔",
+      "landmark": true,
+      "renowned": false,
+      "sources": [
+        "chunk:6",
+        "chunk:10"
+      ]
+    },
+    {
+      "location_id": "loc:缥缈峰",
+      "landmark": true,
+      "renowned": false,
+      "sources": [
+        "chunk:1"
+      ]
+    },
+    {
+      "location_id": "loc:苏州",
+      "landmark": false,
+      "renowned": true,
+      "sources": [
+        "chunk:9"
+      ]
+    },
+    {
+      "location_id": "loc:虎牢关",
+      "landmark": false,
+      "renowned": true,
+      "sources": [
+        "chunk:36"
+      ]
+    },
+    {
+      "location_id": "loc:高崖",
+      "landmark": true,
+      "renowned": false,
+      "sources": [
+        "chunk:4",
+        "chunk:13"
+      ]
+    }
   ]
 }

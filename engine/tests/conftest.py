@@ -1,9 +1,11 @@
 """
 [INPUT]: 依赖 pytest / pytest-asyncio / httpx2（MockTransport），依赖 app.application.ports 的 LLMClient，依赖 app.config 的 Settings，
+         依赖 app.domain.events 的 DomainEvent / EventEnvelope，依赖 app.infrastructure.persistence 的 InMemoryWorldGraph / Neo4jWorldGraph，
          依赖 app.container 的 build_container，依赖 app.infrastructure.llm._http 的传输层，依赖 tests/world 的 WORLD
 [OUTPUT]: 对外提供 ScriptedLLM（按剧本吐出回复并记录每次调用的 system / user / schema；stream 把回复切片吐出）、
           wire（把厂商客户端的传输层换成 MockTransport 并记录每个请求，不触网）与 sse() 流式应答、settings（全内存 + mock 的配置）、container（经组合根装配、种下 WORLD 的完整引擎）、spawned_at() 投胎助手、play() 收集回合消息、
-          以及 PG_DSN / NEO4J 集成环境变量
+          以及 PG_DSN / NEO4J 集成环境变量；图谱双实现夹具 graph（内存与真实 Neo4j 共跑，参数化）与 Graph 类型、_neo4j()（连上并重种 WORLD，未设 URI 即跳过）、
+          envelopes()（事件 → 连续版本的信封）、pid()（新的玩家 id）——tests/test_world_graph*.py 共用
 [POS]: tests 的公共装置：测试与生产走同一条组合根；真实 PostgreSQL / Neo4j 只在环境变量给出时参与契约测试
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -11,7 +13,9 @@
 import json
 import os
 from collections.abc import AsyncIterator, Callable, Sequence
+from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 import httpx2
 import pytest
@@ -20,7 +24,10 @@ from app.application.bus import Command, SessionOpened, SpawnPlayer, TurnMessage
 from app.application.ports import JsonSchema, LLMClient
 from app.config import Settings
 from app.container import Container, build_container
+from app.domain.events import DomainEvent, EventEnvelope
 from app.infrastructure.llm import _http
+from app.infrastructure.persistence.memory_graph import InMemoryWorldGraph
+from app.infrastructure.persistence.neo4j_graph import Neo4jWorldGraph
 from tests.world import WORLD
 
 PG_DSN = os.environ.get("TLBB_TEST_POSTGRES_DSN", "")
@@ -106,3 +113,40 @@ async def spawned_at(container: Container, location: str, name: str = "阿星") 
 
 def kinds(messages: Sequence[TurnMessage]) -> list[str]:
     return [type(m).__name__ for m in messages]
+
+
+# ============================================================
+#  图谱双实现夹具：同一组用例在内存实现与真实 Neo4j（设置 TLBB_TEST_NEO4J_URI 时）上共跑
+# ============================================================
+type Graph = InMemoryWorldGraph | Neo4jWorldGraph
+
+
+async def _neo4j() -> Neo4jWorldGraph:
+    if not NEO4J_URI:
+        pytest.skip("未设置 TLBB_TEST_NEO4J_URI")
+    graph = await Neo4jWorldGraph.connect(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
+    await graph.seed(WORLD, reset=True)
+    return graph
+
+
+@pytest.fixture(params=["memory", pytest.param("neo4j", marks=pytest.mark.neo4j)])
+async def graph(request: pytest.FixtureRequest) -> AsyncIterator[Graph]:
+    if request.param == "memory":
+        g = InMemoryWorldGraph()
+        await g.seed(WORLD)
+        yield g
+        return
+    neo = await _neo4j()
+    yield neo
+    await neo.close()
+
+
+def envelopes(pid: str, events: Sequence[DomainEvent], start: int = 1) -> list[EventEnvelope]:
+    return [
+        EventEnvelope(stream_id=pid, version=i, event_id=uuid4(), recorded_at=datetime.now(UTC), event=e)
+        for i, e in enumerate(events, start=start)
+    ]
+
+
+def pid() -> str:
+    return f"ply:{uuid4().hex[:12]}"

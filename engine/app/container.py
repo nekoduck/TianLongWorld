@@ -1,5 +1,6 @@
 """
 [INPUT]: 依赖 app.config 的 Settings / LLMRole，依赖 domain 的端口、WorldBlueprint 与 heartbeat.Atlas，依赖 application 的总线 / 处理器 / 解析器 / 地下城主与气运 / 一席裁决 / 选项 / 叙事 / 投影 / 世界时钟，
+         依赖 application/npc_agent 的 NpcDirector / LLMAgendaPlanner / NullPlanner / LLMEncounterJudge / CanonicalJudge，
          依赖 infrastructure 的事件账本、图谱、记忆与大模型工厂的全部实现
 [OUTPUT]: 对外提供 Container（总线 + 流水线 + 投影协调者 + 播种器 + 关闭钩子）、build_container()（按配置装配整个引擎）
 [POS]: 引擎唯一的组合根（依赖注入）：只有这里知道"端口背后是谁"。四类后端各自二选一（memory / 生产实现），大模型缺席时
@@ -8,7 +9,11 @@
        把气运（FortuneResolver，FORTUNE_ON_CLICK 缺省开，关掉即确定性裁决）交给点选回合；
        意图守卫豁免原著里撞上禁词的正名（WorldviewGuard.for_canon，Neo4j 后端读入库的 blueprint.json）；
        世界时钟（WorldClock）的静态地理 Atlas.of 取同一份正典（memory 后端即种下的蓝图，Neo4j 后端读入库的 blueprint.json，都没有则空 Atlas：
-       时间照走，消息只留在发源地）交给 TurnPipeline；其余模块只依赖抽象，互不 new 对方。
+       时间照走，消息只留在发源地，没有核心 NPC）交给 TurnPipeline；
+       分层 NPC 生态（H-Agent）：NpcDirector 拿同一份 Atlas、正典的人设（执念）与开篇恩怨（relations）——规划者在有大模型且 NPC_AGENDA 开着时
+       用议程职责（LLMRole.AGENDA，LLM_AGENDA_BUDGET 管时）的客户端，否则 NullPlanner（一条议程也不立）；判官在有大模型时用地下城主职责的客户端
+       （撞见与狭路相逢共用地下城主的预算 LLM_RESOLUTION_BUDGET 与原著名录预筛），否则 CanonicalJudge（确定性裁决）；
+       风味文案闸门（options.compose）的原著名录与地下城主的事实预筛同一份；其余模块只依赖抽象，互不 new 对方。
        测试经 blueprint / llm / resolver 参数注入替身，与生产走同一条装配路径
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -22,6 +27,15 @@ from app.application.bus import CommandBus
 from app.application.handlers import TurnPipeline, register_handlers
 from app.application.intent_parser import HeuristicIntentParser, IntentParser, LLMIntentParser, WorldviewGuard
 from app.application.narrator import FallbackNarrator, LLMNarrator, Narrator, TemplateNarrator
+from app.application.npc_agent import (
+    AgendaPlanner,
+    CanonicalJudge,
+    EncounterJudge,
+    LLMAgendaPlanner,
+    LLMEncounterJudge,
+    NpcDirector,
+    NullPlanner,
+)
 from app.application.options import OptionGenerator
 from app.application.ports import LLMClient
 from app.application.projections import ProjectionCoordinator
@@ -71,7 +85,7 @@ async def build_container(
     resolver: Resolver | None = None,
 ) -> Container:
     """
-    llm 是测试替身：同时顶替意图、地下城主与叙事三种在线职责（剧本按调用顺序编排）。
+    llm 是测试替身：同时顶替意图、地下城主、叙事、撞见与狭路相逢的判官、议程（npc_agenda 开着时）几种在线职责（剧本按调用顺序编排）。
     resolver 显式指定地下城主，优先于 llm——测试借此注入一个越界的地下城主，证明钳位与整份作废由领域闸门守住，
     而不依赖 LLMResolutionAgent 自己守规矩。地下城主只为自由文本回合发言；点选回合归气运（不花钱），由 fortune_on_click 开关。
     """
@@ -115,15 +129,28 @@ async def build_container(
     canon = seed if seed is not None else _blueprint_on_disk(settings)
     guard = WorldviewGuard.for_canon(canon)
     parser: IntentParser = LLMIntentParser(reader_llm, guard=guard) if reader_llm else HeuristicIntentParser(guard)
+    names = _canon_names(canon)
+    gm_llm = llm if llm is not None else build_llm(settings, LLMRole.RESOLUTION, fuse)
     if resolver is None:
-        judge_llm = llm if llm is not None else build_llm(settings, LLMRole.RESOLUTION, fuse)
         resolver = (
-            LLMResolutionAgent(judge_llm, budget=settings.llm_resolution_budget, canon_names=_canon_names(canon))
-            if judge_llm
+            LLMResolutionAgent(gm_llm, budget=settings.llm_resolution_budget, canon_names=names)
+            if gm_llm
             else CanonicalResolver()
         )
     narrator: Narrator = (
         FallbackNarrator(LLMNarrator(writer_llm), TemplateNarrator()) if writer_llm else TemplateNarrator()
+    )
+    # 分层 NPC 生态：宏观层的议程一日至多一轮（议程职责），裁决层的判官每回合至多一场（地下城主职责）；微观行军在世界时钟里，不花钱
+    atlas = Atlas.of(canon) if canon is not None else Atlas()
+    planner: AgendaPlanner = NullPlanner()
+    if settings.npc_agenda and (agenda_llm := llm if llm is not None else build_llm(settings, LLMRole.AGENDA, fuse)):
+        planner = LLMAgendaPlanner(agenda_llm, budget=settings.llm_agenda_budget)
+    judge: EncounterJudge = (
+        LLMEncounterJudge(gm_llm, budget=settings.llm_resolution_budget, canon_names=names) if gm_llm else CanonicalJudge()
+    )
+    director = NpcDirector(
+        planner, judge, atlas, canon.personas if canon is not None else (),
+        relations=canon.relations if canon is not None else (),
     )
 
     coordinator = ProjectionCoordinator(store=store, projector=graph, reader=graph, memory=memory)
@@ -136,8 +163,11 @@ async def build_container(
         slot=AdjudicationSlot(resolver, FortuneResolver() if settings.fortune_on_click else None),
         options=OptionGenerator(),
         narrator=narrator,
-        # 世界心跳的静态地理（道路、室内、正典物品、常驻之人）取同一份正典：消息沿路传开、黎明的风化与顺手牵羊都据此
-        clock=WorldClock(Atlas.of(canon) if canon is not None else Atlas()),
+        # 世界心跳的静态地理（道路与耗时、室内、正典物品、常驻之人、核心 NPC）取同一份正典：消息沿路传开、黎明的风化与顺手牵羊、NPC 行军都据此
+        clock=WorldClock(atlas),
+        atlas=atlas,
+        director=director,
+        canon_names=names,
         recall_k=settings.memory_recall_k,
     )
     bus = register_handlers(CommandBus(), pipeline)

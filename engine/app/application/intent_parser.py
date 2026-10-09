@@ -1,8 +1,11 @@
 """
 [INPUT]: 依赖 application/ports 的 LLMClient，依赖 domain/intent 的 ActionType / Approach / Aim / PlayerIntent，依赖 domain/approach 的 MOVES / AIMS / Row / row_of（兼容表），
-         依赖 domain/rules/base 的 ground（话题落地），依赖 domain/snapshot 的 LocalSnapshot，依赖 domain/models 的 WorldBlueprint（for_canon）
-[OUTPUT]: 对外提供 WorldviewGuard（违背世界观的确定性词表守卫，先剔除场景正名与 for_canon 收录的原著撞词正名）、scene_names()、IntentParser 抽象（模板方法：守卫 → 解读 → 清空非移动的此行所为 → 再守卫）、
-          LLMIntentParser（结构化输出 + 重采样 + 兜底 INVALID）、HeuristicIntentParser（离线关键词解析：动作 + 手段 + 所图 + 话题 + 沉思 + 此行所为）、INTENT_SYSTEM / INTENT_SCHEMA / scene_vocabulary()
+         依赖 domain/rules/base 的 ground（话题落地），依赖 domain/snapshot 的 LocalSnapshot / ExitView / CharacterView（handle 方位把手），
+         依赖 domain/geography 的 Direction / UNKNOWN_PLACE，依赖 domain/models 的 WorldBlueprint（for_canon）/ Attitude
+[OUTPUT]: 对外提供 WorldviewGuard（违背世界观的确定性词表守卫，先剔除场景正名与 for_canon 收录的原著撞词正名）、scene_names()（玩家此刻叫得出的名字，迷雾里的出路不算）、
+          IntentParser 抽象（模板方法：守卫 → 解读 → 清空非移动的此行所为 → 再守卫）、
+          LLMIntentParser（结构化输出 + 重采样 + 兜底 INVALID）、HeuristicIntentParser（离线关键词解析：动作 + 手段 + 所图 + 话题 + 沉思 + 此行所为 + 方位 + 问路）、
+          INTENT_SYSTEM / INTENT_SCHEMA / scene_vocabulary()
 [POS]: application 的命令侧入口（CQRS 的 Command 解析）：把玩家的华丽武侠描写降维为系统可识别的 PlayerIntent（动作 × 手段 × 所图 × 对象 × 话题 × 此行所为）。
        三道防线拦截热兵器与法术：①词表守卫在调用大模型之前直接判 INVALID（省钱且不可被话术绕过）；
        ②提示词要求大模型对违背世界观的内容判 INVALID；③即便大模型被说服，裁决规则也只认图谱里存在的实体——AK47 不在任何人的行囊里。
@@ -18,7 +21,14 @@
        别的动作写了也由模板方法清空——它随 Moved 入账，跨进新地方时与眼前所见对照，写出预期落差。离线解析：沉思的关键词只在别的动作都没命中时判 THINK；
        此行所为按结构切分——用出口名定位去处，取其后到句末的一段（「去大理城找段正淳」→「找段正淳」），去处后紧跟「的 / 之」的那一处只是修饰、不足两字不算；
        点了出路且「去」在一切别的动作之前即是动身，后面的取物、出手、打探都是此行所为（「去大理城取玉璧」不是在此地取物）；
-       找移动动词前先等长遮掉「去 / 往 / 赶」的非移动义（过去的事、失去、望去、往事、赶紧），「想想过去的事」是沉思而不是挪步
+       找移动动词前先等长遮掉「去 / 往 / 赶」的非移动义（过去的事、失去、望去、往事、赶紧），「想想过去的事」是沉思而不是挪步。
+       探索迷雾：场景词表的出路写「方位把手（标签）→去处」，未知的去处只写「把手→未知区域」——标签（常带地名）与名字都不给；
+       scene_names 只收认得的出路（守卫与菜单风味的闸门共用此口径）。INTENT_SYSTEM 教 MOVE 写方位把手（往某方位走就写那个把手，未知区域只能写把手、不猜名字），
+       问路（打听去处、前路，这路通向哪里）是寻常的 TALK、topic 写此地之名，示例各一条。离线解析认方位：先等长遮掉此景一切名字（「南海鳄神」不是往南），
+       「往」+ 四方四隅即挪步，「向 / 朝」与上下内外须跟着挪步的字，「北上」「南下」「东行」「西去」照认；这个方位上恰有一条出路即落到它的把手，
+       不止一条或没有就照写方位交给规则驳回（多义不猜），其后到句末是此行所为；没点出路名字时才看方位，点了的照旧。
+       问路先于一切判定（问的话常在引号里，故看原话）：问点了名的人，没点名就问不敌视你的在场者里人情最好的一位（平手取快照次序，与菜单的问路同一人），
+       四下无人可问就不是问路；问路恒是寻常手段、话题是此地——规则据此记下 PlacesLearned
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -33,10 +43,11 @@ from pydantic import ValidationError
 
 from app.application.ports import LLMClient
 from app.domain.approach import AIMS, MOVES, Row, row_of
+from app.domain.geography import UNKNOWN_PLACE, Direction
 from app.domain.intent import ActionType, Aim, Approach, PlayerIntent
-from app.domain.models import WorldBlueprint
+from app.domain.models import Attitude, WorldBlueprint
 from app.domain.rules.base import ground
-from app.domain.snapshot import LocalSnapshot
+from app.domain.snapshot import CharacterView, ExitView, LocalSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -89,12 +100,15 @@ class WorldviewGuard:
 
 
 def scene_names(scene: LocalSnapshot) -> tuple[str, ...]:
-    """此情此景可指称的全部正名与叫法（人、功、物、所在、出路）：守卫查禁词之前先剔掉它们。"""
+    """
+    此情此景玩家叫得出的全部正名与叫法（人、功、物、所在、认得的出路）：守卫查禁词之前先剔掉它们，菜单风味的闸门也以它为「此景之名」。
+    迷雾里的出路一个名字也不算——未知去处的名字与出口标签（常带地名）都不是玩家此刻叫得出的。
+    """
     views = (*scene.characters, *scene.skills, *scene.items)
     return (
         *(n for v in views for n in v.names),
         scene.location.name,
-        *(n for e in scene.exits for n in e.names),
+        *(n for e in scene.exits if e.known for n in e.names),
     )
 
 
@@ -155,10 +169,16 @@ def scene_vocabulary(scene: LocalSnapshot) -> str:
             parts.append(s.name + (f"（{'；'.join(notes)}）" if notes else ""))
         return "、".join(parts) or "无"
 
+    def way(e: ExitView) -> str:  # 迷雾：未知的去处只给方位把手，标签与名字都不给
+        handle = scene.handle(e)
+        if not e.known:
+            return f"{handle}→{UNKNOWN_PLACE}"
+        return f"{handle}{f'（{e.label}）' if e.label != handle else ''}→{e.to_name}"
+
     known = set(scene.player_skills)
     lines = [
         f"所在：{scene.location.name}",
-        f"出路：{'、'.join(f'{e.label}→{e.to_name}' for e in scene.exits) or '无'}",
+        f"出路（方位把手→去处）：{'、'.join(map(way, scene.exits)) or '无'}",
         f"在场之人：{names(scene.characters)}",
         f"可见之物：{names(i for i in scene.items if i.holder_id != scene.player_id)}",
         f"随身之物：{names(scene.inventory)}",
@@ -210,10 +230,13 @@ def _criteria() -> str:
 INTENT_SYSTEM = """你是《天龙八部》文字世界的意图解析器。玩家会用华丽的武侠笔墨描述自己的举动，你要把它降维为一条系统指令，只输出 JSON。
 
 action_type 只能取以下之一：
-- MOVE：沿某条出路去往别处。target_entity 写出路名或目的地名；玩家说了此去找谁、做什么，写进 motivation。撂下一句话就走（「后会有期」后拂袖而去）也是 MOVE：那句话只化进 narrative_style，不写进 topic。
+- MOVE：沿某条出路去往别处。target_entity 写 <scene_vocabulary>「出路」里那条路的方位把手（「北」「东·二」），去处已知时也可写去处名；
+  往某个方位走（向北而去、往东、顺着小路南下）就写那个方位的把手。去处是「未知区域」的只能写方位把手，不替它猜名字。
+  玩家说了此去找谁、做什么，写进 motivation。撂下一句话就走（「后会有期」后拂袖而去）也是 MOVE：那句话只化进 narrative_style，不写进 topic。
 - OBSERVE：观望、等待、倾听、闭目养神等不改变任何事物的举动。
 - THINK：沉思、回想、盘算、权衡——只在心里过一遍，不动手、不开口、不挪步。
 - TALK：与某人说话、打听、拜见、劝解、威逼、套话。target_entity 写说话的对象（不是谈起的那人）。
+  问路（打听去处、前路，问这条路通向哪里）也是 TALK：target_entity 写问的那人，topic 写此地之名（<scene_vocabulary> 的「所在」），approach「寻常」，aim null。
 - ATTACK：向某人出手。target_entity 写那人；skill_used 只在玩家点名所用武功时填写；item_used 只在玩家点名所用兵器时填写。
 - TAKE：拿取某物——地上之物，或别人身上之物（偷、骗、讨、夺都是 TAKE，怎么拿写进 approach）。target_entity 写那件东西。
 - GIVE：把随身之物交给某人。target_entity 写那人，item_used 写那件东西。
@@ -233,7 +256,7 @@ motivation（此行所为）：只在 MOVE 时填写——玩家说了此去找�
 
 解析铁律：
 1. 你只解析"想做什么"，不判断"做不做得成"。玩家想打绝顶高手，就是 ATTACK；成败由世界引擎裁决。
-2. 指称以 <scene_vocabulary> 为准：玩家用代称或绰号指场上的人、物、路时，规整为表中的正名；
+2. 指称以 <scene_vocabulary> 为准：玩家用代称或绰号指场上的人、物、路时，规整为表中的正名（路规整为方位把手）；
    玩家点名的东西不在表中，照抄玩家的原话，绝不替换成表里别的东西，更不编造新名字。
 3. 一句话里有多个动作，取最主要、最先发生的那一个。
 4. 手段与所图照玩家的原话判，不替玩家加戏：没有特别手段就是「寻常」，所图没说清就是 null。
@@ -241,10 +264,10 @@ motivation（此行所为）：只在 MOVE 时填写——玩家说了此去找�
 6. 只输出符合 schema 的 JSON 对象，不要解释。
 
 示例：
-玩家：「我施展凌波微步，飘然向北而去」（出路有 北上→无量山）
-{"action_type": "MOVE", "target_entity": "北上", "item_used": null, "skill_used": null, "narrative_style": "飘逸潇洒", "reason": null, "approach": "寻常", "aim": null, "topic": null, "motivation": ""}
-玩家：「连夜赶去大理城，找段正淳问个明白」（出路有 南下→大理城）
-{"action_type": "MOVE", "target_entity": "南下", "item_used": null, "skill_used": null, "narrative_style": "风尘仆仆", "reason": null, "approach": "寻常", "aim": null, "topic": null, "motivation": "找段正淳问个明白"}
+玩家：「我施展凌波微步，飘然向北而去」（出路有 北（北上）→无量山）
+{"action_type": "MOVE", "target_entity": "北", "item_used": null, "skill_used": null, "narrative_style": "飘逸潇洒", "reason": null, "approach": "寻常", "aim": null, "topic": null, "motivation": ""}
+玩家：「连夜赶去大理城，找段正淳问个明白」（出路有 南（南下）→大理城）
+{"action_type": "MOVE", "target_entity": "南", "item_used": null, "skill_used": null, "narrative_style": "风尘仆仆", "reason": null, "approach": "寻常", "aim": null, "topic": null, "motivation": "找段正淳问个明白"}
 玩家：「掏出手枪对准那大汉扣动扳机」
 {"action_type": "INVALID", "target_entity": null, "item_used": null, "skill_used": null, "narrative_style": "", "reason": "北宋江湖没有手枪", "approach": "寻常", "aim": null, "topic": null, "motivation": ""}
 玩家：「恭恭敬敬向段王爷请教一阳指」
@@ -253,8 +276,12 @@ motivation（此行所为）：只在 MOVE 时填写——玩家说了此去找�
 {"action_type": "TAKE", "target_entity": "闪电貂", "item_used": null, "skill_used": null, "narrative_style": "鬼鬼祟祟", "reason": null, "approach": "潜行", "aim": "夺物", "topic": null, "motivation": ""}
 玩家：「向左掌门打听神农帮为何上门寻仇」（在场之人有 左子穆）
 {"action_type": "TALK", "target_entity": "左子穆", "item_used": null, "skill_used": null, "narrative_style": "客气", "reason": null, "approach": "言辞", "aim": "打探", "topic": "神农帮", "motivation": ""}
-玩家：「冷笑一声：『咱们走着瞧！』拂袖而去」（出路有 出厅→剑湖宫）
-{"action_type": "MOVE", "target_entity": "出厅", "item_used": null, "skill_used": null, "narrative_style": "冷傲撂话", "reason": null, "approach": "寻常", "aim": null, "topic": null, "motivation": ""}
+玩家：「沿着溪边的小径往东走」（出路有 东→未知区域）
+{"action_type": "MOVE", "target_entity": "东", "item_used": null, "skill_used": null, "narrative_style": "从容", "reason": null, "approach": "寻常", "aim": null, "topic": null, "motivation": ""}
+玩家：「向那小姑娘打听这条路通向哪里」（所在：剑湖宫·练武厅，在场之人有 钟灵）
+{"action_type": "TALK", "target_entity": "钟灵", "item_used": null, "skill_used": null, "narrative_style": "客气", "reason": null, "approach": "寻常", "aim": null, "topic": "剑湖宫·练武厅", "motivation": ""}
+玩家：「冷笑一声：『咱们走着瞧！』拂袖而去」（出路有 外部（出厅）→剑湖宫）
+{"action_type": "MOVE", "target_entity": "外部", "item_used": null, "skill_used": null, "narrative_style": "冷傲撂话", "reason": null, "approach": "寻常", "aim": null, "topic": null, "motivation": ""}
 玩家：「掏出金创药敷在伤处」
 {"action_type": "USE", "target_entity": null, "item_used": "金创药", "skill_used": null, "narrative_style": "咬牙忍痛", "reason": null, "approach": "寻常", "aim": null, "topic": null, "motivation": ""}
 玩家：「寻个僻静处盘膝坐下，运功疗伤」
@@ -321,6 +348,23 @@ _MODIFIER = ("的", "之")  # 去处后紧跟「的 / 之」：那个名字只�
 # 「去 / 往 / 赶」的非移动义：过去的事、失去、放眼望去、往事、以往、赶紧——不是挪步。等长遮掉再找移动动词，位置与原句对齐
 _NOT_GOING = re.compile(r"过去(?=[的之种那这所])|[失除死望看瞧]去|去[世年]|往(?=[日事常昔年往])|[以既过]往|赶(?=[紧快忙])")
 _DOINGS = (*_PROBE, *_COERCE, *_DEFUSE)  # 开口之事的关键词：与别的动作动词一起，跟「去」比谁在句中先出现
+# 方位：「往东」「向北走」「朝南而去」「一路南下」「往上爬」「往里走」。往 + 四方四隅本身就是挪步；向 / 朝，以及上下内外，须跟着挪步的字
+_GO = r"(?:而去|(?:走|行|奔|赶|闯|进|飞|掠|爬|攀|跳|跃|游|跑)[去来]?|去)"  # 「奔去」「走来」整个算进去：其后才是此行所为
+_HEADING = re.compile(
+    rf"往着?(?P<a>东北|东南|西北|西南|东|南|西|北)(?:边|面|方)?{_GO}?"
+    rf"|(?:往|向|朝)着?(?P<b>东北|东南|西北|西南|东|南|西|北|上|下|里|内|外)(?:边|面|方|头)?{_GO}"
+    r"|(?P<c>东北|东南|西北|西南|东|南|西|北)(?:行|去)|(?P<d>北)上|(?P<e>南)下"
+)
+_BEARING: dict[str, Direction] = {
+    **{d.value: d for d in (Direction.NORTHEAST, Direction.SOUTHEAST, Direction.NORTHWEST, Direction.SOUTHWEST,
+                            Direction.EAST, Direction.SOUTH, Direction.WEST, Direction.NORTH, Direction.UP, Direction.DOWN)},
+    "里": Direction.INSIDE, "内": Direction.INSIDE, "外": Direction.OUTSIDE,
+}
+# 问路：打听去处、前路，问这条路通向哪里——话题是此地，规则据此把四下还不认得的去处指给你
+_ASK_WAY = re.compile(
+    r"问路|问个路|问问路|指路|指点(?:一下)?(?:去处|前路|路径|道路|出路)|打听(?:一下)?(?:去处|前路|路径|道路|出路|路)"
+    r"|通(?:向|往|到)(?:哪|何)|(?:怎么|怎样|如何)走|往哪(?:里|儿|边)?(?:走|去)|去往何处"
+)
 
 
 def _after_verb(text: str, verbs: Iterable[str], *, seen: str | None = None) -> str:
@@ -366,9 +410,37 @@ def _purpose(text: str, way: _Called) -> str:
         tail = text[pos - minus :]
         if tail.startswith(_MODIFIER):
             continue
-        clause = _PURPOSE_LEAD.sub("", _CLAUSE_END.split(tail, 1)[0]).rstrip(" 　，,、")
-        return clause if len(clause) >= 2 else ""
+        return _clause(tail)
     return ""
+
+
+def _clause(tail: str) -> str:
+    """去处（或方位说法）之后到句末的那一段，剥掉开头的标点、连词与趋向补语；不足两字不算。"""
+    clause = _PURPOSE_LEAD.sub("", _CLAUSE_END.split(tail, 1)[0]).rstrip(" 　，,、")
+    return clause if len(clause) >= 2 else ""
+
+
+def _heading(text: str, scene: LocalSnapshot) -> tuple[str, int, int] | None:
+    """
+    方位说法 → (去向, 起, 止)：先等长遮掉此景的一切名字（「南海鳄神」「东宗弟子」不是方位）再找；
+    这个方位上恰有一条出路即它的把手（「东」「东·二」），不止一条或一条也没有就照写方位，交给规则驳回——多义不猜。
+    """
+    named = {n for v in (*scene.characters, *scene.items, *scene.skills) for n in v.names}
+    named |= {s.name for s in scene.swarms} | {scene.location.name} | {n for e in scene.exits for n in (e.label, e.to_name)}
+    for name in sorted(filter(None, named), key=len, reverse=True):
+        text = text.replace(name, "　" * len(name))
+    m = _HEADING.search(text)
+    if m is None:
+        return None
+    direction = _BEARING[next(g for g in m.groups() if g)]
+    ways = [e for e in scene.exits if e.direction is direction]
+    return (scene.handle(ways[0]) if len(ways) == 1 else direction.value), m.start(), m.end()
+
+
+def _guide(scene: LocalSnapshot) -> CharacterView | None:
+    """没点名问谁路：不敌视你的在场者里人情最好的一位（平手取快照次序），与菜单的问路同一个人。"""
+    willing = [c for c in scene.characters if c.attitude is not Attitude.HOSTILE]
+    return max(willing, key=lambda c: c.attitude.rank, default=None)
 
 
 def _approach(text: str) -> Approach:
@@ -403,6 +475,7 @@ class HeuristicIntentParser(IntentParser):
         thing = _mentioned(body, scene.items)
         art = _mentioned(body, scene.skills)
         way = _mentioned(body, scene.exits)
+        heading = None if way else _heading(going, scene)  # 没点出路的名字，再看说没说方位
         carried = _mentioned(body, scene.inventory)
         approach = _approach(body)
 
@@ -410,8 +483,15 @@ class HeuristicIntentParser(IntentParser):
             return _after_verb(body, _VERBS[action], seen=going if action is ActionType.MOVE else None) or None
 
         def errand() -> PlayerIntent:
-            assert way is not None
-            return PlayerIntent(action_type=ActionType.MOVE, target_entity=way.label, motivation=_purpose(body, way))
+            if way is not None:
+                return PlayerIntent(action_type=ActionType.MOVE, target_entity=way.label, motivation=_purpose(body, way))
+            assert heading is not None
+            target, _, end = heading  # 方位的说法与原句等长对齐：其后到句末即此行所为
+            return PlayerIntent(action_type=ActionType.MOVE, target_entity=target, motivation=_clause(body[end:]))
+
+        # 问路先于一切：「向钟灵打听去处」不是打探，「问他往哪走」也不是自己动身；问的话常在引号里，故看原话
+        if _ASK_WAY.search(text) and (guide := person or _guide(scene)) is not None:
+            return PlayerIntent(action_type=ActionType.TALK, target_entity=guide.name, topic=scene.location.name)
 
         def talk(aim: Aim | None = None, topic: str | None = None, default: Approach = Approach.PLAIN) -> PlayerIntent:
             assert person is not None
@@ -422,7 +502,8 @@ class HeuristicIntentParser(IntentParser):
         acts = (*_VERBS[ActionType.REST], *_VERBS[ActionType.LEARN], *_VERBS[ActionType.GIVE],
                 *_VERBS[ActionType.ATTACK], *_VERBS[ActionType.TAKE], *_DOINGS)
         dosing = m.start() if (m := _USE.search(body)) else len(body)
-        if way and _first(going, _VERBS[ActionType.MOVE]) < min(_first(body, acts), dosing):
+        setting_off = min(_first(going, _VERBS[ActionType.MOVE]), heading[1] if heading else len(body))
+        if (way or heading) and setting_off < min(_first(body, acts), dosing):
             return errand()
         probe = _topic(body, scene, _PROBE) if person and has(_PROBE) else None
         # 服药先于疗伤：「服下金创药疗伤」用的是药；点名的须是此地叫得出名的东西，「吃饭」不是服药
@@ -455,7 +536,7 @@ class HeuristicIntentParser(IntentParser):
                 manner = Approach.WORDS  # 开口要人家的东西，就是言辞讨要
             return PlayerIntent(action_type=ActionType.TAKE, target_entity=thing.name if thing else rest(ActionType.TAKE),
                                 approach=manner)
-        if way:
+        if way or heading:
             return errand()
         if any(v in going for v in _VERBS[ActionType.MOVE]):  # 去处不在出路里：照抄原话交给规则驳回，驳回的移动不入账，此行所为也就无从谈起
             return PlayerIntent(action_type=ActionType.MOVE, target_entity=rest(ActionType.MOVE))

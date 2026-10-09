@@ -3,13 +3,15 @@
          依赖 app.domain 的 ambient / commands / events / models / lore / outcomes / combat / intent / snapshot / aggregates，
          依赖 app.application.world_clock 的 WorldClock，依赖 InMemoryWorldGraph 生成快照，依赖 tests/world 的 WORLD
 [OUTPUT]: 世界物理（domain/heartbeat）的单测：
-          Atlas.of（道路双向、室内之地、正典物品排除后来才出现者、常驻之人排除已故与后来才到场者）与 ring 的广度优先次序（跳数, id）；
+          Atlas.of（道路双向、室内之地、正典物品排除后来才出现者、常驻之人排除已故与后来才到场者；道路耗时按 geography.ways 且只写了一头的另一头取同一耗时、
+          名字、在世之人、没有人设即没有核心 NPC、开篇仇人对）与 ring 的广度优先次序（跳数, id）；
           intensity 烈度表（交手五档、身死、有人出手伤你、暗取被察觉、当场翻脸，取最烈的一件）；
           deed 五种消息（交手 / 夺物、暗取败露与失手、当场翻脸、物归原主）与不成消息的情形（暗中得手无人察觉、未遂、闲谈、修习、交涉如愿、拾取、赠给非物主）；
           aftermath（见血与不见血的痕迹与一刻即止的交手活动、烈度高过阈值才溃散且一群一个活动共一道狼藉、已溃散的不再溃散、
           有人群在场（未溃散；这一招吓跑的也算目睹）的消息每刻两处而已散的人群不算、radius 随烈度、正文截到 40 字）；spread（每刻 speed 处、radius 截止、传满即停、按 id 次序）；
           ecology（只在跨过黎明时结算、露天无主之物按物料日数朽坏而室内或有主或金铁不朽、持有者覆盖正典、已朽的不再朽、
-          顺手牵羊只拿遗落或无主的可携无险之物、物主在侧不拿、仁厚者与被制住者不拿、狠辣者先伸手、拿走之后不再拿、同一天先风化后顺手牵羊、哈希确定）；
+          顺手牵羊只拿遗落或无主的可携无险之物、物主在侧不拿、仁厚者与被制住者不拿、狠辣者先伸手、拿走之后不再拿、同一天先风化后顺手牵羊、哈希确定，
+          伸手的人按此世所在（走开的不拿、走来的照拿））；
           WorldClock.advance（余波 → TimePassed → 扩散 → 生态的次序、折叠后的世界、死者无心跳）
 [POS]: tests 的世界心跳物理基线：时间、余波、传闻与日常生态都是纯函数——同样的世界与同样的命令，得出逐字相同的事件
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -59,6 +61,7 @@ from app.domain.events import (
     TimePassed,
     TraceLeft,
 )
+from app.domain.geography import Direction, Passage, TravelMethod
 from app.domain.heartbeat import (
     BLOOD,
     LITTER,
@@ -186,6 +189,18 @@ def test_the_ring_is_breadth_first_by_hops_then_id() -> None:
     assert atlas.ring(HILL, 1) == (HILL, CITY, CAVE) and CITY < CAVE  # 同一跳按 id
     assert atlas.ring(HILL, 2) == (HILL, CITY, CAVE, WUXI)
     assert atlas.ring("loc:少林寺", 3) == ("loc:少林寺",)  # 不通路的地方只有它自己
+
+
+def test_the_atlas_carries_road_costs_names_the_living_and_rivals() -> None:
+    atlas = Atlas.of(ROADSIDE)  # 山道只写了「上山」一头
+    assert atlas.cost("loc:山道", HILL) == atlas.cost(HILL, "loc:山道") == 4 and atlas.cost(HILL, CITY) == 4
+    assert atlas.names[HILL] == "无量山" and atlas.names[ZUO] == "左子穆" and atlas.names["loc:山道"] == "山道"
+    assert set(atlas.characters) == {c.id for c in WORLD.characters} - {"chr:汪剑通"}  # 已故者不在世上
+    assert atlas.core == () and atlas.rivals == {frozenset((ZUO, XIN))}  # WORLD 没有人设，没有核心 NPC；东西宗是开篇仇敌
+    note = Passage(from_id=CITY, to_id=WUXI, direction=Direction.EAST, travel_method=TravelMethod.RIDE, time_cost=288,
+                   basis="大理到江南", sources=("chunk:1",))
+    noted = Atlas.of(_bp(passages=(note,)))
+    assert noted.cost(CITY, WUXI) == 288 and noted.cost(WUXI, CITY) == 288  # 回程没写注记，随去程的耗时（geography.ways 往返对齐）
 
 
 # ============================================================
@@ -487,6 +502,19 @@ def test_the_merciful_do_not_pilfer() -> None:
     assert ecology(born(pid=pid, tick=dawn(1)), atlas, dawn(1) - 1) == [
         ItemPilfered(item_id="itm:玉佩", from_holder=CITY, to_holder="chr:段延庆")]
     assert ecology(born(pid=pid, tick=dawn(1), subdued=frozenset({"chr:段延庆"})), atlas, dawn(1) - 1) == []
+
+
+def test_pilferers_are_whoever_stands_there_in_this_world() -> None:
+    """顺手牵羊按此世所在：走开了的常驻之人不再伸手，走来的人照样伸手（PlayerState.npc_at 覆盖正典所在）。"""
+    atlas = Atlas.of(ROADSIDE)
+    pid = player_where({1: True}, "itm:铁剑")
+    came = born(pid=pid, tick=dawn(1), npc_at={GONG: "loc:山道"})
+    taken = [e for e in ecology(came, atlas, dawn(1) - 1) if getattr(e, "item_id", "") == "itm:铁剑"]
+    assert taken == [ItemPilfered(item_id="itm:铁剑", from_holder="loc:山道", to_holder=GONG)]  # 山道本无人常驻
+    assert not [e for e in ecology(born(pid=pid, tick=dawn(1)), atlas, dawn(1) - 1) if getattr(e, "item_id", "") == "itm:铁剑"]
+    jade = player_where({1: True}, "itm:玉佩")
+    gone = born(pid=jade, tick=dawn(1), npc_at={c: CITY for c in (ZUO, GONG, XIN, CROC)})
+    assert ecology(gone, Atlas.of(WORLD), dawn(1) - 1) == []  # 无量山的人都下了山：玉佩没人拿
 
 
 def test_weathering_comes_before_pilfering_on_the_same_dawn() -> None:

@@ -1,10 +1,13 @@
 """
 [INPUT]: 依赖 pydantic 的 Field、pydantic-settings 的 BaseSettings，读取进程环境变量与 engine/.env
-[OUTPUT]: 对外提供 Settings 配置模型（含 llm_profile 按职责取模型与思考档位、fortune_on_click 点选回合的气运开关）、LLMRole 四种职责、Thinking 档位、ENGINE_ROOT 工程根路径、get_settings() 进程级单例
+[OUTPUT]: 对外提供 Settings 配置模型（含 llm_profile 按职责取模型与思考档位、fortune_on_click 点选回合的气运开关、npc_agenda 宏观议程开关与 llm_agenda_budget 议程推演的时间预算）、
+          LLMRole 五种职责、Thinking 档位、ENGINE_ROOT 工程根路径、get_settings() 进程级单例
 [POS]: 引擎的唯一配置入口，被 container.py（装配四类后端与大模型）、infrastructure/llm/factory.py（厂商选型）与 seed.py（语料与产物路径）消费；
        每一类存储都有 memory 实现：零依赖即可跑通整条管线，生产环境逐项切到 postgres / neo4j / qdrant；
        大模型的每种职责都可单独选型——地下城主在命令侧同步裁决，它的模型直接决定出手回合的延迟；
        fortune_on_click 决定点选回合胜负未定之事由气运（FortuneResolver）还是确定性裁决定夺，两者都不花钱；
+       npc_agenda 决定核心 NPC 的宏观议程由议程职责的大模型立（一日至多一轮、江湖震动另算）还是一条也不立（NullPlanner），
+       撞见与狭路相逢的判官共用地下城主职责与它的时间预算；
        llm_call_limit 是各职责共用的调用次数保险丝（每进程），付费额度不会被一个失控的循环跑空
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -24,14 +27,16 @@ type Thinking = Literal["", "minimal", "low", "medium", "high"]
 
 class LLMRole(StrEnum):
     """
-    大模型在引擎里的四种无状态职责，各有各的取舍：解析要快、叙事要忠于快照且文笔好、抽取要准（离线、一次成型）、
-    裁决要快且守区间（命令侧同步调用，只能在领域圈出的可裁区间里提议，失灵即由规则裁决）。
+    大模型在引擎里的五种无状态职责，各有各的取舍：解析要快、叙事要忠于快照且文笔好、抽取要准（离线、一次成型）、
+    裁决要快且守区间（命令侧同步调用，只能在领域圈出的可裁区间里提议，失灵即由规则裁决；撞见与狭路相逢的判官也是它）、
+    议程要懂人（宏观层按执念与此地情报为核心 NPC 立议程，一日至多一轮，过领域闸门才入账，失灵即谁也不出门）。
     """
 
     INTENT = "intent"
     NARRATION = "narration"
     EXTRACTION = "extraction"
     RESOLUTION = "resolution"
+    AGENDA = "agenda"
 
 
 class Settings(BaseSettings):
@@ -59,11 +64,17 @@ class Settings(BaseSettings):
     llm_resolution_model: str = ""
     llm_resolution_thinking: Thinking = ""
     llm_resolution_budget: float = Field(default=8.0, ge=1.0, le=60.0)  # 地下城主的时间预算（秒）：玩家在锁里等，超时即交给规则
+    llm_agenda_model: str = ""
+    llm_agenda_thinking: Thinking = ""
+    llm_agenda_budget: float = Field(default=10.0, ge=1.0, le=60.0)  # 议程推演的时间预算（秒）：一日至多一轮，超时即谁也不出门
+    # 宏观议程：开则核心 NPC 由议程职责的大模型按执念与此地情报立议程（再经领域闸门），关则一条也不立——寻路行军与相撞裁决照常
+    npc_agenda: bool = True
     # 点选回合的气运：开则胜负未定之事由 FortuneResolver 按种子（玩家 | 对象 | 尝试次数）在区间里取结局，关则一律取确定性裁决；
     # 两者都不调大模型——地下城主只为自由文本回合发言
     fortune_on_click: bool = True
     # 调用次数保险丝：一个进程内各职责合计至多发出这么多次请求，熔断后各调用方走各自的退路；0 = 不设上限。
-    # 一回合至多三次（意图 + 地下城主 + 叙事），500 次约合两百回合——够玩一整晚，又不够一个失控的循环跑空预付额度
+    # 一回合通常至多三次（意图 + 地下城主 + 叙事），撞见 / 狭路相逢的判官每回合至多再一次、议程一日至多一轮；
+    # 500 次约合两百回合——够玩一整晚，又不够一个失控的循环跑空预付额度
     llm_call_limit: int = Field(default=500, ge=0)
 
     # ------------------------------------------------------------------

@@ -1,17 +1,24 @@
 """
 [INPUT]: 依赖 domain/rules 的 best_skill，依赖 domain/rules/parley 的 fact_to_learn / leverage（打探与借势只在领域选得出见闻与筹码时才出），
-         依赖 domain/intent 的 ActionType / Aim / Approach / PlayerIntent，依赖 domain/approach 的 Route，依赖 domain/models 的 Attitude，
-         依赖 options/phrasing 的 Slots，
+         依赖 domain/intent 的 ActionType / Aim / Approach / PlayerIntent，依赖 domain/approach 的 Route / TacticalAxis / axis_of，依赖 domain/models 的 Attitude，
+         依赖 domain/commands 的 Command / time_cost，依赖 options/phrasing 的 Slots，
          依赖 domain/stakes 的 Risk，依赖 domain/threads 的 Thread，依赖 domain/snapshot 的 LocalSnapshot / CharacterView；PlayerState 仅作类型标注
-[OUTPUT]: 对外提供 OptionCategory（战斗 / 交涉 / 探索 / 修习 / 取物 / 休养）、ActionOption（id + 标签 + 方向 + why + risk 风险档 + 服务端持有的意图）、
-          Candidate（一个候选：方向、意图、措辞键与槽位、所属心事线索、须走的路线）、candidates()（五类候选源依次产出：Thread / Person / Ground / Self / Exit）
+[OUTPUT]: 对外提供 OptionCategory（战斗 / 交涉 / 探索 / 修习 / 取物 / 休养）、
+          ActionOption（id + flavor_text 玩家看见的文案 + label 确定性的朴素标签 + tactical_axis 战术维度 + 方向 + why + risk 风险档 +
+          underlying_command 服务端持有的标准指令（rules.command 算出），只读属性 intent）、digest()（意图摘要）、
+          Candidate（一个候选：方向、意图、措辞键与槽位、所属心事线索、须走的路线）、candidates()（四类候选源依次产出：Thread / Person / Ground / Self）
 [POS]: options 包的候选源：沿快照的合法边枚举「招」，不裁决、不打分——合法与否交给 rules.adjudicate，轻重交给 salience。
+       意图风味封装：一招 = 引擎可读的标准指令（underlying_command）+ 落在哪根战术轴（approach.axis_of 封闭表）+ 两层文案——
+       label 是措辞表填出的朴素标签（退路与核验用），flavor_text 是玩家看见的那句：说书人挑中并过了闸（options/menu）即换成武侠风味，否则就是 label。
+       指令只在服务端：线上只下发 id、flavor_text、战术轴、方向、why 与风险档，玩家点的是 id，执行的是重算出来的 underlying_command。
        Thread：PlayerState.threads 里对象仍在场的每条未了之事，按所图列出兼容表允许而尚未试过的手段（门面只留第一条获准的）；
        Person：每位在场者——攀谈；言辞结交（敌视 / 戒备者化解，人情已达成者不出）；打探（仅当领域选得出此人知情、玩家未知的见闻，标签从不带见闻正文）；
                武力出手；求艺（寻常，由 LearnRule 找肯教之人）与「恳请某人传授某功」（言辞，只在师父不肯、改走交涉时成立；不向仇人恳求）；
                他身上之物：已被制住即伸手取走，否则言辞讨要 / 潜行偷取 / 武力夺物各一条；物归原主；借势（仅当领域选得出筹码）；
+               问路（尚有未知去处时，向一位不敌视你的在场者——人情最好者、平手取快照次序——寻常攀谈、话题是此地：规则据此记下 PlacesLearned）；
        Ground：地上可携之物（物性闸门由规则把关：不可携带者不出）、行囊里的疗伤之药（无伤由规则滤掉；解毒之药 P1 无毒可解，不诱人白白吃掉）；
-       Self：静观、调息、无人可教的修习（参悟典籍、参照典籍、闭门苦练——同一个 LEARN，凭借由规则定）；Exit：出路。
+       Self：静观、调息、无人可教的修习（参悟典籍、参照典籍、闭门苦练——同一个 LEARN，凭借由规则定）。
+       出路不在这里：移动是导航（application/navigation），与交互选项分开下发。
        同一意图只算一个候选（门面按 id 去重，先到者胜：线索的「换个手段」压过同一招的寻常版本）
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -28,7 +35,8 @@ from pydantic import BaseModel, ConfigDict
 
 from app.application.options.phrasing import Slots
 from app.domain import rules
-from app.domain.approach import Route
+from app.domain.approach import Route, TacticalAxis, axis_of
+from app.domain.commands import Command, time_cost
 from app.domain.intent import ActionType, Aim, Approach, PlayerIntent
 from app.domain.models import Attitude
 from app.domain.rules.parley import fact_to_learn, leverage
@@ -49,24 +57,48 @@ class OptionCategory(StrEnum):
     RECOVER = "休养"
 
 
+def digest(intent: PlayerIntent) -> str:
+    """意图摘要：id 与措辞变体都由它确定——同一个意图永远同一个 id、同一句话。此行所为（motivation）不是这一招本身，不进哈希。"""
+    return hashlib.sha1(intent.model_dump_json(exclude={"motivation"}).encode()).hexdigest()[:8]
+
+
 class ActionOption(BaseModel):
+    """
+    一招：玩家看见 flavor_text（说书人配的武侠风味，或退路时的朴素标签），点的是 id，服务端执行的是 underlying_command。
+    tactical_axis 由 approach.axis_of 按指令的意图定（封闭表），不由措辞定；label 恒为措辞表填出的朴素标签。
+    """
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     id: str
-    label: str
+    flavor_text: str  # 玩家看见的那句：过了闸的风味文案，否则同 label
+    label: str  # 确定性的朴素标签（措辞表按意图摘要挑变体）
+    tactical_axis: TacticalAxis
     category: OptionCategory
     why: str = ""  # 为什么上榜：≤12 字的确定性短语，随选项下发
     risk: Risk | None = None  # 语义风险档：只看可裁区间最坏的一端，不露结局；确定之事稳妥
-    intent: PlayerIntent  # 只在服务端：前端只拿到 id、标签、方向、why 与风险档
+    underlying_command: Command  # 只在服务端：rules.command 算出的标准指令（规整后的意图 + 耗时）
+
+    @property
+    def intent(self) -> PlayerIntent:
+        return self.underlying_command.intent
 
     @staticmethod
     def digest(intent: PlayerIntent) -> str:
-        """意图哈希：id 与措辞变体都由它确定——同一个意图永远同一个 id、同一句话。此行所为（motivation）不是这一招本身，不进哈希。"""
-        return hashlib.sha1(intent.model_dump_json(exclude={"motivation"}).encode()).hexdigest()[:8]
+        return digest(intent)
 
     @classmethod
-    def of(cls, category: OptionCategory, label: str, intent: PlayerIntent, why: str = "") -> ActionOption:
-        return cls(id=f"{category.name.lower()}-{cls.digest(intent)}", label=label, category=category, why=why, intent=intent)
+    def of(cls, category: OptionCategory, label: str, command: Command | PlayerIntent, why: str = "") -> ActionOption:
+        """
+        id = 方向 + 指令意图的摘要，flavor_text 先等于 label，战术轴按意图查表。
+        手搭的选项（测试、线上镜像）可以只给意图：耗时按命令耗时表（非移动之招与 rules.command 同值）。
+        """
+        if isinstance(command, PlayerIntent):
+            command = Command(intent=command, time_cost=time_cost(command.action_type))
+        return cls(
+            id=f"{category.name.lower()}-{digest(command.intent)}", flavor_text=label, label=label,
+            tactical_axis=axis_of(command.intent), category=category, why=why, underlying_command=command,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,18 +124,11 @@ def candidates(state: PlayerState, snap: LocalSnapshot) -> Iterator[Candidate]:
     yield from persons(state, snap)
     yield from grounds(state, snap)
     yield from selves(state, snap)
-    yield from exits(snap)
 
 
 # ============================================================
-#  Exit / Self / Ground
+#  Self / Ground
 # ============================================================
-def exits(snap: LocalSnapshot) -> Iterator[Candidate]:
-    for way in snap.exits:
-        yield Candidate(_C.EXPLORE, PlayerIntent(action_type=_T.MOVE, target_entity=way.label), "move",
-                        (("exit", way.label), ("place", way.to_name)))
-
-
 def _taught_here(snap: LocalSnapshot) -> set[str]:
     """在场者身负的武学：求艺归 Person 源，其余（典籍、自己已会的）归 Self 源——同一个 LEARN 意图只出一次。"""
     return {s for c in snap.characters for s in c.skill_ids}
@@ -176,6 +201,20 @@ def persons(state: PlayerState, snap: LocalSnapshot) -> Iterator[Candidate]:
         if art.id in taught:
             yield Candidate(_C.CULTIVATE, PlayerIntent(action_type=_T.LEARN, skill_used=art.name), "learn",
                             (("art", art.name),))
+    if (guide := _guide(snap)) is not None:  # 问路：话题是此地，规则据此把相邻的未知去处记作「问路」得知
+        yield Candidate(_C.EXPLORE, PlayerIntent(action_type=_T.TALK, target_entity=guide.name, topic=snap.location.name),
+                        "ask.way", (("npc", guide.name),))
+
+
+def _guide(snap: LocalSnapshot) -> CharacterView | None:
+    """
+    问路找谁：尚有未知去处时，不敌视你的在场者里人情最好的一位（平手取快照次序）——一份菜单只出一条问路，
+    免得满屋子的人各占一席同一句话；条条出路都已知，或在场的只有仇人，就不问。
+    """
+    if all(way.known for way in snap.exits):
+        return None
+    willing = [c for c in snap.characters if c.attitude is not Attitude.HOSTILE]
+    return max(willing, key=lambda c: c.attitude.rank, default=None)
 
 
 _HELD: tuple[tuple[Approach, OptionCategory, str], ...] = (

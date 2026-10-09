@@ -19,7 +19,8 @@
        一批两答同名即拒；门派须是蓝图里有人的门派正名、id 即 swm:{名称}，交给 domain 的 lore_integrity_errors 裁。
        题面同一口径：<later_relations> 列出全部非开篇的关系，人物只列开篇关系，随身之物、<items> 与 <names> 不含后来才出现之物，<names> 另列地名简称，
        <places> 附提到此地的原文块，<existing_swarms> 列出已有人群。
-       缓存带版本与指纹：指纹覆盖掌故所依赖的一切（名字、所在、武学、关系与其 era、物性），不含描述与掌故本身（人设、见闻、人群）——审计改了 era 或物性，掌故即整体作废。
+       缓存带版本与指纹：指纹覆盖掌故所依赖的一切（名字、所在、武学、关系与其 era、物性），不含描述、掌故本身（人设、见闻、人群）与地理注记（passages / sights）——
+       审计改了 era 或物性，掌故即整体作废；地理注记套上与否掌故不动（apply_lore 原样带过它们）。
        人群是向后兼容的新作答类型：旧缓存没有 swarms 照读为空、指纹不变，LORE_PROMPT_VERSION 因此不递增
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -334,11 +335,11 @@ def ingest_lore(bp: WorldBlueprint, raw: str, cache: Path, by: str, lib: Library
 #  套用 —— 纯函数：掌故整体换上，重过蓝图闸门
 # ============================================================
 def apply_lore(bp: WorldBlueprint, book: LoreBook) -> WorldBlueprint:
-    """纯函数：蓝图的 personas / facts / swarms 整体换成这本掌故；新蓝图不自洽即抛 ValueError（pydantic 的 ValidationError）。"""
+    """纯函数：蓝图的 personas / facts / swarms 整体换成这本掌故（地理注记原样带过）；新蓝图不自洽即抛 ValueError（pydantic 的 ValidationError）。"""
     return WorldBlueprint(
         locations=bp.locations, characters=bp.characters, martial_arts=bp.martial_arts, items=bp.items, relations=bp.relations,
         personas=tuple(e.persona for e in book.personas), facts=tuple(e.fact for e in book.facts),
-        swarms=tuple(e.swarm for e in book.swarms),
+        swarms=tuple(e.swarm for e in book.swarms), passages=bp.passages, sights=bp.sights,  # 地理注记原样带过
     )
 
 
@@ -346,8 +347,11 @@ def apply_lore(bp: WorldBlueprint, book: LoreBook) -> WorldBlueprint:
 #  缓存 —— data/world/lore.json：版本 + 蓝图指纹
 # ============================================================
 def lore_fingerprint(bp: WorldBlueprint) -> str:
-    """覆盖掌故所依赖的一切——名字、所在、门派、武学、关系与其 era、物性、出路——不含描述、后文剧情与掌故本身（人设、见闻、人群）。"""
-    data = bp.model_dump(mode="json", exclude={"personas", "facts", "swarms"})
+    """
+    覆盖掌故所依赖的一切——名字、所在、门派、武学、关系与其 era、物性、出路——不含描述、后文剧情、掌故本身（人设、见闻、人群）
+    与地理注记（passages / sights：地理不改掌故所依赖之事，套上它们掌故不作废，入库的 lore.json 照旧有效）。
+    """
+    data = bp.model_dump(mode="json", exclude={"personas", "facts", "swarms", "passages", "sights"})
     for kind in ("locations", "characters", "martial_arts", "items", "relations"):
         for entry in data[kind]:
             for noise in ("description", "foreshadow", "note"):

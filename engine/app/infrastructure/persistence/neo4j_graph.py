@@ -1,34 +1,34 @@
 """
 [INPUT]: 依赖 neo4j 的 AsyncGraphDatabase / AsyncDriver / AsyncManagedTransaction，依赖 domain/ports 的 WorldReader / WorldProjector / WorldSeeder，
-         依赖 domain/events 的领域事件，依赖 domain/combat 的 CombatOutcome，依赖 domain/progression 的 MAX_HP，
-         依赖 domain/clocks 的 NarrativeClock，依赖 domain/aggregates 的 EMERGED_MAX，
-         依赖 domain/ambient 的 Activity / EnvironmentalTrace / ActivityKind 与 ACTIVITIES_MAX / TRACES_MAX / TOKENS_MAX，依赖 domain/commands 的 SPAWN_TICK，
-         依赖 domain/models 的 Attitude / CharacterStatus / Era / ItemUse / Acquisition / Practice / kind_of / WorldBlueprint，依赖 domain/snapshot 的视图，
-         依赖 infrastructure/cypher 的 compile_blueprint / CANON_LABELS / OVERLAY_LABELS / KIND_LABELS，依赖 app.errors 的 ProjectionError
+         依赖 domain/events 的领域事件，依赖 domain/combat 的 CombatOutcome，依赖 domain/progression 的 MAX_HP，依赖 domain/clocks 的 NarrativeClock，
+         依赖 domain/aggregates 的 EMERGED_MAX，依赖 domain/ambient 的 Activity / EnvironmentalTrace / ActivityKind 与 ACTIVITIES_MAX / TRACES_MAX / TOKENS_MAX，
+         依赖 domain/commands 的 SPAWN_TICK，依赖 domain/geography 的 discovery，依赖 domain/models 的 Attitude / CharacterStatus / Era / ItemUse / Acquisition /
+         Practice / kind_of / WorldBlueprint，依赖 domain/snapshot 的视图，依赖 infrastructure/cypher 的 compile_blueprint / CANON_LABELS / OVERLAY_LABELS / KIND_LABELS，
+         依赖 app.errors 的 ProjectionError
 [OUTPUT]: 对外提供 Neo4jWorldGraph（connect / close + 图谱三端口 + stale_canon 旧纪元残留检查）
-[POS]: persistence 的生产图谱快照。正典 = 播种写入的节点与硬性边，永不被事件改写；
-       平行世界 = 以玩家为锚的覆盖层：(:Player) 节点（name / alive / version 检查点 / aptitude 悟性 / hp 气血）、LOCATED_IN（所在）、
-       KNOWS_SKILL {proficiency}（所学及熟练度之和——SkillPracticed 在边上做加法，与 evolve 的 reduce 同构；加法不幂等，
-       故检查点在 Player 写锁下读取；旧引擎留下的无熟练度边按上抛口径读作 LEGACY_MASTERY_POINTS）、
+[POS]: persistence 的生产图谱快照。正典 = 播种写入的节点与硬性边，永不被事件改写；平行世界 = 以玩家为锚的覆盖层：
+       (:Player) 节点（name / alive / version 检查点 / aptitude 悟性 / hp 气血）、LOCATED_IN（所在）、KNOWS_SKILL {proficiency}（熟练度之和——
+       SkillPracticed 在边上做加法，与 evolve 的 reduce 同构；加法不幂等，故检查点在 Player 写锁下读取；旧引擎的无熟练度边读作 LEGACY_MASTERY_POINTS）、
        SUBDUED（制住之人）、(:Character)-[:REGARDS {attitude}]->(:Player)（人情）、(:Item)-[:HELD_BY {world}]->(持有者)（易手之物）、
-       (:Item)-[:CONSUMED {world}]->(:Player)（用掉之物：HELD_BY 原样留着，快照据此滤掉——只删 HELD_BY 会让它回到正典持有者手里）、
-       (:Player)-[:LEARNED {world}]->(:Fact)（得知的见闻）。
-       物品此刻的持有者 = 本世界的 HELD_BY，否则正典的 canon_holder——覆盖层可整体抹去并从事件流重放重建。
-       P1 视图：在场口径排除 arrives_with（后来才到场者 P1 不进任何场景）；羁绊带 era 与 lead（startNode 即上首）；
-       出口的 hostile_ahead 是去处在场者里有没有对本世界玩家 REGARDS 敌视且未被 SUBDUED 的人；人设读 persona JSON 的外显部分；
-       见闻 = 经 KNOWS_FACT 取知情人在场者 ∪ 经 LEARNED 取已知且 ABOUT / UNLOCKS 指向此地、在场者或可见之物者（known 标明已知），
-       ABOUT / UNLOCKS 还原主体与解锁；labels 把 fact:<slug> 映射为见闻正文。
-       语义物理引擎：(:Clock {id, world, name, kind, progress, maximum, consequence})-[:ON]->(挂处：Character / Location / Item / Player)
-       由 ClockStarted 写入、ClockAdvanced 钳位加减、ClockCollapsed / ClockCleared 删除；(:Emerged {id, world, text, seq, subject_ids})-[:ABOUT]->(主体)
-       由 FactEmerged 写入（seq = 信封版本，重提刷新），每个世界只留 seq 最新的 EMERGED_MAX 条；RenownChanged 只进聚合。
-       快照召回挂在此地、在场者、可见之物、玩家自己身上的时钟，与主体 ABOUT 此地、在场者或可见之物的微观事实；forget 连同它们一起抹去。
-       世界心跳：Player.tick（PlayerSpawned 时 SPAWN_TICK，旧节点读作 SPAWN_TICK）由 TimePassed 累加，随即先删到期的 (:Trace)、
-       再删已结束且痕迹不在了的 (:Activity)（与 ambient.elapse 同口径、同次序）；(:Activity {world, id, kind, participants, started, ends, trace})-[:AT]->(:Location)、
+       (:Item)-[:CONSUMED {world}]->(:Player)（用掉与朽坏之物：HELD_BY 原样留着，快照据此滤掉——只删 HELD_BY 会让它回到正典持有者手里）、
+       (:Player)-[:LEARNED {world}]->(:Fact)（得知的见闻）。物品此刻的持有者 = 本世界的 HELD_BY，否则正典的 canon_holder——覆盖层可整体抹去并重放重建。
+       P1 视图：在场口径排除 arrives_with；羁绊带 era 与 lead（startNode 即上首）；出口的 hostile_ahead 是去处在场者里有没有对本世界玩家 REGARDS 敌视
+       且未被 SUBDUED 的人；人设读 persona JSON 的外显部分；见闻 = 经 KNOWS_FACT 取知情人在场者 ∪ 经 LEARNED 取已知且 ABOUT / UNLOCKS 指向此地、在场者或
+       可见之物者（known 标明已知），ABOUT / UNLOCKS 还原主体与解锁；labels 把 fact:<slug> 映射为见闻正文。
+       语义物理引擎：(:Clock {id, world, name, kind, progress, maximum, consequence})-[:ON]->(挂处) 由 ClockStarted 写入、ClockAdvanced 钳位加减、
+       ClockCollapsed / ClockCleared 删除；(:Emerged {id, world, text, seq, subject_ids})-[:ABOUT]->(主体) 由 FactEmerged 写入（seq = 信封版本，重提刷新），
+       每个世界只留 seq 最新的 EMERGED_MAX 条；RenownChanged 只进聚合。快照召回挂在此地、在场者、可见之物、玩家身上的时钟与 ABOUT 它们的微观事实。
+       世界心跳：Player.tick（投胎时 SPAWN_TICK，旧节点读作 SPAWN_TICK）由 TimePassed 累加，随即先删到期的 (:Trace)、再删已结束且痕迹不在的 (:Activity)
+       （与 ambient.elapse 同口径、同次序）；(:Activity {world, id, kind, participants, started, ends, trace})-[:AT]->(:Location)、
        (:Trace {world, id, description, born, decay})-[:AT]->(:Location)、(:Rumor {world, id, text, subject_ids, origin, born, speed, radius})-[:REACHED]->(传到之处)
-       按 (world, id) MERGE 覆盖，超上限按（起讫 / 出生刻, id）降序留前 N 个；RumorSpread 只补 REACHED 边（消息不在即无事）；
-       ItemDecayed 与 ItemConsumed 同一投影（CONSUMED 边），ItemPilfered 与 ItemTransferred 同一投影（HELD_BY 易手）；Moved.motivation 只进聚合。
-       快照另取此地的活动（state 按 tick 现算）、此地 remaining ≥ 1 的痕迹、正典 (:Swarm)-[:LOCATED_IN]->(此地) 的人群
-       （routed = 本世界有一个参与者含它、尚未结束的溃散逃离活动）与 REACHED 此地的消息；forget 一并删 (:Activity|Trace|Rumor {world})。
+       按 (world, id) MERGE 覆盖，超上限按（起讫 / 出生刻, id）降序留前 N 个；RumorSpread 只补 REACHED 边；ItemDecayed 同 ItemConsumed、
+       ItemPilfered 同 ItemTransferred；Moved.motivation 只进聚合。快照另取此地的活动（state 按 tick 现算）、remaining ≥ 1 的痕迹、
+       正典 (:Swarm)-[:LOCATED_IN]->(此地) 的人群（routed = 本世界尚未结束、参与者含它的溃散逃离）与 REACHED 此地的消息。
+       空间认知与 NPC 生态：投胎与 Moved 记 (:Player)-[:VISITED {world}]->(去处)、PlacesLearned 记 HEARD_OF {world}；出口按 CONNECTS_TO 的
+       direction / travel_method / time_cost（没写过的旧边取 ExitView 缺省）与 geography.discovery（VISITED / HEARD_OF / 去处的 landmark / renowned）；
+       NpcMoved 改 (:Character)-[:AT {world}]->(:Location)（此世所在覆盖正典 LOCATED_IN：在场者、hostile_ahead、持有者与知情人都按它算）、
+       NpcWounded 记 (:Character)-[:WOUNDED {world, until}]->(:Player)（CharacterView.wounded = until > tick）；议程与中断只进聚合。
+       forget 删本世界的 HELD_BY / CONSUMED / LEARNED / AT、(:Clock|Emerged|Activity|Trace|Rumor {world}) 与 Player 节点（连同 VISITED / HEARD_OF / WOUNDED）。
        每种事件一个投影函数（开闭）；投影在单个写事务内推进检查点，版本不超过检查点的事件被跳过（幂等，可安全重试）
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -62,6 +62,9 @@ from app.domain.events import (
     ItemPilfered,
     ItemTransferred,
     Moved,
+    NpcMoved,
+    NpcWounded,
+    PlacesLearned,
     PlayerDied,
     PlayerSpawned,
     RelationChanged,
@@ -71,6 +74,7 @@ from app.domain.events import (
     TimePassed,
     TraceLeft,
 )
+from app.domain.geography import discovery
 from app.domain.models import Acquisition, Attitude, CharacterStatus, Era, ItemUse, Practice, WorldBlueprint, kind_of
 from app.domain.ports import WorldProjector, WorldReader, WorldSeeder
 from app.domain.progression import MAX_HP
@@ -112,6 +116,7 @@ DELETE old
 WITH DISTINCT p
 MATCH (l:Location {id: $loc})
 MERGE (p)-[:LOCATED_IN]->(l)
+MERGE (p)-[:VISITED {world: $pid}]->(l)
 """
 
 
@@ -125,8 +130,35 @@ async def _spawned(tx: _Tx, pid: str, e: PlayerSpawned) -> None:
 
 
 async def _moved(tx: _Tx, pid: str, e: Moved) -> None:
-    """此行所为（motivation）只进聚合：它是短期记忆的线头，不是图上的事实。"""
+    """此行所为（motivation）只进聚合：它是短期记忆的线头，不是图上的事实。去处与投胎之地一样记一条 VISITED（亲历）。"""
     await tx.run(_RELOCATE, pid=pid, loc=e.to_location_id)
+
+
+async def _places_learned(tx: _Tx, pid: str, e: PlacesLearned) -> None:
+    """问路得知的地方记成 HEARD_OF：此后作为去处时不再是「未知区域」（与 evolve 并进 heard 同口径）。"""
+    await tx.run(
+        "MATCH (p:Player {id: $pid}) UNWIND $places AS place "
+        "MATCH (l:Location {id: place}) MERGE (p)-[:HEARD_OF {world: $pid}]->(l)",
+        pid=pid, places=list(e.location_ids),
+    )
+
+
+async def _npc_moved(tx: _Tx, pid: str, e: NpcMoved) -> None:
+    """NPC 走了一跳：本世界的 AT 边改指去处，覆盖正典的 LOCATED_IN（与 evolve 改 npc_at 同口径；witnessed 只进白描）。"""
+    await tx.run(
+        "MATCH (c:Character {id: $npc}) OPTIONAL MATCH (c)-[old:AT {world: $pid}]->() DELETE old "
+        "WITH DISTINCT c MATCH (l:Location {id: $loc}) MERGE (c)-[:AT {world: $pid}]->(l)",
+        npc=e.npc_id, pid=pid, loc=e.to_location_id,
+    )
+
+
+async def _npc_wounded(tx: _Tx, pid: str, e: NpcWounded) -> None:
+    """NPC 带伤到 until 那一刻为止：WOUNDED 边挂在本世界的玩家上，再伤即覆盖（与 evolve 改 npc_wounds 同口径）。"""
+    await tx.run(
+        "MATCH (c:Character {id: $npc}) MATCH (p:Player {id: $pid}) "
+        "MERGE (c)-[w:WOUNDED {world: $pid}]->(p) SET w.until = $until",
+        npc=e.npc_id, pid=pid, until=e.until_tick,
+    )
 
 
 async def _transferred(tx: _Tx, pid: str, e: ItemTransferred | ItemPilfered) -> None:
@@ -359,10 +391,13 @@ async def _rumor_spread(tx: _Tx, pid: str, e: RumorSpread) -> None:
 
 
 async def _nothing(tx: _Tx, pid: str, e: DomainEvent) -> None:
-    """Conversed / ActionFailed / Parleyed / Maneuvered：只是历史或只进聚合（心事线索）；RenownChanged 的名望只进聚合与状态栏——都不改变图谱的快照。"""
+    """只是历史或只进聚合（心事线索、名望与状态栏、议程与中断）：都不改变图谱的快照。"""
 
 
+_AGGREGATE_ONLY = ("Conversed", "ActionFailed", "Parleyed", "Maneuvered", "RenownChanged",
+                   "AgendaPlanned", "AgendaIssued", "AgendaConcluded", "EncounterBegan", "EncounterResolved")
 _PROJECTORS: dict[str, _Projector] = {
+    **dict.fromkeys(_AGGREGATE_ONLY, _nothing),
     "PlayerSpawned": _spawned,
     "Moved": _moved,
     "ItemTransferred": _transferred,
@@ -371,17 +406,12 @@ _PROJECTORS: dict[str, _Projector] = {
     "HealthChanged": _health,
     "RelationChanged": _regarded,
     "PlayerDied": _died,
-    "Conversed": _nothing,
-    "ActionFailed": _nothing,
-    "Parleyed": _nothing,
     "FactLearned": _learned,
     "ItemConsumed": _consumed,
-    "Maneuvered": _nothing,
     "ClockStarted": _clock_started,
     "ClockAdvanced": _clock_advanced,
     "ClockCollapsed": _clock_retired,
     "ClockCleared": _clock_retired,
-    "RenownChanged": _nothing,
     "TimePassed": _time_passed,
     "ActivityStarted": _activity_started,
     "TraceLeft": _trace_left,
@@ -389,6 +419,9 @@ _PROJECTORS: dict[str, _Projector] = {
     "RumorSpread": _rumor_spread,
     "ItemDecayed": _consumed,
     "ItemPilfered": _transferred,
+    "PlacesLearned": _places_learned,
+    "NpcMoved": _npc_moved,
+    "NpcWounded": _npc_wounded,
 }
 _VERSIONED: dict[str, _VersionedProjector] = {  # 需要信封版本的投影（按新旧裁剪的微观事实）
     "FactEmerged": _emerged,
@@ -407,20 +440,29 @@ RETURN p.name AS name, p.alive AS alive, coalesce(p.version, 0) AS version,
        COLLECT { MATCH (p)-[:SUBDUED]->(c:Character) RETURN c.id } AS subdued,
        COLLECT {
            MATCH (l)-[e:CONNECTS_TO]->(d:Location)
-           RETURN {label: e.label, to_id: d.id, to_name: d.name, hostile_ahead: EXISTS {
-               MATCH (c:Character)-[:LOCATED_IN]->(d)
-               WHERE c.status = $alive AND c.arrives_with IS NULL
-                 AND EXISTS { (c)-[:REGARDS {attitude: $hostile}]->(p) } AND NOT EXISTS { (p)-[:SUBDUED]->(c) }
+           RETURN {label: e.label, to_id: d.id, to_name: d.name, direction: e.direction, travel_method: e.travel_method,
+                   time_cost: e.time_cost, visited: EXISTS { (p)-[:VISITED]->(d) }, heard: EXISTS { (p)-[:HEARD_OF]->(d) },
+                   landmarks: coalesce(d.landmark, false), renowned: coalesce(d.renowned, false),
+                   hostile_ahead: EXISTS {
+                       MATCH (c:Character)-[:REGARDS {attitude: $hostile}]->(p)
+                       WHERE c.status = $alive AND c.arrives_with IS NULL AND NOT EXISTS { (p)-[:SUBDUED]->(c) }
+                         AND (EXISTS { (c)-[:AT {world: $pid}]->(d) }
+                              OR (NOT EXISTS { (c)-[:AT {world: $pid}]->() } AND EXISTS { (c)-[:LOCATED_IN]->(d) }))
            }}
        } AS exits
 """
 
 _Q_CHARACTERS = """
-MATCH (c:Character)-[:LOCATED_IN]->(:Location {id: $loc})
-WHERE c.status = $alive AND c.arrives_with IS NULL
+CALL () {
+    MATCH (c:Character)-[:AT {world: $pid}]->(:Location {id: $loc}) RETURN c
+    UNION
+    MATCH (c:Character)-[:LOCATED_IN]->(:Location {id: $loc}) WHERE NOT EXISTS { (c)-[:AT {world: $pid}]->() } RETURN c
+}
+WITH c WHERE c.status = $alive AND c.arrives_with IS NULL
 OPTIONAL MATCH (c)-[r:REGARDS]->(:Player {id: $pid})
 RETURN c {.id, .name, .titles, .aliases, .faction, .tier, .disposition, .description, .persona} AS c,
        r.attitude AS attitude,
+       EXISTS { MATCH (c)-[w:WOUNDED {world: $pid}]->(:Player) WHERE w.until > $tick } AS wounded,
        COLLECT { MATCH (c)-[:KNOWS_SKILL]->(a:MartialArt) RETURN a.id } AS skills,
        COLLECT {
            MATCH (c)-[h:HAS_RELATION]-(o:Character)
@@ -596,7 +638,7 @@ class Neo4jWorldGraph(WorldReader, WorldProjector, WorldSeeder):
 
     async def forget(self, player_id: str) -> None:
         await self._driver.execute_query(
-            "MATCH ()-[r:HELD_BY|CONSUMED|LEARNED {world: $pid}]->() DELETE r", pid=player_id, database_=self._db
+            "MATCH ()-[r:HELD_BY|CONSUMED|LEARNED|AT {world: $pid}]->() DELETE r", pid=player_id, database_=self._db
         )
         await self._driver.execute_query(
             "MATCH (n:Clock|Emerged|Activity|Trace|Rumor {world: $pid}) DETACH DELETE n", pid=player_id, database_=self._db
@@ -652,7 +694,7 @@ async def _snapshot_tx(tx: _Tx, player_id: str) -> LocalSnapshot:
 
     characters = []
     async for r in await tx.run(
-        _Q_CHARACTERS, loc=loc["id"], pid=player_id, alive=CharacterStatus.ALIVE.value, opening=Era.OPENING.value
+        _Q_CHARACTERS, loc=loc["id"], pid=player_id, alive=CharacterStatus.ALIVE.value, opening=Era.OPENING.value, tick=tick
     ):
         c = r["c"]
         characters.append(CharacterView(
@@ -661,7 +703,7 @@ async def _snapshot_tx(tx: _Tx, player_id: str) -> LocalSnapshot:
             tier=c["tier"], disposition=c["disposition"], description=c["description"] or "",
             subdued=c["id"] in subdued, attitude=r["attitude"] or Attitude.NEUTRAL,
             skill_ids=r["skills"], bonds=[BondView(**b) for b in r["bonds"]],
-            persona=PersonaView.model_validate_json(c["persona"]) if c["persona"] else None,
+            persona=PersonaView.model_validate_json(c["persona"]) if c["persona"] else None, wounded=bool(r["wounded"]),
         ))
     present = [c.id for c in characters]
 
@@ -722,7 +764,7 @@ async def _snapshot_tx(tx: _Tx, player_id: str) -> LocalSnapshot:
         version=int(head["version"]),
         location=LocationView(id=loc["id"], name=loc["name"], region=loc["region"] or "",
                               description=loc["description"] or ""),
-        exits=[ExitView(**e) for e in head["exits"]],
+        exits=[_exit(e) for e in head["exits"]],
         characters=characters,
         items=items,
         skills=skills,
@@ -739,6 +781,15 @@ async def _snapshot_tx(tx: _Tx, player_id: str) -> LocalSnapshot:
         rumors=rumors,
     )
     return snapshot.model_copy(update={"labels": await _labels_tx(tx, sorted(snapshot.referenced_ids()))})
+
+
+def _exit(e: dict[str, Any]) -> ExitView:
+    """出路的认知经领域的 discovery 现算（与内存实现同一个函数）；没写过方位的旧图谱边取 ExitView 的缺省值。"""
+    to = e["to_id"]
+    seen = {k: frozenset({to} if e[k] else ()) for k in ("visited", "heard", "landmarks", "renowned")}
+    attrs = {k: e[k] for k in ("direction", "travel_method", "time_cost") if e[k] is not None}
+    return ExitView(label=e["label"], to_id=to, to_name=e["to_name"], hostile_ahead=e["hostile_ahead"],
+                    discovery=discovery(to, **seen), **attrs)
 
 
 def _activity_view(a: Activity, tick: int) -> ActivityView:

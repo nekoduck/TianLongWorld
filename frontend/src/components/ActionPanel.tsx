@@ -1,14 +1,16 @@
 /**
- * [INPUT]: 依赖 react 的 useState，依赖 types.ts 的 ActionType，依赖 view.ts 的 Choice / Tone
+ * [INPUT]: 依赖 react 的 useState，依赖 types.ts 的 ActionType，依赖 view.ts 的 Choice / Tone / Waypoint，依赖 components/CompassBar
  * [OUTPUT]: 对外提供 ActionPanel 组件
- * [POS]: components 的底部交互区：通用抉择按钮（backend 为 A/B/C 三档，engine 为 3~4 招，角标「key · hint」即风险档或方向 · why）+ 自定义动作输入；
+ * [POS]: components 的底部交互区：通用抉择按钮（backend 为 A/B/C 三档，角标「key · hint」；engine 为 3~4 招风味文案，角标是战术维度的徽记，
+ *        tip（why · 风险档）作悬停提示）+ 方位导航条（engine，点方位与点选项同走 onAct('choice', id)）+ 自定义动作输入；
  *        只按 tone 定色、不解读选项语义；ready 为假时隐身且 inert
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 import { useState, type FormEvent } from 'react'
 
 import type { ActionType } from '../types'
-import type { Choice, Tone } from '../view'
+import type { Choice, Tone, Waypoint } from '../view'
+import { CompassBar } from './CompassBar'
 
 // 视觉分级：观（灰）→ 探（金）→ 险（血）
 const TONES: Record<Tone, string> = {
@@ -19,13 +21,15 @@ const TONES: Record<Tone, string> = {
 
 interface Props {
   choices: Choice[] | null
+  /** 方位导航（engine）：缺省或为空不渲染 */
+  waypoints?: readonly Waypoint[] | null
   ready: boolean
   error: string | null
   onAct: (type: ActionType, text: string) => void
 }
 
 /** 草稿不在提交时清空：父组件以 key={turn} 挂载，新一幕到来才重置——推演失败时玩家的长句不会丢 */
-export function ActionPanel({ choices, ready, error, onAct }: Props) {
+export function ActionPanel({ choices, waypoints, ready, error, onAct }: Props) {
   const [draft, setDraft] = useState('')
 
   const submit = (e: FormEvent) => {
@@ -44,10 +48,11 @@ export function ActionPanel({ choices, ready, error, onAct }: Props) {
       {choices && choices.length > 0 && (
         // 四招排成两列两行，三招一行三列
         <div className={`grid gap-3 ${choices.length === 4 ? 'sm:grid-cols-2' : 'sm:grid-cols-3'}`}>
-          {choices.map(({ key, label, hint, tone, value }, i) => (
+          {choices.map(({ key, label, hint, tip, tone, value }, i) => (
             <button
               key={i}
               type="button"
+              title={tip}
               onClick={() => onAct('choice', value)}
               className={`rounded-sm border bg-ink-900/80 px-4 py-3 text-left transition-colors hover:bg-ink-800 ${TONES[tone]}`}
             >
@@ -60,6 +65,8 @@ export function ActionPanel({ choices, ready, error, onAct }: Props) {
           ))}
         </div>
       )}
+
+      <CompassBar waypoints={waypoints} onGo={(value) => onAct('choice', value)} />
 
       <form onSubmit={submit} className="mt-5">
         <input

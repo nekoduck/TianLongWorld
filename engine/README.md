@@ -2,7 +2,8 @@
 
 《天龙八部》AI 文字世界的下一代后端：DDD + CQRS + 事件溯源 + Graph RAG。
 世界本体由原著 TXT 解析而来、定格在时间锚点 T=0（原著开篇，段誉刚离家出走之时），世界状态只由不可变的事件流折叠得出。
-大模型只做四件无状态的事——读书抽取（含为孤儿物品推断安放）、解析意图、地下城主在物理边界里推演（语义物理引擎：属性碰撞 → 量级 → 代价 → 时钟与收敛）、渲染文字——它的一切产出都只是提议，必经领域闸门。
+大模型只做五件无状态的事——读书抽取（含为孤儿物品推断安放）、解析意图、地下城主在物理边界里推演（语义物理引擎：属性碰撞 → 量级 → 代价 → 时钟与收敛；NPC 相撞时的判官同一职责）、
+为核心 NPC 立议程（一日至多一轮，行军本身是零调用的寻路）、渲染文字（同一次调用挑招配风味）——它的一切产出都只是提议，必经领域闸门。
 
 ```
 玩家输入 ──► [Parse] 意图解析（大模型 / 离线） ──► PlayerIntent
@@ -16,7 +17,11 @@ Neo4j 局部快照（含时钟 / 细节）──┴──► [Validate] 规则�
                                   + 世界时钟：余波（交手的活动与痕迹、人群溃散）→ 光阴（每条命令都花时间）→ 消息扩散 → 黎明生态，同批入账
                                   追加 PostgreSQL ──► 投影 Neo4j ──► 投影 Qdrant
                                                   │
-              新快照 ──► [Options] 五类候选源 → 显著性 + 席位 + MMR → 3~4 招（带 why 与风险档） ──► [Render] Hard Prompt + <clocks> 暗流 + <emerged> 此世细节 + 恩怨 + 端倪 <hooks> → 金庸风流式叙事
+                                  + H-Agent：带议程的核心 NPC 沿最省时之路行军（零调用）→ 相撞即中断 → 判官坍缩 ≤1 场 → 议程大模型一日至多一轮
+                                                  │
+              新快照 ──► [Options] 可供性目录（四根战术轴：激化 / 诡道 / 化解 / 旁观，编号 m1…）+ 退路菜单 + 方位导航（迷雾里的去处只给「未知区域」）
+                     ──► [Render] Hard Prompt + <affordances> + <clocks> 暗流 + <emerged> 此世细节 + 恩怨 + 来意 → 金庸风流式叙事，同一次调用交 <menu> 挑 3~4 招配风味
+                     ──► options.compose 过闸：玩家看见 flavor_text，点选执行 underlying_command
 ```
 
 ## 六个设计支点
@@ -103,11 +108,11 @@ docker compose up -d                       # postgres:16 + neo4j:5.26 + qdrant
 | → | `{"type":"spawn","name":"阿星","location":"无量山"}` | 投胎，location 可省（确定性分配） |
 | → | `{"type":"resume","player_id":"ply:…","quiet":false}` | 续前缘：重放事件流即恢复。`quiet:true` 用于断线重连与选项过期——只回 `session` 与叙事为空的 `turn_completed`（选项与状态照给），不复述此景、零大模型调用 |
 | → | `{"type":"act","text":"施展凌波微步向北而去"}` | 自由文本，经意图解析（「去大理城找段正淳」的「找段正淳」是此行所为；回想、盘算是沉思 THINK，只花时间） |
-| → | `{"type":"choose","option_id":"explore-1a2b3c4d"}` | 点选选项，不经大模型，服务端按当前快照重算核验 |
+| → | `{"type":"choose","option_id":"explore-1a2b3c4d"}` | 点选选项或导航（导航 id 以 `nav-` 开头），不经大模型，服务端按当前快照重算 affordances ∪ navigation 核验，执行的是那一项的 underlying_command |
 | ← | `session` | `player_id` / `name` |
 | ← | `turn_resolved` | 结构化意图（含手段 `approach`、所图 `aim`、话题 `topic`、MOVE 的此行所为 `motivation`）+ 本回合已入账事件的白描 `facts`（服药回气血那条不出声；语义物理引擎的时钟挂上 / 推进 / 回退 / 坍缩 / 化解、微观事实、名望涨落各有一句；世界心跳只有人群溃散出声，光阴、痕迹、消息与生态不出声；从不露 id） |
 | ← | `narration_delta` | 叙事分片（流式） |
-| ← | `turn_completed` | 叙事全文、`options[{id,label,category,why,risk?}]`（`why` 是 ≤12 字的上榜缘由，如「仇人在侧，先脱身」「换个手段」「伤重宜调息」；`risk` 是风险档「稳妥 / 有险 / 凶险」，只露可裁区间最坏的一端、不露结局，有才下发；意图不下发）、`status`（境界 `tier`、伤势 `health`、`skills` 写作「北冥神功（略有小成）」；人情 `bonds[{name,attitude,cause}]` 在场者优先、至多 6 条，心事 `pursuits[{label,note}]` 如「求艺 · 晓风拂柳」「尚无眉目；已试：言辞」、至多 3 条，打探只写对象不写见闻；眼前的暗流 `clocks[{name,kind,progress,maximum}]`（种类 疑心 / 敌意 / 危机 / 进展，凶险的与将满的在前、至多 4 只，id 与挂处不下发）；名望 `renown` 只给语义标签（声名狼藉 … 威震江湖）；时辰 `time` 如「第一日·辰正」（死者停在最后一刻）；只有语义标签不露数值（时钟的格数是叙事节拍，照下发），新字段旧客户端可缺省）、`game_over` |
+| ← | `turn_completed` | 叙事全文、`options[{id,flavor_text,tactical_axis,category,why,risk?}]`（`flavor_text` 是说书人配的武侠风味文案，过不了闸即朴素标签；`tactical_axis` 是战术轴 ESCALATE / TRICKERY / PACIFY / OBSERVE；`why` 是 ≤12 字的上榜缘由，如「换个手段」「伤重宜调息」「前路未明」；`risk` 是风险档「稳妥 / 有险 / 凶险」，只露可裁区间最坏的一端、不露结局，有才下发；意图与指令不下发）、`navigation[{id,direction,target,travel_method,time_cost,time_label,discovery,retreat}]`（每条获准的出路一项，按方位排；`target` 未知即「未知区域」，`discovery` 亲历 / 问路 / 远眺 / 名胜 / 未知，`retreat` 标出仇人在侧时的脱身之路；死者为空）、`status`（境界 `tier`、伤势 `health`、`skills` 写作「北冥神功（略有小成）」；人情 `bonds[{name,attitude,cause}]` 在场者优先、至多 6 条，心事 `pursuits[{label,note}]` 如「求艺 · 晓风拂柳」「尚无眉目；已试：言辞」、至多 3 条，打探只写对象不写见闻；眼前的暗流 `clocks[{name,kind,progress,maximum}]`（种类 疑心 / 敌意 / 危机 / 进展，凶险的与将满的在前、至多 4 只，id 与挂处不下发）；名望 `renown` 只给语义标签（声名狼藉 … 威震江湖）；时辰 `time` 如「第一日·辰正」（死者停在最后一刻）；只有语义标签不露数值（时钟的格数是叙事节拍，照下发），新字段旧客户端可缺省）、`game_over` |
 | ← | `error` | `code` + `message`，连接不断 |
 
 ## 测试矩阵
