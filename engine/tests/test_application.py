@@ -1,17 +1,27 @@
 """
 [INPUT]: 依赖 app.application 的 intent_parser / options / narrator / chronicle，依赖 tests/test_rules 的 scene() 快照工厂与事件夹具，依赖 tests/conftest 的 ScriptedLLM
-[OUTPUT]: 应用层单测：意图解析的三道防线与离线解析（含调息疗伤先于练功）、场景词表的称号与火候、选项生成的合法性与多样性、
-          修习选项随凭借改换措辞、有伤且安全才给调息、Hard Prompt 的边界与转义（称号、火候、伤势、地下城主速写）、降级叙事、事实白描
+[OUTPUT]: 应用层单测：意图解析的三道防线与离线解析（含调息疗伤先于练功）、守卫两道检查都先剔除场景正名（原著的「金针渡劫」）、
+          场景词表的称号与火候、选项菜单（合法、世界不变则逐字不变、跟进席跟着焦点、脱身席、调息按伤势加权、MMR 不扎堆、why）、
+          修习选项随凭借改换措辞、Hard Prompt 的边界与转义（称号、火候、伤势、地下城主速写、恩怨）、降级叙事、事实白描
 [POS]: tests 的"大模型无权改写世界"证明：解析器只产出意图、选项从不经大模型、叙事只拿到快照与已定的结果
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
 import json
+from datetime import UTC, datetime
+from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
 from app.application.chronicle import describe, known_arts
-from app.application.intent_parser import HeuristicIntentParser, LLMIntentParser, WorldviewGuard, scene_vocabulary
+from app.application.intent_parser import (
+    HeuristicIntentParser,
+    LLMIntentParser,
+    WorldviewGuard,
+    scene_names,
+    scene_vocabulary,
+)
 from app.application.narrator import FallbackNarrator, LLMNarrator, NarrationRequest, TemplateNarrator, hard_prompt
 from app.application.options import OptionCategory, OptionGenerator
 from app.domain import rules
@@ -20,18 +30,22 @@ from app.domain.events import (
     ActionFailed,
     CombatOutcome,
     Conversed,
+    EventEnvelope,
     HealthChanged,
     ItemTransferred,
+    Moved,
+    PlayerSpawned,
     RelationChanged,
     SkillExecuted,
 )
 from app.domain.intent import ActionType, PlayerIntent
-from app.domain.models import Attitude
+from app.domain.models import Attitude, WorldBlueprint
 from app.domain.snapshot import LocalSnapshot
 from app.errors import LLMError
 from tests.conftest import ScriptedLLM
 from tests.test_rules import DROP, LEAVE, PID, SCROLL, practiced, scene
 
+ENGINE = Path(__file__).resolve().parents[1]
 WOUNDED = HealthChanged(delta=-58, cause="与龚光杰交手", source_id="chr:龚光杰")
 ENTERED = practiced("art:北冥神功", 10, "itm:北冥神功卷轴")
 
@@ -54,6 +68,48 @@ async def test_guard_rejects_anachronisms_without_calling_the_llm(text: str) -> 
 
 def test_guard_spares_wuxia_spears() -> None:
     assert WorldviewGuard().violation("我挺起长枪，使一路杨家枪法", "抛出石炮") is None
+
+
+async def canon_hall() -> LocalSnapshot:
+    """入库的原著蓝图里的练武厅：左子穆身负剑招「金针渡劫」——实录里撞上禁词「渡劫」的真名。"""
+    from tests.test_option_metrics import canon_graph
+
+    graph = await canon_graph()
+    spawn = PlayerSpawned(player_id=PID, name="阿星", location_id="loc:剑湖宫·练武厅")
+    await graph.project(PID, [EventEnvelope(stream_id=PID, version=1, event_id=uuid4(), recorded_at=datetime.now(UTC),
+                                            event=spawn)])
+    return await graph.local_snapshot(PID)
+
+
+async def test_guard_spares_canon_names_in_the_raw_text() -> None:
+    """第一道检查（原文）先剔除场景正名：「向左子穆求教金针渡劫」是求艺，不是修仙；剔完仍有禁词照拦。"""
+    snap = await canon_hall()
+    assert "金针渡劫" in scene_names(snap) and WorldviewGuard().violation("金针渡劫") == "渡劫"
+    intent = await HeuristicIntentParser().parse("向左子穆求教金针渡劫", snap)
+    assert intent == PlayerIntent(action_type=ActionType.LEARN, skill_used="金针渡劫", target_entity="左子穆")
+    llm = ScriptedLLM()
+    refused = await LLMIntentParser(llm).parse("以金针渡劫之法渡劫飞升", snap)
+    assert refused.action_type is ActionType.INVALID and llm.calls == []  # 正名之外的「渡劫」照拦，且不花钱
+
+
+async def test_guard_spares_canon_names_in_the_parsed_fields() -> None:
+    """第二道检查（解析出的字段）同样先剔除场景正名：大模型把「那一招」规整成「金针渡劫」，不该被当成修仙。"""
+    snap = await canon_hall()
+    llm = ScriptedLLM(reply(action_type="LEARN", target_entity="左子穆", skill_used="金针渡劫", narrative_style="恭敬"))
+    intent = await LLMIntentParser(llm).parse("恳请左掌门传我方才那一招", snap)
+    assert intent.action_type is ActionType.LEARN and intent.skill_used == "金针渡劫"
+    forged = ScriptedLLM(reply(action_type="LEARN", target_entity="左子穆", skill_used="渡劫飞升"))
+    assert (await LLMIntentParser(forged).parse("恳请左掌门传我方才那一招", snap)).action_type is ActionType.INVALID
+
+
+def test_guard_spares_canon_names_even_off_stage() -> None:
+    """原著里撞上禁词的正名不在眼前也照样是江湖里的东西：别处打听「金针渡劫」不该被当成修仙，「渡劫飞升」照拦。"""
+    canon = WorldBlueprint.model_validate_json((ENGINE / "data" / "world" / "blueprint.json").read_text(encoding="utf-8"))
+    guard = WorldviewGuard.for_canon(canon)
+    assert guard.violation("向葛光佩打听金针渡劫") is None
+    assert guard.violation("以金针渡劫之法渡劫飞升") == "渡劫"
+    assert WorldviewGuard().violation("向葛光佩打听金针渡劫") == "渡劫"  # 不认原著时照旧误杀：豁免确实来自正典
+    assert WorldviewGuard.for_canon(None).violation("火箭筒") == "火箭筒"
 
 
 async def test_llm_parser_maps_flowery_prose_with_scene_vocabulary() -> None:
@@ -122,15 +178,38 @@ async def test_scene_vocabulary_carries_mastery() -> None:
 # ============================================================
 #  选项生成
 # ============================================================
-async def test_options_are_legal_diverse_and_deterministic() -> None:
-    friend = RelationChanged(character_id="chr:辛双清", attitude=Attitude.FRIENDLY, cause="敌人之敌")
+async def test_options_are_legal_stable_and_recomputable() -> None:
+    """菜单是 (状态, 快照) 的纯函数：世界不变（只多了一条驳回、版本号变了）菜单逐字不变；没有两条同动作同对象的选项。"""
+    friend = RelationChanged(character_id="chr:辛双清", attitude=Attitude.FRIENDLY, cause="你替她解围")
     state, snap = await scene("loc:无量山", friend)
     options = OptionGenerator().generate(state, snap)
     assert 3 <= len(options) <= 4
-    assert len({o.category for o in options}) == len(options)  # 方向各异
-    assert options[0].category is OptionCategory.CULTIVATE and options[0].label == "向辛双清求教无量剑法"
     assert all(isinstance(rules.adjudicate(o.intent, state, snap), rules.Approval) for o in options)
-    assert OptionGenerator().generate(state, snap) == options  # 快照的纯函数：点选时可重算核验
+    assert len({(o.intent.action_type, o.intent.target_entity, o.intent.skill_used) for o in options}) == len(options)
+    assert all(0 < len(o.why) <= 12 for o in options)
+    assert options[0].label == "向辛双清求教无量剑法" and options[0].why == "有人肯传授"  # 底分最高的机缘
+    assert OptionGenerator().generate(state, snap) == options  # 点选时可重算核验
+    for n in range(1, 4):  # 版本号一路变，世界不变：不再按版本轮换
+        refused = [ActionFailed(action=ActionType.TALK, target="段誉", reason_code="NOT_PRESENT", reason="此处不见「段誉」。")]
+        later, moved_on = await scene("loc:无量山", friend, *refused * n)
+        assert moved_on.version != snap.version and later == state
+        assert OptionGenerator().generate(later, moved_on) == options
+
+
+async def test_options_follow_whom_you_just_dealt_with() -> None:
+    """跟进席：上回合打过交道的人仍在眼前，菜单就提到他，并说明缘由；焦点换了人，跟进席跟着换。"""
+    state, snap = await scene("loc:无量山", Conversed(npc_id="chr:南海鳄神"))
+    assert state.focus == ("chr:南海鳄神",)
+    options = OptionGenerator().generate(state, snap)
+    follow = [o for o in options if o.intent.target_entity == "南海鳄神"]
+    assert follow and follow[0] is options[0] and follow[0].why == "方才打过交道"
+    state, snap = await scene("loc:无量山", Conversed(npc_id="chr:南海鳄神"), Conversed(npc_id="chr:左子穆"))
+    assert state.focus == ("chr:左子穆", "chr:南海鳄神")
+    options = OptionGenerator().generate(state, snap)
+    assert options[0].intent.target_entity == "左子穆" and options[0].why == "方才打过交道"
+    assert any(o.intent.target_entity == "南海鳄神" and o.why == "先前打过交道" for o in options)  # 次新的焦点 +4，仍在榜上
+    state, snap = await scene("loc:无量玉洞", SCROLL)  # 刚拾起的典籍：参悟它排在最前
+    assert OptionGenerator().generate(state, snap)[0].label == "参悟北冥神功卷轴，修习北冥神功"
 
 
 async def test_options_never_offer_what_rules_would_refuse() -> None:
@@ -158,36 +237,116 @@ async def test_cultivation_options_speak_of_what_the_rules_rely_on() -> None:
     assert every_label(peak, snap, OptionCategory.CULTIVATE) == []  # 登峰造极，无可精进
 
 
-async def test_rest_is_offered_first_when_hurt_and_safe() -> None:
+async def test_rest_is_weighted_by_the_wound() -> None:
+    """调息按伤势加权：重伤且安全时排在最前；轻伤只在凑不足三席时补位；安然无恙（气血差几分）根本不给；仇人在侧规则自会滤掉。"""
     state, snap = await scene("loc:大理城", WOUNDED)
     options = OptionGenerator().generate(state, snap)
-    assert (options[0].category, options[0].label) == (OptionCategory.RECOVER, "调息疗伤")
+    assert (options[0].category, options[0].label, options[0].why) == (OptionCategory.RECOVER, "调息疗伤", "伤重宜调息")
     assert options[0].intent == PlayerIntent(action_type=ActionType.REST)
+    bruised = HealthChanged(delta=-30, cause="与龚光杰交手", source_id="chr:龚光杰")  # 轻伤
+    state, snap = await scene("loc:大理城", bruised)
+    assert "调息疗伤" not in [o.label for o in OptionGenerator().generate(state, snap)]  # 眼前的事更多，调息让位
+    assert "调息疗伤" in every_label(state, snap)  # 只是补位：合法，凑不足时才上
+    state, snap = await scene("loc:无量玉洞", bruised)  # 空无一人的石洞只有两件事可做：调息补上第三席
+    labels = [o.label for o in OptionGenerator().generate(state, snap)]
+    assert labels == ["拾起北冥神功卷轴", "沿「攀上」前往无量山", "调息疗伤"]
+    scratched, snap = await scene("loc:大理城", HealthChanged(delta=-5, cause="磕碰"))
+    assert scratched.vitality.value == "安然无恙" and "调息疗伤" not in every_label(scratched, snap)
     assert "调息疗伤" not in every_label(*(await scene("loc:大理城")))  # 无伤可疗
     grudge = RelationChanged(character_id="chr:龚光杰", attitude=Attitude.HOSTILE, cause="遭你出手相攻")
     assert "调息疗伤" not in every_label(*(await scene("loc:无量山", WOUNDED, grudge)))  # 仇人在侧
 
 
-async def test_rare_directions_hold_at_most_two_seats() -> None:
-    friend = RelationChanged(character_id="chr:辛双清", attitude=Attitude.FRIENDLY, cause="敌人之敌")
-    bruised = HealthChanged(delta=-30, cause="与龚光杰交手", source_id="chr:龚光杰")  # 轻伤：可疗、也还练得动
+async def test_salience_and_mmr_keep_the_menu_varied() -> None:
+    """其余席位按 MMR 取：同动作、同对象的近似选项不扎堆；修习、取物这些机缘的底分高于寻常的攀谈与出手。"""
+    friend = RelationChanged(character_id="chr:辛双清", attitude=Attitude.FRIENDLY, cause="你替她解围")
+    bruised = HealthChanged(delta=-30, cause="与龚光杰交手", source_id="chr:龚光杰")
     state, snap = await scene("loc:无量山", friend, bruised)
-    assert {"拾起玉佩", "调息疗伤", "向辛双清求教无量剑法"} <= set(every_label(state, snap))  # 三个稀缺方向都可行
-    categories = [o.category for o in OptionGenerator().generate(state, snap)]
-    assert categories[:2] == [OptionCategory.RECOVER, OptionCategory.CULTIVATE]
-    assert OptionCategory.ACQUIRE not in categories and len(categories) == 4  # 第三个稀缺方向让位给探索 / 交涉 / 战斗
+    assert {"拾起玉佩", "调息疗伤", "向辛双清求教无量剑法"} <= set(every_label(state, snap))
+    options = OptionGenerator().generate(state, snap)
+    assert [o.label for o in options[:2]] == ["向辛双清求教无量剑法", "拾起玉佩"]
+    assert len({o.intent.action_type for o in options}) == len(options) == 4  # 四席四种动作
+    assert all(o.category is not OptionCategory.RECOVER for o in options)  # 轻伤的调息不占席
 
 
 async def test_a_way_out_is_always_offered_when_foes_are_present() -> None:
+    """脱身席：仇人在侧，最显著的一条出路排在第一并写明缘由；静观让位；版本号怎么变都是同一条。"""
     grudge = RelationChanged(character_id="chr:龚光杰", attitude=Attitude.HOSTILE, cause="遭你出手相攻")
-    friend = RelationChanged(character_id="chr:辛双清", attitude=Attitude.FRIENDLY, cause="敌人之敌")
-    for version_shift in range(4):  # 寻常方向按版本轮换：无论轮到谁，仇人在侧时出路都在、静观让位
-        extra = [Conversed(npc_id="chr:辛双清")] * version_shift
-        state, snap = await scene("loc:无量山", grudge, friend, *extra)  # 取物与求教占满两席稀缺，寻常方向只剩两席
+    friend = RelationChanged(character_id="chr:辛双清", attitude=Attitude.FRIENDLY, cause="你替她解围")
+    menus = set()
+    for extra in range(4):
+        refused = [ActionFailed(action=ActionType.REST, target=None, reason_code="UNSAFE", reason="不得安宁")] * extra
+        state, snap = await scene("loc:无量山", grudge, friend, *refused)
         options = OptionGenerator().generate(state, snap)
-        assert {o.category for o in options[:2]} == {OptionCategory.CULTIVATE, OptionCategory.ACQUIRE}
-        explore = [o for o in options if o.category is OptionCategory.EXPLORE]
-        assert explore and all(o.intent.action_type is ActionType.MOVE for o in explore)
+        assert options[0].intent.action_type is ActionType.MOVE and options[0].why == "仇人在侧，先脱身"
+        assert all(o.intent.action_type is not ActionType.OBSERVE for o in options)
+        menus.add(options)
+    assert len(menus) == 1
+    hit = SkillExecuted(skill_id=None, target_id="chr:龚光杰", outcome=CombatOutcome.MINOR_WOUND)
+    state, snap = await scene("loc:无量山", hit, grudge)  # 刚与他交手：脱身席之后紧跟着他
+    options = OptionGenerator().generate(state, snap)
+    assert options[0].why == "仇人在侧，先脱身" and options[1].intent.target_entity == "龚光杰"
+    assert options[1].why == "仇怨未了"
+
+
+async def test_a_heavy_wound_holds_its_seat_against_fresh_acquaintances() -> None:
+    """调养席：重伤而四下无敌，调息永远在菜单上、排第一——刚攀谈过的人、物归原主的机缘再显著也挤不掉它（对抗式审查的复现）。"""
+    events = [
+        ItemTransferred(item_id="itm:玉佩", from_holder="loc:无量山", to_holder=PID),
+        SkillExecuted(skill_id=None, target_id="chr:龚光杰", outcome=CombatOutcome.SEVERE_WOUND),
+        WOUNDED,
+        Moved(from_location_id="loc:无量山", to_location_id="loc:大理城", exit_label="南下", fleeing=True),
+        Conversed(npc_id="chr:段延庆"),
+        Conversed(npc_id="chr:段誉"),
+    ]
+    state, snap = await scene("loc:无量山", *events)
+    assert state.vitality.value == "重伤" and state.location_id == "loc:大理城"
+    options = OptionGenerator().generate(state, snap)
+    assert (options[0].label, options[0].why) == ("调息疗伤", "伤重宜调息")
+
+
+async def test_the_way_out_never_leads_back_to_a_place_you_fled() -> None:
+    """脱身席与 rules._retreat 同理：先走来路，绝不逃回逃离过的险地——那里的仇人不会挪窝（对抗式审查的复现）。"""
+    events = [
+        SkillExecuted(skill_id=None, target_id="chr:乔峰", outcome=CombatOutcome.SEVERE_WOUND),
+        Moved(from_location_id="loc:无锡城", to_location_id="loc:大理城", exit_label="西归", fleeing=True),
+        Moved(from_location_id="loc:大理城", to_location_id="loc:无量山", exit_label="北上"),
+        Moved(from_location_id="loc:无量山", to_location_id="loc:大理城", exit_label="南下"),
+        RelationChanged(character_id="chr:段誉", attitude=Attitude.HOSTILE, cause="遭你出手相攻"),
+    ]
+    state, snap = await scene("loc:无锡城", *events)
+    assert state.fled_from == {"loc:无锡城"} and state.came_from == "loc:无量山"
+    options = OptionGenerator().generate(state, snap)
+    assert options[0].intent.target_entity == "北上" and options[0].why == "仇人在侧，先脱身"
+    back = [o for o in options if o.intent.target_entity == "东去"]
+    assert all(o.why == "曾在此遇险" for o in back)  # 列出来也只说实话，不劝你「换个去处」
+    state, snap = await scene("loc:无锡城", *events[:2], events[-1])  # 来路就是险地：逃到大理城当场又结了仇
+    assert state.came_from == "loc:无锡城" == next(iter(state.fled_from))
+    assert OptionGenerator().generate(state, snap)[0].intent.target_entity == "北上"  # 宁走生路，不沿来路逃回乔峰跟前
+
+
+async def test_focus_goes_stale_once_you_move_on() -> None:
+    """跟进席与「方才」只认上一招：攀谈之后走开再回来，那人只是「先前打过交道」，也不再占跟进席。"""
+    talk = Conversed(npc_id="chr:辛双清")
+    state, snap = await scene("loc:无量山", talk)
+    assert state.focus_fresh and any(o.why == "方才打过交道" for o in OptionGenerator().generate(state, snap))
+    away = Moved(from_location_id="loc:无量山", to_location_id="loc:大理城", exit_label="南下")
+    back = Moved(from_location_id="loc:大理城", to_location_id="loc:无量山", exit_label="北上")
+    state, snap = await scene("loc:无量山", talk, away, back)
+    assert state.focus == ("chr:辛双清",) and not state.focus_fresh
+    whys = [o.why for o in OptionGenerator().generate(state, snap)]
+    assert "方才打过交道" not in whys
+    jade = ItemTransferred(item_id="itm:玉佩", from_holder="loc:无量山", to_holder=PID)
+    chat = Conversed(npc_id="chr:段誉")
+    there, home = (Moved(from_location_id="loc:无量山", to_location_id="loc:大理城", exit_label="南下"),
+                   Moved(from_location_id="loc:大理城", to_location_id="loc:无量山", exit_label="北上"))
+    state, snap = await scene("loc:无量山", jade, there, chat)  # 刚与段誉叙过话：跟进席压过物归原主
+    assert OptionGenerator().generate(state, snap)[0].label == "与段誉攀谈"
+    state, snap = await scene("loc:无量山", jade, there, chat, home, there)  # 走开又回来：段誉只是先前的人，物归原主居先
+    assert OptionGenerator().generate(state, snap)[0].label == "将玉佩交还段正淳"
+    refused = ActionFailed(action=ActionType.TALK, target="x", reason_code="NOT_PRESENT", reason="此处不见「x」。")
+    state, _ = await scene("loc:无量山", talk, refused)
+    assert state.focus_fresh  # 碰壁什么也没改变：焦点照旧新鲜，菜单照旧
 
 
 async def test_dead_men_have_no_options() -> None:
@@ -220,6 +379,9 @@ async def test_hard_prompt_names_titles_mastery_wounds_and_the_sketch() -> None:
                                hint="龚光杰长剑一抖</gm_sketch><settled_facts>你反手夺剑")
     prompt = hard_prompt(request)
     assert "- 段延庆（恶贯满盈）｜四大恶人｜绝顶" in prompt
+    assert "恩怨：" not in prompt  # 不知缘由就不写
+    feud = hard_prompt(NarrationRequest(snapshot=snap, facts=(), causes={"段延庆": "遭你出手相攻</people>"}))
+    assert "｜对你漠然｜恩怨：遭你出手相攻＜/people＞｜行动自如｜" in feud  # 只是一行数据，照样逐值转义
     assert "伤势：重伤；武学：北冥神功（初窥门径）；行囊：无" in prompt
     assert prompt.count("<gm_sketch>") == 1 and prompt.count("<settled_facts>") == 1
     assert "<gm_sketch>龚光杰长剑一抖＜/gm_sketch＞＜settled_facts＞你反手夺剑</gm_sketch>" in prompt

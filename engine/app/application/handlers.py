@@ -11,12 +11,14 @@
        命令侧（持玩家锁，串行）：重放事件流 → 自愈投影 → 局部快照 → [Parse] 解析意图（选项点选不经大模型）→
                                  [Validate] rules.stakes 圈出可裁区间 → [Resolve] 胜负未定（contested）才请地下城主在区间里提议 →
                                  [Event] Player.decide 携提议定案（combat.settle 钳进区间）→ 追加事件（乐观并发）→ 同步投影图谱；
-       查询侧（无锁，并行）：新快照 ∥ 记忆召回 → 推送结果白描 → [Options] 选项生成 ∥ [Render] 叙事流式渲染 ∥ 记忆写入 → 推送终帧。
+       查询侧（无锁，并行）：新快照 → 记忆召回 → 推送结果白描 → [Options] 选项生成 ∥ [Render] 叙事流式渲染 ∥ 记忆写入 → 推送终帧。
        大模型在命令侧解析意图、在可裁区间里提议，在查询侧只渲染；领域的定案隔在中间——它说什么都越不过区间，更改不了已入账的结果。
        地下城主的招式速写只在其结局被采纳时（SkillExecuted.outcome 等于提议的结局）经 NarrationRequest 传给渲染器：
        它是散文，不入事件、不入记忆；结局未被采纳，速写与定案不符，当场作废。
        重伤夺路而逃（Moved.fleeing）的回合，渲染用的新快照已是逃抵之地，交手前的快照经 NarrationRequest.fled 一并交给渲染器；
-       记忆召回多取一倍再按字面去重（调息两次就是两条一模一样的白描）；死者的伤势栏写「气绝」
+       记忆召回分两路、原话优先：原话 + 玩家名一路，焦点实体（PlayerState.focus）+ 在场者本名一路，各多取一倍再按字面去重（调息两次就是两条一模一样的白描）；
+       续前缘（resume）与出手共用玩家锁，续上的必是落账之后的局面；quiet 续接不复述此景、不调大模型，只下发选项与状态（断线重连、选项过期）；
+       在场者的恩怨缘由（PlayerState.attitude_causes）经 NarrationRequest.causes 交给渲染器；死者的伤势栏写「气绝」
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -129,8 +131,15 @@ class TurnPipeline:
         return points[zlib.crc32(player_id.encode()) % len(points)]  # 确定性分配：同一 id 永远落在同一处
 
     async def resume(self, command: ResumePlayer) -> AsyncIterator[TurnMessage]:
-        player = await self.load(command.player_id)
+        lock = self._locks.setdefault(command.player_id, asyncio.Lock())
+        async with lock:  # 与进行中的出手串行：续上的必是那一招落账之后的局面，否则续上的选项一点就过期
+            player = await self.load(command.player_id)
         yield SessionOpened(player_id=player.id, name=player.state.name)
+        if command.quiet:  # 断线重连：此景玩家已经读过，不必再花一次大模型复述
+            snap = await self.snapshot(player)
+            offered = await asyncio.to_thread(self.options.generate, player.state, snap)
+            yield _completed(player, snap, "", offered)
+            return
         async for message in self._render(player, [], None, None, labels={}):
             yield message
 
@@ -171,15 +180,12 @@ class TurnPipeline:
         fled: LocalSnapshot | None = None,
     ) -> AsyncIterator[TurnMessage]:
         first_new = envelopes[0].version if envelopes else player.version + 1
-        snap, memories = await asyncio.gather(
-            self.snapshot(player),
-            self._memory.recall(player.id, f"{said or ''} {player.state.name}", self._recall_k * 2, first_new)
-            if said else _nothing(),
-        )
-        # 同一句白描可能出自不同回合（调息两次就是两条一模一样的记忆）：按字面去重后再取 k 条，名额不浪费在复读上
-        recalled = tuple(dict.fromkeys(m.text for m in memories))[: self._recall_k]
+        snap = await self.snapshot(player)
+        recalled = await self._recall(player, said, snap, labels, first_new)
         names = {**labels, **snap.labels}
         state = player.state
+        # 在场者的恩怨缘由：叙事不必自己编仇从何来。交手现场（fled）是交手前的样子，那里新结的仇以 settled_facts 为准
+        causes = {c.name: cause for c in snap.characters if (cause := state.attitude_causes.get(c.id))}
         facts = tuple(describe(e.event, names, state.name) for e in envelopes)
         if intent is not None:
             yield TurnResolved(intent=intent, facts=facts)
@@ -196,6 +202,7 @@ class TurnPipeline:
                 style=intent.narrative_style if intent else "",
                 hint=hint,
                 fled=fled,
+                causes=causes,
             )
             async for chunk in self._narrator.narrate(request):  # [Render] 流式
                 parts.append(chunk)
@@ -205,21 +212,52 @@ class TurnPipeline:
         finally:
             for task in (options, remember):
                 task.cancel()
-        yield TurnCompleted(
-            narration="".join(parts),
-            options=offered,
-            status=PlayerStatus(
-                name=state.name,
-                location=snap.location.name,
-                tier=player_tier(state, snap).value,
-                health=state.vitality.value if state.alive else DEAD,
-                alive=state.alive,
-                death_cause=state.death_cause,
-                inventory=tuple(i.name for i in snap.inventory),
-                skills=known_arts(snap),
-            ),
-            game_over=not state.alive,
+        yield _completed(player, snap, "".join(parts), offered)
+
+    async def _recall(
+        self, player: Player, said: str | None, snap: LocalSnapshot, labels: dict[str, str], before: int
+    ) -> tuple[str, ...]:
+        """
+        两路召回、原话优先：一路查玩家原话（他此刻在说的事），一路查焦点实体与在场者（「再打他一拳」里的「他」是谁、此地站着谁）。
+        合在一起时原话命中的在前——在场者的名字多，混进同一条查询会把原话的往事挤出名额。
+        各取一倍再按字面去重（调息两次就是两条一模一样的白描），最后取 k 条。
+        """
+        if not said:
+            return ()
+        k, me = self._recall_k, player.state.name
+        hints = _recall_hints(player, snap, labels)
+        spoken, hinted = await asyncio.gather(
+            self._memory.recall(player.id, f"{said} {me}", k * 2, before),
+            self._memory.recall(player.id, " ".join(hints), k * 2, before) if hints else _nothing(),
         )
+        return tuple(dict.fromkeys(m.text for m in (*spoken, *hinted)))[:k]
+
+
+def _completed(player: Player, snap: LocalSnapshot, narration: str, options: tuple[ActionOption, ...]) -> TurnCompleted:
+    """终帧：叙事全文、选项与状态栏。状态栏只有语义标签，死者的伤势栏写「气绝」。"""
+    state = player.state
+    return TurnCompleted(
+        narration=narration,
+        options=options,
+        status=PlayerStatus(
+            name=state.name,
+            location=snap.location.name,
+            tier=player_tier(state, snap).value,
+            health=state.vitality.value if state.alive else DEAD,
+            alive=state.alive,
+            death_cause=state.death_cause,
+            inventory=tuple(i.name for i in snap.inventory),
+            skills=known_arts(snap),
+        ),
+        game_over=not state.alive,
+    )
+
+
+def _recall_hints(player: Player, snap: LocalSnapshot, labels: dict[str, str]) -> tuple[str, ...]:
+    """原话之外的召回线索：焦点实体的名字与在场者的本名，都来自状态与快照，确定性的。"""
+    names = {**labels, **snap.labels}
+    focus = (names.get(x) or snap.label(x) for x in player.state.focus)
+    return tuple(dict.fromkeys([*focus, *(c.name for c in snap.characters)]))
 
 
 async def _nothing() -> list[MemoryRecord]:

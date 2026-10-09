@@ -1,7 +1,7 @@
 """
 [INPUT]: 依赖 fastapi.testclient 的 TestClient，依赖 app.main 的 create_app，依赖 app.container 的 build_container，依赖 tests/world 的 WORLD
 [OUTPUT]: WebSocket 线协议用例：投胎 → 流式叙事 → 终帧（状态栏只有语义标签：境界、伤势、武学火候）、自由文本与选项点选、
-          错误帧不断连接、选项不下发意图、健康检查、极端找死即永久死亡
+          错误帧不断连接、选项只下发 id / 标签 / 方向 / why（意图不下发）、健康检查、极端找死即永久死亡
 [POS]: tests 的表现层验收：经 create_app 的 lifespan 装配，与 uvicorn 启动走同一条路径
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -48,7 +48,8 @@ def test_a_full_session_over_the_wire(client: TestClient) -> None:
         done = frames[-1]
         assert done["status"]["location"] == "无量山" and not done["game_over"]
         assert done["status"]["health"] == "安然无恙" and done["status"]["tier"] == "不入流"
-        assert all(set(o) == {"id", "label", "category"} for o in done["options"])  # 意图留在服务端
+        assert all(set(o) == {"id", "label", "category", "why"} for o in done["options"])  # 意图留在服务端
+        assert all(0 < len(o["why"]) <= 12 for o in done["options"])  # 上榜缘由随选项下发
 
         ws.send_json({"type": "act", "text": "拾起玉佩"})
         frames = until_done(ws)
@@ -83,6 +84,18 @@ def test_errors_are_frames_not_disconnects(client: TestClient, frame: dict[str, 
         assert ws.receive_json()["code"] == "BAD_FRAME"
         ws.send_json({"type": "spawn", "name": "阿星"})  # 连接仍然可用
         assert until_done(ws)[-1]["type"] == "turn_completed"
+
+
+def test_a_quiet_resume_only_rebinds(client: TestClient) -> None:
+    """断线重连发 quiet 续接：线上只回 session 与终帧（叙事为空，选项与状态照给），没有 turn_resolved、没有叙事分片。"""
+    with client.websocket_connect("/ws/play") as ws:
+        ws.send_json({"type": "spawn", "name": "阿星", "location": "无量山"})
+        pid = until_done(ws)[0]["player_id"]
+    with client.websocket_connect("/ws/play") as ws:
+        ws.send_json({"type": "resume", "player_id": pid, "quiet": True})
+        frames = until_done(ws)
+        assert [f["type"] for f in frames] == ["session", "turn_completed"]
+        assert frames[-1]["narration"] == "" and frames[-1]["options"] and frames[-1]["status"]["location"] == "无量山"
 
 
 def test_forged_options_and_the_dead(client: TestClient) -> None:

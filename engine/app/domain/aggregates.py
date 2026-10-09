@@ -2,12 +2,15 @@
 [INPUT]: 依赖 domain/events 的全部领域事件与 EventEnvelope，依赖 domain/models 的 Attitude，依赖 domain/progression 的 MAX_HP / Mastery / Vitality /
          mastery_of / vitality / aptitude_for，依赖 domain/combat 的 CombatOutcome / CombatProposal，
          依赖 domain/rules 的 decide()（裁决），依赖 domain/intent 的 PlayerIntent，依赖 app.errors 的 UnknownPlayerError / PlayerDeadError
-[OUTPUT]: 对外提供 PlayerState（不可变状态值：practice 熟练度之和、aptitude 悟性、hp 气血、came_from 来路、fled_from 逃离过的险地，mastery / vitality 现算）、
+[OUTPUT]: 对外提供 PlayerState（不可变状态值：practice 熟练度之和、aptitude 悟性、hp 气血、came_from 来路、fled_from 逃离过的险地、
+          focus 近来打过交道的人与物（至多 FOCUS_SIZE 个，新者在前）与 focus_fresh 上一个主动作是否正与它打交道、attitude_causes 人情的缘由，
+          mastery / vitality 现算）、FOCUS_SIZE、
           evolve(state, event) 纯函数折叠、Player 聚合根（apply / from_history / replay / spawn / ensure_alive / mastery / decide）
 [POS]: domain 的一致性边界：一位玩家的平行世界就是一条事件流，世界在这条流上相对原著的全部偏离（位置、行囊、武学火候、气血、
        被制住之人、人情冷暖、物品易手）都是 PlayerState 的字段。没有状态表——当前状态只能由 evolve 从头折叠事件流算出；
        渐进式状态只做加法：熟练度 = Σ SkillPracticed.proficiency_gained，气血 = MAX_HP + Σ HealthChanged.delta（钳位），
        火候与伤势是读取时经 progression 折算的语义标签，从不入账。
+       焦点（focus）与恩怨缘由（attitude_causes）同样只由现有事件折叠：选项跟着剧情走、叙事知道仇从何来，都不需要新的事件。
        内存图谱投影（infrastructure/persistence/memory_graph.py）复用同一个 evolve，投影与真相因此同构
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -59,6 +62,9 @@ class PlayerState:
     item_holders: Mapping[str, str] = field(default_factory=dict)
     subdued: frozenset[str] = frozenset()
     attitudes: Mapping[str, Attitude] = field(default_factory=dict)
+    attitude_causes: Mapping[str, str] = field(default_factory=dict)  # 人物 → 最近一次人情变化的缘由（RelationChanged.cause）
+    focus: tuple[str, ...] = ()  # 近来亲手打过交道的人与物，新者在前、至多 FOCUS_SIZE 个（定义见 _engaged）
+    focus_fresh: bool = False  # 上一个主动作是否正与 focus[0] 打交道：走开、调息、碰壁之后它就只是「先前」的人与事
 
     @property
     def skills(self) -> frozenset[str]:
@@ -83,6 +89,50 @@ class PlayerState:
 
 
 # ============================================================
+#  焦点 —— 玩家亲手打过交道的人与物，供选项的显著性打分与记忆召回
+# ============================================================
+FOCUS_SIZE = 4
+
+
+def _engaged(event: DomainEvent, player_id: str) -> tuple[str, ...]:
+    """
+    一条事件里玩家亲手打过交道的实体，排在前面的更要紧：
+      出手（SkillExecuted）→ 对手；攀谈（Conversed）→ 对方；
+      易手（ItemTransferred）→ 另一端的人（从被制住者身上取、交还物主）在前，那件东西在后；
+      修习（SkillPracticed）→ 传功点拨之人或所凭典籍（闭门苦练没有对象）。
+    人情涟漪（RelationChanged）不算：目睹者并没有和你打交道，被你打的人已由出手记下；
+    驳回（ActionFailed）的指称是原话而非实体 id，地点（Moved）是去处而非对象——都不进焦点。
+    """
+    match event:
+        case SkillExecuted(target_id=target) | Conversed(npc_id=target):
+            return (target,)
+        case ItemTransferred(item_id=item, from_holder=giver, to_holder=taker):
+            other = taker if giver == player_id else giver
+            return (other, item) if other.startswith("chr:") else (item,)
+        case SkillPracticed(source_id=str(source)):
+            return (source,)
+    return ()
+
+
+def _refocus(focus: tuple[str, ...], engaged: tuple[str, ...]) -> tuple[str, ...]:
+    return (*engaged, *(x for x in focus if x not in engaged))[:FOCUS_SIZE]
+
+
+def _moves_on(event: DomainEvent) -> bool:
+    """
+    不与谁打交道的主动作：自行离去、调息（没有来源的气血回升）、闭门苦练。它们让焦点不再「新鲜」。
+    交手的余波（人情涟漪、伤人者造成的气血涨落、身死、夺路而逃）属于上一招，不算；
+    碰壁（ActionFailed）与静观一样什么也没改变——世界不变，菜单也该逐字不变。
+    """
+    match event:
+        case Moved(fleeing=False) | SkillPracticed(source_id=None):
+            return True
+        case HealthChanged(source_id=None):
+            return True
+    return False
+
+
+# ============================================================
 #  纯函数折叠 —— (状态, 事件) → 新状态；不读时钟、不查数据库、不抛业务异常
 # ============================================================
 def evolve(state: PlayerState | None, event: DomainEvent) -> PlayerState:
@@ -92,6 +142,10 @@ def evolve(state: PlayerState | None, event: DomainEvent) -> PlayerState:
         )
     if state is None:
         raise ValueError(f"事件流必须以 PlayerSpawned 开头，却遇到 {type(event).__name__}")
+    if engaged := _engaged(event, state.player_id):
+        state = replace(state, focus=_refocus(state.focus, engaged), focus_fresh=True)
+    elif state.focus_fresh and _moves_on(event):
+        state = replace(state, focus_fresh=False)
 
     match event:
         case Moved(from_location_id=origin, to_location_id=destination, fleeing=fleeing):
@@ -105,8 +159,12 @@ def evolve(state: PlayerState | None, event: DomainEvent) -> PlayerState:
             return replace(state, hp=min(MAX_HP, max(0, state.hp + delta)))
         case SkillExecuted(outcome=CombatOutcome.SUCCESS, target_id=target):
             return replace(state, subdued=state.subdued | {target})
-        case RelationChanged(character_id=character, attitude=attitude):
-            return replace(state, attitudes={**state.attitudes, character: attitude})
+        case RelationChanged(character_id=character, attitude=attitude, cause=cause):
+            return replace(
+                state,
+                attitudes={**state.attitudes, character: attitude},
+                attitude_causes={**state.attitude_causes, character: cause},
+            )
         case PlayerDied(cause=cause):
             return replace(state, alive=False, death_cause=cause)
         case SkillExecuted() | Conversed() | ActionFailed():

@@ -2,7 +2,8 @@
 [INPUT]: 依赖 app.application.bus 的命令与回合消息，依赖 app.container 的 build_container，依赖 tests/conftest 的 container / play / spawned_at / ScriptedLLM / wire / sse
 [OUTPUT]: CQRS 游戏环路端到端用例：完整的逻辑死线剧情（入门 → 参照典籍练到略有小成 → 制敌夺剑 → 物归原主 → 拜师）、
           极端找死的永久死亡、重伤后避开仇人调息疗伤、选项点选与防伪、断线重连即重放、投影自愈、
-          叙事失败不影响真相、地下城主越界的提议被钳回区间、真实三件套后端上的整局（设置 PG 与 Neo4j 环境变量时）
+          叙事失败不影响真相、地下城主越界的提议被钳回区间、在场者的人物行写明恩怨、记忆召回带上焦点与在场者、
+          真实三件套后端上的整局（设置 PG 与 Neo4j 环境变量时）
 [POS]: tests 的总装验收：经组合根装配的完整引擎，测试与生产走同一条路径
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -68,7 +69,7 @@ async def test_the_logic_deadline_storyline(container: Container) -> None:
     await say(container, pid, "去攀上")
     resolved, _ = await say(container, pid, "以北冥神功攻击左子穆")
     assert resolved.facts[0] == "阿星以北冥神功向左子穆出手——将其制住。"  # 技高一筹，胜负已定，不劳地下城主
-    assert "辛双清对阿星生出好感（你与其仇家左子穆为敌）。" in resolved.facts
+    assert not any("辛双清" in fact for fact in resolved.facts)  # 「敌人之敌」暂停：仇敌边多是后文的恩怨，不再翻转态度
     for text in ("拿无量剑", "去南下"):
         await say(container, pid, text)
     resolved, _ = await say(container, pid, "把玉佩交还段正淳")
@@ -194,7 +195,8 @@ async def test_a_flight_is_narrated_where_the_fight_happened(settings: Settings)
     intent = json.dumps({"action_type": "ATTACK", "target_entity": "龚光杰"}, ensure_ascii=False)
     severe = json.dumps({"outcome_type": "SEVERE_WOUND", "hp_change": -50, "narrative_hint": "龚光杰长剑一抖，你肩头中剑"},
                         ensure_ascii=False)
-    llm = ScriptedLLM("山风猎猎。", intent, severe, "你踉跄奔下山去。")
+    back = json.dumps({"action_type": "MOVE", "target_entity": "北上"}, ensure_ascii=False)
+    llm = ScriptedLLM("山风猎猎。", intent, severe, "你踉跄奔下山去。", back, "你又回到山上。")
     container = await build_container(settings, blueprint=WORLD, llm=llm)
     try:
         pid = await spawned_at(container, "无量山")
@@ -202,7 +204,12 @@ async def test_a_flight_is_narrated_where_the_fight_happened(settings: Settings)
         assert done.status.location == "大理城"
         fled_scene, truth = llm.calls[-1][1].split("<truth_snapshot>")
         assert '<location name="无量山"' in fled_scene and "- 龚光杰｜" in fled_scene
+        assert "恩怨：" not in fled_scene  # 交手现场是交手前的样子，新结的仇以 settled_facts 为准
         assert '<location name="大理城"' in truth and "<gm_sketch>龚光杰长剑一抖，你肩头中剑</gm_sketch>" in truth
+        await say(container, pid, "北上")  # 回到仇人跟前：在场者的人物行写明恩怨，说书人不必自己编仇从何来
+        back_home = llm.calls[-1][1].split("<truth_snapshot>")[1]
+        assert "- 龚光杰｜无量剑东宗｜三流｜性情狠辣｜对你敌视｜恩怨：遭你出手相攻｜行动自如" in back_home
+        assert "- 左子穆｜无量剑东宗｜三流｜性情中庸｜对你敌视｜恩怨：师徒龚光杰受你攻击｜" in back_home
     finally:
         await container.aclose()
 
@@ -221,6 +228,52 @@ async def test_recalled_memories_are_distinct_and_capped(settings: Settings) -> 
         assert len(recalled) == 2 and len(set(recalled)) == 2  # 四条往事里有两条一字不差
     finally:
         await container.aclose()
+
+
+async def test_recall_asks_about_the_focus_and_the_people_present(container: Container) -> None:
+    """召回两路、原话优先：一路查原话与玩家名，一路查焦点实体与在场者——「再给他一拳」也要想起「他」是谁、此地站着谁。"""
+    queries: list[str] = []
+    memory = container.pipeline._memory
+    recall = memory.recall
+
+    async def spy(player_id: str, query: str, k: int, before_version: int) -> Any:
+        queries.append(query)
+        return await recall(player_id, query, k, before_version)
+
+    memory.recall = spy  # type: ignore[method-assign]
+    pid = await spawned_at(container, "无量山")
+    await say(container, pid, "向左子穆打听消息")
+    await say(container, pid, "静观四周")
+    assert queries[-2:] == ["静观四周 阿星", "左子穆 南海鳄神 辛双清 龚光杰"]  # 在场者的名字多，不与原话混在一条查询里
+
+
+async def test_a_quiet_resume_costs_no_llm_call(settings: Settings) -> None:
+    """断线重连的 quiet 续接：只回 session 与终帧（叙事为空、选项与状态照给），不复述此景，一次大模型也不调。"""
+    llm = ScriptedLLM("山风猎猎。")
+    container = await build_container(settings, blueprint=WORLD, llm=llm)
+    try:
+        pid = await spawned_at(container, "无量山")
+        calls = len(llm.calls)
+        messages = await play(container, ResumePlayer(player_id=pid, quiet=True))
+        assert [type(m).__name__ for m in messages] == ["SessionOpened", "TurnCompleted"]
+        done = messages[-1]
+        assert isinstance(done, TurnCompleted) and done.narration == "" and done.options and done.status.location == "无量山"
+        assert len(llm.calls) == calls
+    finally:
+        await container.aclose()
+
+
+async def test_resume_waits_for_the_move_in_flight(container: Container) -> None:
+    """续接与出手共用玩家锁：一招还没落账时续上，看到的必是落账之后的局面，而不是一点就过期的旧菜单。"""
+    import asyncio
+
+    pid = await spawned_at(container, "无量山")
+    lock = container.pipeline._locks.setdefault(pid, asyncio.Lock())
+    async with lock:  # 假装一招正在命令侧
+        pending = asyncio.ensure_future(play(container, ResumePlayer(player_id=pid, quiet=True)))
+        await asyncio.sleep(0.05)
+        assert not pending.done()
+    assert isinstance((await pending)[-1], TurnCompleted)
 
 
 async def test_the_runtime_roles_share_one_call_fuse(settings: Settings, wire: Any) -> None:

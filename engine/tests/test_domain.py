@@ -1,6 +1,6 @@
 """
 [INPUT]: 依赖 app.domain 的 models / events / aggregates / progression，依赖 tests/world 的 WORLD
-[OUTPUT]: 本体完整性、事件不可变与 JSONB 往返及旧账上抛、渐进式状态的折算、聚合根纯函数折叠的单测
+[OUTPUT]: 本体完整性、事件不可变与 JSONB 往返及旧账上抛、渐进式状态的折算、聚合根纯函数折叠（含焦点与恩怨缘由）的单测
 [POS]: tests 的领域地基：蓝图是最后一道闸门（悬空引用 / 根基成环 / 人物主键不是本名一律拒收，下落不明的物品合法存在）；
        "当前状态 = reduce(evolve, 历史)"——不查状态表，只凭事件流重算位置、行囊、火候与气血；拿到秘籍不等于学会
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -258,6 +258,34 @@ def test_health_is_clamped_and_success_subdues() -> None:
     ])
     assert state is not None and state.hp == 0 and state.alive  # 气血归零不等于死：死亡只认明写的 PlayerDied
     assert state.subdued == {"chr:左子穆"}
+
+
+def test_focus_and_grudges_are_folded_from_existing_events() -> None:
+    """焦点 = 亲手打过交道的人与物（新者在前、至多四个）；目睹者的人情涟漪、驳回的原话、去过的地方都不算。恩怨缘由取最近一次。"""
+    state = Player.replay([
+        PlayerSpawned(player_id=PID, name="阿星", location_id="loc:无量山"),
+        Conversed(npc_id="chr:辛双清"),
+        SkillExecuted(skill_id=None, target_id="chr:左子穆", outcome=CombatOutcome.SUCCESS),
+        RelationChanged(character_id="chr:左子穆", attitude=Attitude.HOSTILE, cause="遭你出手相攻"),
+        RelationChanged(character_id="chr:龚光杰", attitude=Attitude.HOSTILE, cause="师徒左子穆受你攻击"),
+        ItemTransferred(item_id="itm:无量剑", from_holder="chr:左子穆", to_holder=PID),
+        ActionFailed(action=ActionType.TALK, target="段誉", reason_code="NOT_PRESENT", reason="此处不见「段誉」。"),
+        Moved(from_location_id="loc:无量山", to_location_id="loc:大理城", exit_label="南下"),
+    ])
+    assert state is not None
+    assert state.focus == ("chr:左子穆", "itm:无量剑", "chr:辛双清")  # 从被制住者身上取物：人在前、物在后，旧焦点去重
+    assert state.attitude_causes == {"chr:左子穆": "遭你出手相攻", "chr:龚光杰": "师徒左子穆受你攻击"}
+    later = Player.replay([
+        PlayerSpawned(player_id=PID, name="阿星", location_id="loc:无量玉洞"),
+        ItemTransferred(item_id="itm:北冥神功卷轴", from_holder="loc:无量玉洞", to_holder=PID),
+        SkillPracticed(skill_id="art:北冥神功", proficiency_gained=5, source_id="itm:北冥神功卷轴"),
+        SkillPracticed(skill_id="art:北冥神功", proficiency_gained=5),  # 闭门苦练没有对象
+        *(Conversed(npc_id=f"chr:路人{n}") for n in range(4)),
+        RelationChanged(character_id="chr:路人3", attitude=Attitude.FRIENDLY, cause="相谈甚欢"),
+        RelationChanged(character_id="chr:路人3", attitude=Attitude.HOSTILE, cause="出言不逊"),
+    ])
+    assert later is not None and later.focus == ("chr:路人3", "chr:路人2", "chr:路人1", "chr:路人0")  # 至多四个
+    assert later.attitude_causes == {"chr:路人3": "出言不逊"}
 
 
 def test_stream_must_start_with_spawn_and_be_contiguous() -> None:

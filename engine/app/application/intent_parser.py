@@ -1,11 +1,13 @@
 """
-[INPUT]: 依赖 application/ports 的 LLMClient，依赖 domain/intent 的 ActionType / PlayerIntent，依赖 domain/snapshot 的 LocalSnapshot
-[OUTPUT]: 对外提供 WorldviewGuard（违背世界观的确定性词表守卫）、IntentParser 抽象（模板方法：守卫 → 解读 → 再守卫）、
+[INPUT]: 依赖 application/ports 的 LLMClient，依赖 domain/intent 的 ActionType / PlayerIntent，依赖 domain/snapshot 的 LocalSnapshot，依赖 domain/models 的 WorldBlueprint（for_canon）
+[OUTPUT]: 对外提供 WorldviewGuard（违背世界观的确定性词表守卫，先剔除场景正名与 for_canon 收录的原著撞词正名）、scene_names()、IntentParser 抽象（模板方法：守卫 → 解读 → 再守卫）、
           LLMIntentParser（结构化输出 + 重采样 + 兜底 INVALID）、HeuristicIntentParser（离线关键词解析）、INTENT_SYSTEM / scene_vocabulary()
 [POS]: application 的命令侧入口（CQRS 的 Command 解析）：把玩家的华丽武侠描写降维为系统可识别的 PlayerIntent。
        三道防线拦截热兵器与法术：①词表守卫在调用大模型之前直接判 INVALID（省钱且不可被话术绕过）；
        ②提示词要求大模型对违背世界观的内容判 INVALID；③即便大模型被说服，裁决规则也只认图谱里存在的实体——AK47 不在任何人的行囊里。
        解析器只产出"想做什么"，从不判断"能不能做"：后者是 domain/rules 的职权。
+       守卫的原文检查与字段再检查都先剔除场景正名（scene_names）与原著里撞上禁词的正名（for_canon，不在眼前也算）再查禁词：
+       原著的「金针渡劫」不被「渡劫」误杀，「渡劫飞升」照拦。
        场景词表随渐进式状态而丰富：人物带称号与别名（喊「恶贯满盈」也能规整为段延庆），已会武学带火候；
        LEARN 一个动作涵盖入门与精进，REST 调息疗伤是独立动作——"练功疗伤"以疗伤为准
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -15,12 +17,13 @@ import json
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
-from typing import Protocol
+from typing import Protocol, Self
 
 from pydantic import ValidationError
 
 from app.application.ports import LLMClient
 from app.domain.intent import ActionType, PlayerIntent
+from app.domain.models import WorldBlueprint
 from app.domain.snapshot import LocalSnapshot
 
 logger = logging.getLogger(__name__)
@@ -40,16 +43,47 @@ ANACHRONISMS: tuple[str, ...] = (
 
 
 class WorldviewGuard:
-    def __init__(self, lexicon: Iterable[str] = ANACHRONISMS) -> None:
+    def __init__(self, lexicon: Iterable[str] = ANACHRONISMS, *, canon: Iterable[str] = ()) -> None:
         self._lexicon = tuple(word.lower() for word in lexicon)
+        self._canon = tuple(canon)  # 原著里撞上禁词的正名（「金针渡劫」）：不在眼前也照样是江湖里的东西
 
-    def violation(self, *texts: str | None) -> str | None:
-        """返回第一个越界的词；全部合乎世界观返回 None。"""
+    @classmethod
+    def for_canon(cls, blueprint: WorldBlueprint | None) -> Self:
+        """从正典里挑出撞上禁词的全部叫法（人、功、物、地，含称号与别名）：玩家在别处打听它，也不该被当成修仙。"""
+        if blueprint is None:
+            return cls()
+        lexicon = tuple(word.lower() for word in ANACHRONISMS)
+        named = (*blueprint.locations, *blueprint.martial_arts, *blueprint.items)
+        names = (*(n for e in named for n in e.names), *(n for c in blueprint.characters for n in c.names))
+        return cls(canon=sorted({n for n in names if any(word in n.lower() for word in lexicon)}))
+
+    def violation(self, *texts: str | None, spared: Iterable[str] = ()) -> str | None:
+        """
+        返回第一个越界的词；全部合乎世界观返回 None。
+        spared 是此情此景的正名（scene_names）：先把撞上禁词的那些剔掉再查词表——原著的「金针渡劫」不该被「渡劫」误杀。
+        只剔撞词的正名（其余正名剔了也无益，反倒可能拆碎禁词），剔除处留一个分隔符，免得前后两段拼成新的禁词。
+        """
+        names = sorted(
+            {n.lower() for n in (*spared, *self._canon) if any(word in n.lower() for word in self._lexicon)},
+            key=len, reverse=True,
+        )
         for text in texts:
             lowered = (text or "").lower()
+            for name in names:
+                lowered = lowered.replace(name, "｜")
             if hit := next((word for word in self._lexicon if word in lowered), None):
                 return hit
         return None
+
+
+def scene_names(scene: LocalSnapshot) -> tuple[str, ...]:
+    """此情此景可指称的全部正名与叫法（人、功、物、所在、出路）：守卫查禁词之前先剔掉它们。"""
+    views = (*scene.characters, *scene.skills, *scene.items)
+    return (
+        *(n for v in views for n in v.names),
+        scene.location.name,
+        *(n for e in scene.exits for n in e.names),
+    )
 
 
 # ============================================================
@@ -63,10 +97,11 @@ class IntentParser(ABC):
         text = text.strip()
         if not text:
             return PlayerIntent.invalid("你什么也没有做。")
-        if word := self._guard.violation(text):
+        spared = scene_names(scene)  # 两道检查都先剔除场景正名：「向左子穆求教金针渡劫」不是修仙
+        if word := self._guard.violation(text, spared=spared):
             return PlayerIntent.invalid(f"「{word}」不属于这个江湖。")
         intent = await self._interpret(text, scene)
-        if word := self._guard.violation(intent.target_entity, intent.item_used, intent.skill_used):
+        if word := self._guard.violation(intent.target_entity, intent.item_used, intent.skill_used, spared=spared):
             return PlayerIntent.invalid(f"「{word}」不属于这个江湖。")
         return intent
 

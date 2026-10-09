@@ -1,7 +1,7 @@
 """
 [INPUT]: 依赖 application/ports 的 LLMClient，依赖 application/chronicle 的 titled / known_arts，依赖 domain/snapshot 的 LocalSnapshot，
          依赖 app.errors 的 LLMError
-[OUTPUT]: 对外提供 NarrationRequest（含地下城主的速写 hint 与夺路逃离的交手现场 fled）、Narrator 抽象（流式 narrate）、hard_prompt()（局部真理快照 → XML 硬约束）、NARRATOR_SYSTEM、
+[OUTPUT]: 对外提供 NarrationRequest（含地下城主的速写 hint、夺路逃离的交手现场 fled 与在场者的恩怨缘由 causes）、Narrator 抽象（流式 narrate）、hard_prompt()（局部真理快照 → XML 硬约束）、NARRATOR_SYSTEM、
           LLMNarrator（金庸风流式渲染）、TemplateNarrator（离线确定性白描）、FallbackNarrator（主渲染失败时降级为白描）
 [POS]: application 的查询侧渲染器（CQRS 的 Query 侧）：结果已由规则裁定并入账，这里只负责"怎么写"，无权决定"发生了什么"。
        大模型看到的世界只有快照（Hard Prompt）：快照之外的人、物、功、地对它不存在；渲染失败也不影响真相——事件早已落账，降级白描照常推送。
@@ -9,14 +9,15 @@
        速写不入事件、不入记忆，只活在这一回合的 Prompt 里。
        铁律据真实整局实测补强：没有「来到某地」就仍在原地、facts 之外的变化（伤势好转、退路被封、有人追来）一概不写、
        行囊里的东西 facts 没写它易手就仍在身上（玩家"嚼下通天草"不等于吃掉了）、伤势与态度不照抄标签词；在场者所会武学带类别（掌法不被写成剑法）。
-       重伤夺路而逃的回合，快照已是逃抵之地，交手现场另作 <fled_scene>：仇人在那里，先写交手再写逃
+       重伤夺路而逃的回合，快照已是逃抵之地，交手现场另作 <fled_scene>：仇人在那里，先写交手再写逃。
+       在场者的人物行在态度之后附「恩怨：…」（取自 RelationChanged.cause 的折叠）：只是一行数据，铁律不改——说书人不必再自己编仇从何来
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator, Iterable
-from dataclasses import dataclass
+from collections.abc import AsyncIterator, Iterable, Mapping
+from dataclasses import dataclass, field
 
 from app.application.chronicle import known_arts, titled
 from app.application.ports import LLMClient
@@ -35,6 +36,7 @@ class NarrationRequest:
     style: str = ""
     hint: str = ""  # 地下城主对这一招过程的速写：只在其结局被领域采纳时才有，与 facts 一致
     fled: LocalSnapshot | None = None  # 本回合夺路逃离之处（交手的现场）：快照已是逃抵之地，仇人只在这里
+    causes: Mapping[str, str] = field(default_factory=dict)  # 在场者本名 → 对你态度的由来（PlayerState.attitude_causes）
 
 
 class Narrator(ABC):
@@ -53,13 +55,14 @@ def _join(parts: Iterable[str]) -> str:
     return "、".join(parts) or "无"
 
 
-def _scene(snap: LocalSnapshot) -> list[str]:
-    """一处地方与在场之人：<truth_snapshot> 与 <fled_scene> 共用同一种写法。"""
+def _scene(snap: LocalSnapshot, causes: Mapping[str, str]) -> list[str]:
+    """一处地方与在场之人：<truth_snapshot> 与 <fled_scene> 共用同一种写法。知道恩怨缘由的人，态度之后写明「恩怨：…」。"""
     e, loc = _safe, snap.location
     known = {s.id: f"{s.name}（{s.kind}）" if s.kind else s.name for s in snap.skills}  # 带上类别：掌法不会被写成剑法
     people = [
         e(
             f"- {titled(c)}｜{c.faction or '无门无派'}｜{c.tier.value}｜性情{c.disposition.value}｜对你{c.attitude.value}｜"
+            f"{f'恩怨：{causes[c.name]}｜' if c.name in causes else ''}"
             f"{'已被你制住' if c.subdued else '行动自如'}｜身负：{_join(known.get(s, snap.label(s)) for s in c.skill_ids)}｜"
             f"随身：{_join(i.name for i in snap.items_of(c.id))}｜{c.description}"
         )
@@ -77,9 +80,9 @@ def hard_prompt(req: NarrationRequest) -> str:
     """每个插值都经 _safe 转义：玩家写进意图的指称会出现在 ActionFailed 的白描里，不能让它闭合或伪造标签。"""
     snap, e = req.snapshot, _safe
     lines = [
-        *(["<fled_scene>", *_scene(req.fled), "</fled_scene>"] if req.fled else []),
+        *(["<fled_scene>", *_scene(req.fled, {}), "</fled_scene>"] if req.fled else []),  # 交手前的样子：恩怨以 facts 为准
         "<truth_snapshot>",
-        *_scene(snap),
+        *_scene(snap, req.causes),
         f"<exits>{e(_join(f'{x.label}→{x.to_name}' for x in snap.exits))}</exits>",
         f"<ground>{e(_join(i.name for i in snap.ground_items))}</ground>",
         (

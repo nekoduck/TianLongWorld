@@ -3,7 +3,8 @@
          依赖 infrastructure 的事件账本、图谱、记忆与大模型工厂的全部实现
 [OUTPUT]: 对外提供 Container（总线 + 流水线 + 投影协调者 + 播种器 + 关闭钩子）、build_container()（按配置装配整个引擎）
 [POS]: 引擎唯一的组合根（依赖注入）：只有这里知道"端口背后是谁"。四类后端各自二选一（memory / 生产实现），大模型缺席时
-       换上离线解析器、规则裁决与白描说书人；意图解析、地下城主与叙事渲染按职责各取一套（模型, 思考档位）、共用一份调用次数保险丝（LLM_CALL_LIMIT）；其余模块只依赖抽象，互不 new 对方。
+       换上离线解析器、规则裁决与白描说书人；意图解析、地下城主与叙事渲染按职责各取一套（模型, 思考档位）、共用一份调用次数保险丝（LLM_CALL_LIMIT）；
+       意图守卫豁免原著里撞上禁词的正名（WorldviewGuard.for_canon，Neo4j 后端读入库的 blueprint.json）；其余模块只依赖抽象，互不 new 对方。
        测试经 blueprint / llm / resolver 参数注入替身，与生产走同一条装配路径
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -14,7 +15,7 @@ from dataclasses import dataclass, field
 
 from app.application.bus import CommandBus
 from app.application.handlers import TurnPipeline, register_handlers
-from app.application.intent_parser import HeuristicIntentParser, IntentParser, LLMIntentParser
+from app.application.intent_parser import HeuristicIntentParser, IntentParser, LLMIntentParser, WorldviewGuard
 from app.application.narrator import FallbackNarrator, LLMNarrator, Narrator, TemplateNarrator
 from app.application.options import OptionGenerator
 from app.application.ports import LLMClient
@@ -103,7 +104,10 @@ async def build_container(
     fuse = CallBudget(settings.llm_call_limit)
     reader_llm = llm if llm is not None else build_llm(settings, LLMRole.INTENT, fuse)
     writer_llm = llm if llm is not None else build_llm(settings, LLMRole.NARRATION, fuse)
-    parser: IntentParser = LLMIntentParser(reader_llm) if reader_llm else HeuristicIntentParser()
+    # 守卫豁免原著里撞上禁词的正名：Neo4j 后端不随身带蓝图，就读入库的 blueprint.json
+    canon = seed if seed is not None else _blueprint_on_disk(settings)
+    guard = WorldviewGuard.for_canon(canon)
+    parser: IntentParser = LLMIntentParser(reader_llm, guard=guard) if reader_llm else HeuristicIntentParser(guard)
     if resolver is None:
         judge_llm = llm if llm is not None else build_llm(settings, LLMRole.RESOLUTION, fuse)
         resolver = (
@@ -130,3 +134,11 @@ async def build_container(
         bus=bus, pipeline=pipeline, coordinator=coordinator, store=store,
         reader=graph, projector=graph, seeder=graph, closers=closers,
     )
+
+
+def _blueprint_on_disk(settings: Settings) -> WorldBlueprint | None:
+    """入库的正典蓝图（Neo4j 后端时守卫据此认出原著正名）；没有或读不了就不认，守卫照常只认场景正名。"""
+    try:
+        return WorldBlueprint.model_validate_json(settings.blueprint_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None

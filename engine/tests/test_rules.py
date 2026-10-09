@@ -1,8 +1,8 @@
 """
 [INPUT]: 依赖 app.domain.rules 的 decide / adjudicate / stakes / resolve，依赖 app.domain.combat 的 assess / settle / CombatProposal，
          依赖 app.domain.aggregates 的 Player，依赖 InMemoryWorldGraph 生成快照，依赖 tests/world 的 WORLD
-[OUTPUT]: 裁决规则的单测：每种动作的放行与驳回、模糊裁决的可裁区间与定案钳位、人情涟漪、火候折算境界、
-          修习的入门与精进逐条核验、调息疗伤、天降神兵此路不通
+[OUTPUT]: 裁决规则的单测：每种动作的放行与驳回、模糊裁决的可裁区间与定案钳位、人情涟漪（「敌人之敌」暂停）、火候折算境界、
+          修习的入门与精进逐条核验、仇人在侧不得修习、求教被拒的理由照实写人情、调息疗伤、天降神兵此路不通
 [POS]: tests 的逻辑死线：能力成长、物品获取、人际变化只能由图谱拓扑推导；地下城主只能在领域圈出的区间里挑结局——这里逐条钉死
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -221,9 +221,8 @@ async def test_attack_ripples_along_has_relation_to_witnesses_only() -> None:
     events = decide(act(ActionType.ATTACK, target_entity="左子穆"), state, snap)
     assert events[0] == SkillExecuted(skill_id=None, target_id="chr:左子穆", outcome=Out.MINOR_WOUND)
     changes = {e.character_id: e.attitude for e in events if isinstance(e, RelationChanged)}
-    assert changes == {  # 南海鳄神与之无关，不动
-        "chr:左子穆": Attitude.HOSTILE, "chr:龚光杰": Attitude.HOSTILE, "chr:辛双清": Attitude.FRIENDLY,
-    }
+    assert changes == {"chr:左子穆": Attitude.HOSTILE, "chr:龚光杰": Attitude.HOSTILE}  # 南海鳄神与之无关，不动
+    # 「敌人之敌 → 好感」暂停：辛双清是左子穆的仇家，却不因你出手而生好感（蓝图的仇敌边多是后文的恩怨，P1 按 era 恢复）
 
 
 async def test_merciful_kin_turns_hostile_but_spares_you() -> None:
@@ -374,6 +373,35 @@ async def test_a_named_master_who_refuses_is_not_silently_replaced_by_solitude()
     refused = failure(decide(act(ActionType.LEARN, skill_used="无量剑法", target_entity="左子穆"), state, snap))
     assert refused.reason.startswith("左子穆不肯")
     assert decide(act(ActionType.LEARN, skill_used="无量剑法"), state, snap) == [practiced("art:无量剑法", 5)]
+
+
+async def test_no_study_while_a_foe_looms() -> None:
+    """仇人在侧无从静心修习（与调息同一道门）：入门、名师点拨、参照典籍都一样；仇人被制住或你离开了，照常修习。"""
+    friend = RelationChanged(character_id="chr:辛双清", attitude=Attitude.FRIENDLY, cause="你替她解围")
+    grudge = RelationChanged(character_id="chr:龚光杰", attitude=Attitude.HOSTILE, cause="遭你出手相攻")
+    state, snap = await scene("loc:无量山", friend, grudge)
+    unsafe = failure(decide(act(ActionType.LEARN, skill_used="无量剑法"), state, snap))
+    assert unsafe.reason_code == "UNSAFE" and unsafe.reason == "龚光杰在侧虎视眈眈，你无法静心修习。"
+    scroll = ItemTransferred(item_id="itm:北冥神功卷轴", from_holder="loc:无量玉洞", to_holder=PID)
+    entered = practiced("art:北冥神功", 10, "itm:北冥神功卷轴")
+    state, snap = await scene("loc:无量山", scroll, entered, grudge)
+    assert failure(decide(act(ActionType.LEARN, skill_used="北冥神功"), state, snap)).reason_code == "UNSAFE"
+    subdued = SkillExecuted(skill_id=None, target_id="chr:龚光杰", outcome=Out.SUCCESS)
+    state, snap = await scene("loc:无量山", friend, grudge, subdued)
+    assert decide(act(ActionType.LEARN, skill_used="无量剑法"), state, snap) == [practiced("art:无量剑法", 10, "chr:辛双清")]
+
+
+async def test_a_refusal_speaks_of_the_actual_grudge_or_its_absence() -> None:
+    """求教被拒的理由照实写人情：仇人写明结怨的缘由，漠然者只是素无交情——绝不说「素不相识」（实录回合 11）。"""
+    state, snap = await scene("loc:无量山")
+    cold = failure(decide(act(ActionType.LEARN, skill_used="无量剑法", target_entity="辛双清"), state, snap))
+    assert cold.reason == "辛双清不肯将无量剑法传给素无交情之人。"
+    grudge = RelationChanged(character_id="chr:左子穆", attitude=Attitude.HOSTILE, cause="师徒龚光杰受你攻击")
+    state, snap = await scene("loc:无量山", grudge)
+    hostile = failure(decide(act(ActionType.LEARN, skill_used="无量剑法", target_entity="左子穆"), state, snap))
+    assert hostile.reason_code == "UNWILLING"  # 向仇人本人求教：驳回说的是那段恩怨，而不是笼统的虎视眈眈
+    assert hostile.reason == "左子穆不肯将无量剑法传给仇人（师徒龚光杰受你攻击）。"
+    assert "素不相识" not in cold.reason + hostile.reason
 
 
 async def test_a_known_art_whose_text_is_lost_can_still_be_practiced_alone() -> None:

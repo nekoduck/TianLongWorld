@@ -1,0 +1,44 @@
+{"v": 1, "type": "PlayerSpawned", "player_id": "ply:9b2547c352894832", "name": "阿星", "location_id": "loc:剑湖宫·练武厅", "aptitude": 1.3}
+{"v": 2, "type": "SkillExecuted", "skill_id": null, "target_id": "chr:龚光杰", "item_id": null, "outcome": "重伤"}
+{"v": 3, "type": "HealthChanged", "delta": -58, "cause": "与龚光杰交手", "source_id": "chr:龚光杰"}
+{"v": 4, "type": "RelationChanged", "character_id": "chr:龚光杰", "attitude": "敌视", "cause": "遭你出手相攻"}
+{"v": 5, "type": "RelationChanged", "character_id": "chr:容子矩", "attitude": "敌视", "cause": "同门龚光杰受你攻击"}
+{"v": 6, "type": "RelationChanged", "character_id": "chr:左子穆", "attitude": "敌视", "cause": "师徒龚光杰受你攻击"}
+{"v": 7, "type": "RelationChanged", "character_id": "chr:干光豪", "attitude": "敌视", "cause": "同门龚光杰受你攻击"}
+{"v": 8, "type": "RelationChanged", "character_id": "chr:段誉", "attitude": "友善", "cause": "你与其仇家龚光杰为敌"}
+{"v": 9, "type": "Moved", "from_location_id": "loc:剑湖宫·练武厅", "to_location_id": "loc:剑湖宫", "exit_label": "出厅门"}
+{"v": 10, "type": "HealthChanged", "delta": 25, "cause": "调息疗伤", "source_id": null}
+{"v": 11, "type": "HealthChanged", "delta": 25, "cause": "调息疗伤", "source_id": null}
+{"v": 12, "type": "Conversed", "npc_id": "chr:钟灵"}
+{"v": 13, "type": "SkillExecuted", "skill_id": null, "target_id": "chr:钟灵", "item_id": null, "outcome": "轻伤"}
+{"v": 14, "type": "HealthChanged", "delta": -18, "cause": "与钟灵交手", "source_id": "chr:钟灵"}
+{"v": 15, "type": "RelationChanged", "character_id": "chr:钟灵", "attitude": "敌视", "cause": "遭你出手相攻"}
+{"v": 16, "type": "SkillExecuted", "skill_id": null, "target_id": "chr:钟灵", "item_id": null, "outcome": "轻伤"}
+{"v": 17, "type": "HealthChanged", "delta": -18, "cause": "与钟灵交手", "source_id": "chr:钟灵"}
+{"v": 18, "type": "Moved", "from_location_id": "loc:剑湖宫", "to_location_id": "loc:无量山", "exit_label": "出大门"}
+{"v": 19, "type": "ItemTransferred", "item_id": "itm:通天草", "from_holder": "loc:无量山", "to_holder": "ply:9b2547c352894832"}
+{"v": 20, "type": "ActionFailed", "action": "TALK", "target": "恶贯满盈", "reason_code": "NOT_PRESENT", "reason": "此处不见「恶贯满盈」。"}
+{"v": 21, "type": "ActionFailed", "action": "LEARN", "target": "木婉清", "reason_code": "UNWILLING", "reason": "木婉清不肯将晓风拂柳传给素不相识之人。"}
+{"v": 22, "type": "ActionFailed", "action": "INVALID", "target": null, "reason_code": "INVALID", "reason": "「手枪」不属于这个江湖。"}
+{"v": 23, "type": "Moved", "from_location_id": "loc:无量山", "to_location_id": "loc:剑湖", "exit_label": "入剑湖"}
+{"v": 24, "type": "HealthChanged", "delta": 25, "cause": "调息疗伤", "source_id": null}
+{"v": 25, "type": "Moved", "from_location_id": "loc:剑湖", "to_location_id": "loc:剑湖·第一间石室", "exit_label": "入第一间石室"}
+{"v": 26, "type": "Moved", "from_location_id": "loc:剑湖·第一间石室", "to_location_id": "loc:幽谷·玉像石室", "exit_label": "循石级下"}
+{"v": 27, "type": "ItemTransferred", "item_id": "itm:帛卷", "from_holder": "loc:幽谷·玉像石室", "to_holder": "ply:9b2547c352894832"}
+{"v": 28, "type": "SkillPracticed", "skill_id": "art:北冥神功", "proficiency_gained": 10, "source_id": "itm:帛卷"}
+{"v": 29, "type": "SkillPracticed", "skill_id": "art:北冥神功", "proficiency_gained": 10, "source_id": "itm:帛卷"}
+{"v": 30, "type": "Moved", "from_location_id": "loc:幽谷·玉像石室", "to_location_id": "loc:澜沧江畔·洞穴", "exit_label": "石级上行"}
+{"v": 31, "type": "Moved", "from_location_id": "loc:澜沧江畔·洞穴", "to_location_id": "loc:澜沧江畔", "exit_label": "攀上江岸"}
+{"v": 32, "type": "SkillExecuted", "skill_id": "art:北冥神功", "target_id": "chr:段延庆", "item_id": null, "outcome": "重伤"}
+{"v": 33, "type": "HealthChanged", "delta": -65, "cause": "与段延庆交手", "source_id": "chr:段延庆"}
+{"v": 34, "type": "RelationChanged", "character_id": "chr:段延庆", "attitude": "敌视", "cause": "遭你出手相攻"}
+{"v": 35, "type": "Moved", "from_location_id": "loc:澜沧江畔", "to_location_id": "loc:澜沧江畔·洞穴", "exit_label": "入洞穴"}
+{"v": 36, "type": "HealthChanged", "delta": 25, "cause": "调息疗伤", "source_id": null}
+{"v": 37, "type": "HealthChanged", "delta": 25, "cause": "调息疗伤", "source_id": null}
+{"v": 38, "type": "Moved", "from_location_id": "loc:澜沧江畔·洞穴", "to_location_id": "loc:澜沧江畔", "exit_label": "攀上江岸"}
+{"v": 39, "type": "ActionFailed", "action": "ATTACK", "target": "段延庆", "reason_code": "NOT_KNOWN", "reason": "你并不会「黑虎掏心」。"}
+{"v": 40, "type": "SkillExecuted", "skill_id": "art:北冥神功", "target_id": "chr:段延庆", "item_id": null, "outcome": "重伤"}
+{"v": 41, "type": "HealthChanged", "delta": -65, "cause": "与段延庆交手", "source_id": "chr:段延庆"}
+{"v": 42, "type": "SkillExecuted", "skill_id": "art:北冥神功", "target_id": "chr:段延庆", "item_id": null, "outcome": "毙命"}
+{"v": 43, "type": "HealthChanged", "delta": -1, "cause": "与段延庆交手", "source_id": "chr:段延庆"}
+{"v": 44, "type": "PlayerDied", "cause": "冒犯段延庆，当场毙命", "killer_id": "chr:段延庆"}

@@ -9,7 +9,7 @@ container.py 是唯一知道"端口背后是谁"的地方，main.py 只是进程
 __init__.py: 包标识，一行导航注释
 errors.py: 共享内核的错误谱系，EngineError(code, message) 及 UnknownPlayer / PlayerDead / Concurrency / OptionExpired / WorldNotSeeded / Projection / LLM（带 retryable：限流与 5xx 可重试，欠费鉴权不可）/ Extraction；presentation 按 code 映射为错误帧
 config.py: 配置唯一入口，pydantic-settings 读 engine/.env（锚定于文件而非 cwd）；大模型四选一（mock 为默认），LLMRole 四职责（意图 / 叙事 / 地下城主 / 抽取）经 llm_profile 各取（模型, 思考档位），职责专属配置留空即退回缺省档，地下城主另有时间预算 llm_resolution_budget，各职责共用调用次数保险丝 llm_call_limit（每进程缺省 500，0 不设限）；四类后端各自 memory / 生产实现、memory_recall_k 钉死 1~10、播种参数；blueprint_path 派生属性
-container.py: 组合根 build_container(settings, blueprint, llm, resolver) → Container（bus / pipeline / coordinator / store / reader / projector / seeder / closers）；无大模型时换上 HeuristicIntentParser、CanonicalResolver 与 TemplateNarrator，有则意图职责的客户端喂 LLMIntentParser、地下城主职责的客户端喂 LLMResolutionAgent、叙事职责的客户端喂 FallbackNarrator(LLMNarrator, TemplateNarrator)，三者共用一份 CallBudget 保险丝（测试注入的 llm 同时顶替三种运行期职责，resolver 可单独注入一个不守规矩的替身以证明钳位由领域守住）；memory 图谱自动加载 blueprint.json
+container.py: 组合根 build_container(settings, blueprint, llm, resolver) → Container（bus / pipeline / coordinator / store / reader / projector / seeder / closers）；无大模型时换上 HeuristicIntentParser、CanonicalResolver 与 TemplateNarrator，有则意图职责的客户端喂 LLMIntentParser、地下城主职责的客户端喂 LLMResolutionAgent、叙事职责的客户端喂 FallbackNarrator(LLMNarrator, TemplateNarrator)，三者共用一份 CallBudget 保险丝，意图解析的守卫经 WorldviewGuard.for_canon 豁免原著撞词正名（Neo4j 后端读入库的 blueprint.json）（测试注入的 llm 同时顶替三种运行期职责，resolver 可单独注入一个不守规矩的替身以证明钳位由领域守住）；memory 图谱自动加载 blueprint.json
 main.py: create_app(settings, container_factory) 应用工厂，lifespan 装配与释放容器；挂载 /ws/play 与 GET /health（含是否已播种）；模块级 app 供 uvicorn
 seed.py: 播种命令行 `python -m app.seed extract|assemble|export|ingest|heal|apply|script`（INFO 级进度日志）——花钱的路须显式走：extract 只在 --use-llm 时读原著经抽取职责的大模型抽取（不带即拒绝并指路 export / ingest——本项目的抽取由 Claude 子代理完成），确定性组装、自动套用自愈缓存，写出 blueprint.json / seed.cypher / report.txt（--apply 立即写图，--max-chunks 取开篇作时间切片；有失败块时只写报告、不覆盖旧蓝图，--allow-partial 例外）；assemble 只读某一版提示词的缓存零费用重新组装（同样套用自愈缓存）；export 导出抽取铁律与当前版本尚未缓存的块、ingest 把大模型之外的抽取器（子代理、人工）对某块的产出经同一道闸门写入缓存——抽取器可换，契约不变；extract 会把现有 blueprint.json 生成跨块命名参考交给抽取器；heal 体检蓝图里被武学引用却下落不明的孤儿物品（--retry-null 重问已判无从推断的），经 --export / --ingest 交给子代理（或 --use-llm 时经抽取职责的大模型；不带只套缓存）据原著常识推断安放、过闸门后写回蓝图与脚本，--apply 经 MERGE 把推断的边（provenance=推断）写进 Neo4j；apply 把蓝图写进 Neo4j（--reset 开新纪元）；script 由蓝图重生成脚本
 domain/: 领域层，地图见 domain/CLAUDE.md
@@ -18,7 +18,8 @@ infrastructure/: 基础设施层，地图见 infrastructure/CLAUDE.md
 presentation/: 表现层，地图见 presentation/CLAUDE.md
 
 设计要点
-- 读写分离：命令侧（解析 → 裁决 → 追加事件 → 同步投影图谱）持玩家锁串行；查询侧（快照 ∥ 召回 → 选项 ∥ 叙事 ∥ 记忆写入）无锁并行
+- 读写分离：命令侧（解析 → 裁决 → 追加事件 → 同步投影图谱）持玩家锁串行；查询侧（快照 → 召回 → 选项 ∥ 叙事 ∥ 记忆写入）无锁并行
+- 菜单跟着剧情走：选项是 (玩家状态, 快照) 的纯函数，按焦点、仇人、伤势打分，脱身席 / 跟进席 / MMR 取 3~4 席，每席带一句 why；没有版本号轮换
 - 大模型四职责全部无状态、无写端口：播种时抽取原著（与自愈代理推断孤儿的安放，本项目由 Claude 子代理经 export / ingest 担任，不花钱）、命令侧解析意图与地下城主裁决、查询侧渲染文本；
   最远只能产出一条被规则驳回的意图、一条被钳回可裁区间的胜负提议、或一条过不了闸门的安放
 - 渐进式状态：熟练度与气血在事件里只做加法，火候与伤势读取时现算；出手的胜负由领域圈出可裁区间、地下城主在区间里挑——不再是境界比大小的二极管

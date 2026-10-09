@@ -15,7 +15,7 @@ Neo4j 局部快照 ──────────────────┴─�
                          [Event] 领域 settle 钳位定案 ◄──────────────────────┘
                                   追加 PostgreSQL ──► 投影 Neo4j ──► 投影 Qdrant
                                                   │
-              新快照 ──► [Options] 合法边 → 3~4 个选项  ∥  [Render] Hard Prompt + 地下城主速写 → 金庸风流式叙事
+              新快照 ──► [Options] 合法边 → 显著性 + 席位 + MMR → 3~4 个选项（带 why）  ∥  [Render] Hard Prompt + 地下城主速写 + 恩怨 → 金庸风流式叙事
 ```
 
 ## 四个设计支点
@@ -37,6 +37,8 @@ python3.12 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 
 真实游玩需要一份原著蓝图（见下文「播种」）。默认配置全内存 + mock：意图解析与叙事退化为确定性的离线实现，
 `uvicorn app.main:app --port 8000` 启动后自动加载 `data/world/blueprint.json`。
+与前端联调时 engine 起在 8001（backend 占 8000，前端 `npm run dev:engine` 经 Vite 把 `/ws` 代理过来）；环境变量优先于 `.env`，
+`LLM_PROVIDER=mock EVENT_STORE=memory GRAPH_BACKEND=memory QDRANT_URL=:memory: uvicorn app.main:app --port 8001` 保证全内存、零费用。
 
 ## 播种：原著 → 图谱
 
@@ -96,13 +98,13 @@ docker compose up -d                       # postgres:16 + neo4j:5.26 + qdrant
 | 方向 | 帧 | 说明 |
 | --- | --- | --- |
 | → | `{"type":"spawn","name":"阿星","location":"无量山"}` | 投胎，location 可省（确定性分配） |
-| → | `{"type":"resume","player_id":"ply:…"}` | 断线重连：重放事件流即恢复 |
+| → | `{"type":"resume","player_id":"ply:…","quiet":false}` | 续前缘：重放事件流即恢复。`quiet:true` 用于断线重连与选项过期——只回 `session` 与叙事为空的 `turn_completed`（选项与状态照给），不复述此景、零大模型调用 |
 | → | `{"type":"act","text":"施展凌波微步向北而去"}` | 自由文本，经意图解析 |
 | → | `{"type":"choose","option_id":"explore-1a2b3c4d"}` | 点选选项，不经大模型，服务端按当前快照重算核验 |
 | ← | `session` | `player_id` / `name` |
 | ← | `turn_resolved` | 结构化意图 + 本回合已入账事件的白描 `facts` |
 | ← | `narration_delta` | 叙事分片（流式） |
-| ← | `turn_completed` | 叙事全文、`options[{id,label,category}]`、`status`（境界 `tier`、伤势 `health`、`skills` 写作「北冥神功（略有小成）」，只有语义标签不露数值）、`game_over` |
+| ← | `turn_completed` | 叙事全文、`options[{id,label,category,why}]`（`why` 是 ≤12 字的上榜缘由，如「仇人在侧，先脱身」「方才打过交道」「伤重宜调息」；意图不下发）、`status`（境界 `tier`、伤势 `health`、`skills` 写作「北冥神功（略有小成）」，只有语义标签不露数值）、`game_over` |
 | ← | `error` | `code` + `message`，连接不断 |
 
 ## 测试矩阵
@@ -114,3 +116,6 @@ TLBB_TEST_NEO4J_URI=bolt://localhost:7687 TLBB_TEST_NEO4J_PASSWORD=tlbb-neo4j \
 .venv/bin/pytest -q                                                     # 加跑真实后端契约与整局
 .venv/bin/ruff check . && .venv/bin/mypy app
 ```
+
+`tests/test_option_metrics.py` 是选项菜单的零费用回归基线：把 29 回合真实 Gemini 实录的事件流（`tests/fixtures/live_session_events.jsonl`，只有事件）
+在入库蓝图上逐回合重放、重算快照与菜单，守住四条指标——世界不变菜单逐字不变、上回合的对象在眼前就被提到（≥80%）、仇人在侧必有出路、调息按伤势加权。

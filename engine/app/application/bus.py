@@ -1,6 +1,6 @@
 """
 [INPUT]: 依赖 pydantic v2 的 BaseModel / Field，依赖 domain/intent 的 PlayerIntent，依赖 application/options 的 ActionOption
-[OUTPUT]: 对外提供 命令 Command / SpawnPlayer / ResumePlayer / SubmitText / ChooseOption、
+[OUTPUT]: 对外提供 命令 Command / SpawnPlayer / ResumePlayer（quiet 只重新接上、不复述此景）/ SubmitText / ChooseOption、
           回合消息 SessionOpened / TurnResolved / NarrationDelta / TurnCompleted 与 PlayerStatus（境界 / 伤势 / 武学火候皆为语义标签）、
           CommandHandler 抽象、CommandBus（按命令类型分派到处理器，返回回合消息的异步流）
 [POS]: application 的边界契约：命令进、消息流出。presentation 只认识这里的类型，不认识聚合根、图谱与大模型；
@@ -32,6 +32,7 @@ class SpawnPlayer(Command):
 
 class ResumePlayer(Command):
     player_id: str
+    quiet: bool = False  # 只重新接上：不复述此景（不调大模型），只下发当前的选项与状态——断线重连、选项过期时用
 
 
 class SubmitText(Command):

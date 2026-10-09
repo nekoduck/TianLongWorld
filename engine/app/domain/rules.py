@@ -12,6 +12,8 @@
        重伤逃脱是真的逃：定案为重伤时追加一条沿来路退回的 Moved（fleeing，实测：只扣血不挪步，玩家"明明逃了"却仍站在仇人面前），
        逃离过的险地（PlayerState.fled_from）永不作退路；
        此情此景里根本没有的武功名（自拟招式）只是笔墨，照常以看家本领出手；修习所得随武学境界折算（progression.gain），越高深越难练。
+       仇人在侧（只认敌视且行动自如）时调息与修习一并 UNSAFE；求教被拒的理由按人情与缘由写（敌视写明结怨缘由，漠然是素无交情）；
+       人情涟漪暂停「敌人之敌 → 好感」：蓝图的仇敌边多是后文才结下的，沿它翻转态度会把未来的恩怨漏进 T=0（P1 reputation 按 era 恢复）。
        每种动作一条 Rule（开闭：新动作 = 新 Rule + 注册一行；新的模糊动作 = 覆写 stakes 钩子），options 生成器复用 adjudicate 过滤出合法行为
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -259,7 +261,7 @@ def _retreat(state: PlayerState, snap: LocalSnapshot) -> ExitView | None:
 def _ripple(foe: CharacterView, state: PlayerState, snap: LocalSnapshot) -> list[DomainEvent]:
     """
     人情的涟漪只沿图谱的 HAS_RELATION 边走一跳，且只波及在场目睹之人：
-    受害者记恨，与其休戚与共者记恨，其仇家反生好感。
+    受害者记恨，与其休戚与共者记恨；其仇家暂不因此生好感（见下）。
     """
     verdicts: list[tuple[str, Attitude, str]] = [(foe.id, Attitude.HOSTILE, "遭你出手相攻")]
     for other in snap.characters:
@@ -267,8 +269,10 @@ def _ripple(foe: CharacterView, state: PlayerState, snap: LocalSnapshot) -> list
             continue
         kind = other.bond_with(foe.id) or foe.bond_with(other.id)
         if kind is RelationKind.ENEMY:
-            verdicts.append((other.id, Attitude.FRIENDLY, f"你与其仇家{foe.name}为敌"))
-        elif kind is not None:
+            # 「敌人之敌 → 好感」暂停：蓝图的仇敌边多半是后文才结下的（龚光杰掌掴段誉、干光豪追杀段誉），
+            # 沿它翻转态度就是让 T=0 的人提前记起未来的恩怨。P1 的 reputation.py 只认 era=开篇 的羁绊，届时在那个范围内恢复
+            continue
+        if kind is not None:
             verdicts.append((other.id, Attitude.HOSTILE, f"{kind.value}{foe.name}受你攻击"))
     return [
         RelationChanged(character_id=cid, attitude=att, cause=cause)
@@ -332,6 +336,7 @@ class LearnRule(Rule):
       入门：可知 → 未失传 → 根基（修炼要求）→ 典籍 → 地点 → 传承（自悟凭典籍 / 师传须有肯教之人在场）；
       精进：未臻化境 → 根基（修炼要求）→ 凭什么练（点名的师父须肯教；肯教之人在场即名师点拨，自悟之功的典籍在身即参照典籍，否则闭门苦练）。
     根基（修炼要求）逐条核验：作根基的武学须练到略有小成 → 无相冲 → 境界够 → 未受重伤。
+    一切门槛都过了，敌视你的人却在一旁且行动自如：无从静心修习（UNSAFE，与调息同一道门）。
     """
 
     def adjudicate(self, intent: PlayerIntent, state: PlayerState, snap: LocalSnapshot) -> Verdict:
@@ -341,9 +346,11 @@ class LearnRule(Rule):
         art = resolve(wanted, snap.skills, _names)
         if art is None:
             return Rejection("UNKNOWN_SKILL", f"此情此景无从得知「{wanted}」的门径。")
-        if art.id in state.skills:
-            return self._deepen(intent, art, state, snap)
-        return self._enter(intent, art, state, snap)
+        verdict = self._deepen(intent, art, state, snap) if art.id in state.skills else self._enter(intent, art, state, snap)
+        if isinstance(verdict, Approval) and (foe := _menace(snap)) is not None:
+            # 与调息同理：仇人在侧无从静心参悟。放在其余门槛之后——向仇人本人求教，驳回理由说的是那段恩怨
+            return Rejection("UNSAFE", f"{foe.name}在侧虎视眈眈，你无法静心修习。")
+        return verdict
 
     @staticmethod
     def _foundation(art: SkillView, state: PlayerState, snap: LocalSnapshot) -> Rejection | None:
@@ -371,7 +378,7 @@ class LearnRule(Rule):
             return Rejection("WRONG_PLACE", f"{art.name}须在{snap.label(a.location_id)}方得门径。")
         if a.transmission is Transmission.SELF:
             return Approval(intent, skill=art.id, source=a.items[0], guidance=Guidance.ENTRY)
-        teacher = _teacher(intent, art, snap)
+        teacher = _teacher(intent, art, state, snap)
         if isinstance(teacher, Rejection):
             return teacher
         return Approval(intent, skill=art.id, source=teacher.id, target=teacher.id, guidance=Guidance.ENTRY)
@@ -381,7 +388,7 @@ class LearnRule(Rule):
             return Rejection("PEAK", f"你的{art.name}已臻{Mastery.PEAK.value}之境，再练也无可精进。")
         if weak := self._foundation(art, state, snap):
             return weak
-        teacher = _teacher(intent, art, snap)
+        teacher = _teacher(intent, art, state, snap)
         if isinstance(teacher, CharacterView):
             return Approval(intent, skill=art.id, source=teacher.id, target=teacher.id, guidance=Guidance.TEACHER)
         if teacher.code == "UNWILLING" and _named_master(intent, art, snap) is not None:
@@ -408,8 +415,11 @@ def _named_master(intent: PlayerIntent, art: SkillView, snap: LocalSnapshot) -> 
     return resolve(intent.target_entity, _masters(art, snap), _names) if intent.skill_used else None
 
 
-def _teacher(intent: PlayerIntent, art: SkillView, snap: LocalSnapshot) -> CharacterView | Rejection:
-    """在场且通晓此功、肯教你的人。玩家点名的师父优先：被拒时说的是他，肯教时也是他；他不肯而旁人肯，由肯教的人传。"""
+def _teacher(intent: PlayerIntent, art: SkillView, state: PlayerState, snap: LocalSnapshot) -> CharacterView | Rejection:
+    """
+    在场且通晓此功、肯教你的人。玩家点名的师父优先：被拒时说的是他，肯教时也是他；他不肯而旁人肯，由肯教的人传。
+    驳回理由照实写人情：敌视者写明结怨的缘由（PlayerState.attitude_causes），漠然者只是素无交情——你们也许刚说过话，并非素不相识。
+    """
     masters = _masters(art, snap)
     if not masters:
         return Rejection("NO_TEACHER", f"{art.name}须有通晓此功之人当面传授。")
@@ -417,8 +427,17 @@ def _teacher(intent: PlayerIntent, art: SkillView, snap: LocalSnapshot) -> Chara
     candidates = sorted(masters, key=lambda c: c is not named)
     teacher = next((c for c in candidates if c.attitude is Attitude.FRIENDLY), None)
     if teacher is None:
-        return Rejection("UNWILLING", f"{candidates[0].name}不肯将{art.name}传给素不相识之人。")
+        who = candidates[0]
+        if who.attitude is Attitude.HOSTILE:
+            grudge = state.attitude_causes.get(who.id) or "与你结怨"
+            return Rejection("UNWILLING", f"{who.name}不肯将{art.name}传给仇人（{grudge}）。")
+        return Rejection("UNWILLING", f"{who.name}不肯将{art.name}传给素无交情之人。")
     return teacher
+
+
+def _menace(snap: LocalSnapshot) -> CharacterView | None:
+    """在场、敌视你且行动自如的人：有他在侧，调息与修习都无从静心（戒备不算仇人，只认敌视）。"""
+    return next((c for c in snap.characters if c.attitude is Attitude.HOSTILE and not c.subdued), None)
 
 
 class RestRule(Rule):
@@ -427,7 +446,7 @@ class RestRule(Rule):
     def adjudicate(self, intent: PlayerIntent, state: PlayerState, snap: LocalSnapshot) -> Verdict:
         if state.hp >= MAX_HP:
             return Rejection("UNHURT", "你气血充盈，无伤可疗。")
-        if foe := next((c for c in snap.characters if c.attitude is Attitude.HOSTILE and not c.subdued), None):
+        if foe := _menace(snap):
             return Rejection("UNSAFE", f"{foe.name}在侧虎视眈眈，你无法安心调息。")
         return Approval(intent)
 
