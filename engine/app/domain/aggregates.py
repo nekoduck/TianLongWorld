@@ -1,10 +1,12 @@
 """
 [INPUT]: 依赖 domain/events 的全部领域事件（含 P1 的 Parleyed / FactLearned / ItemConsumed / Maneuvered）与 EventEnvelope，依赖 domain/models 的 Attitude，依赖 domain/progression 的 MAX_HP / Mastery / Vitality /
-         mastery_of / vitality / aptitude_for，依赖 domain/combat 的 CombatOutcome / CombatProposal，
-         依赖 domain/rules 的 decide()（裁决），依赖 domain/intent 的 PlayerIntent，依赖 app.errors 的 UnknownPlayerError / PlayerDeadError
+         mastery_of / vitality / aptitude_for，依赖 domain/combat 的 CombatOutcome / CombatProposal，依赖 domain/stakes 的 Proposal，
+         依赖 domain/threads 的 Thread / fold，依赖 domain/intent 的 Approach / PlayerIntent，
+         依赖 domain/rules 的 decide()（裁决），依赖 app.errors 的 UnknownPlayerError / PlayerDeadError
 [OUTPUT]: 对外提供 PlayerState（不可变状态值：practice 熟练度之和、aptitude 悟性、hp 气血、came_from 来路、fled_from 逃离过的险地、
-          focus 近来打过交道的人与物（至多 FOCUS_SIZE 个，新者在前）与 focus_fresh 上一个主动作是否正与它打交道、attitude_causes 人情的缘由，
-          mastery / vitality 现算）、FOCUS_SIZE、
+          focus 近来打过交道的人与物（至多 FOCUS_SIZE 个，新者在前）与 focus_fresh 上一个主动作是否正与它打交道、attitude_causes 人情的缘由、
+          threads 心事线索（至多 6 条）、known_facts 已知见闻、consumed 用掉之物、recent_approaches 近来用过的手段（至多 RECENT_SIZE 个）、
+          attempts 对每个对象出过几次有赌注的招（FortuneResolver 的种子），mastery / vitality / inventory 现算）、FOCUS_SIZE、RECENT_SIZE、
           evolve(state, event) 纯函数折叠、Player 聚合根（apply / from_history / replay / spawn / ensure_alive / mastery / decide）
 [POS]: domain 的一致性边界：一位玩家的平行世界就是一条事件流，世界在这条流上相对原著的全部偏离（位置、行囊、武学火候、气血、
        被制住之人、人情冷暖、物品易手）都是 PlayerState 的字段。没有状态表——当前状态只能由 evolve 从头折叠事件流算出；
@@ -12,7 +14,8 @@
        火候与伤势是读取时经 progression 折算的语义标签，从不入账。
        焦点（focus）与恩怨缘由（attitude_causes）同样只由现有事件折叠：选项跟着剧情走、叙事知道仇从何来，都不需要新的事件；
        焦点「不新鲜」的判据认 HealthChanged.source=="rest"（服药的气血回升不算走开）。
-       P1 的四种新事件（Parleyed / FactLearned / ItemConsumed / Maneuvered）眼下照读而不改状态，阶段 B 再补折叠。
+       P1 的四种新事件各有折叠：Parleyed / Maneuvered 进焦点、手段与尝试次数，心事线索由 threads.fold 开合；
+       FactLearned 记入已知见闻；ItemConsumed 记入 consumed，行囊派生时把它排除（易手覆盖照旧，用掉之物从此不在任何人身上）。
        内存图谱投影（infrastructure/persistence/memory_graph.py）复用同一个 evolve，投影与真相因此同构
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -41,10 +44,13 @@ from app.domain.events import (
     SkillExecuted,
     SkillPracticed,
 )
-from app.domain.intent import PlayerIntent
+from app.domain.intent import Approach, PlayerIntent
 from app.domain.models import Attitude
 from app.domain.progression import MAX_HP, Mastery, Vitality, aptitude_for, mastery_of, vitality
 from app.domain.snapshot import LocalSnapshot
+from app.domain.stakes import Proposal
+from app.domain.threads import Thread
+from app.domain.threads import fold as fold_threads
 from app.errors import PlayerDeadError, UnknownPlayerError
 
 
@@ -71,6 +77,11 @@ class PlayerState:
     attitude_causes: Mapping[str, str] = field(default_factory=dict)  # 人物 → 最近一次人情变化的缘由（RelationChanged.cause）
     focus: tuple[str, ...] = ()  # 近来亲手打过交道的人与物，新者在前、至多 FOCUS_SIZE 个（定义见 _engaged）
     focus_fresh: bool = False  # 上一个主动作是否正与 focus[0] 打交道：走开、调息、碰壁之后它就只是「先前」的人与事
+    threads: tuple[Thread, ...] = ()  # 心事线索：未了的所图，新者在前、至多 THREADS_MAX 条（threads.py）
+    known_facts: frozenset[str] = frozenset()  # 已知见闻（fact:）
+    consumed: frozenset[str] = frozenset()  # 用掉之物：从此不在行囊、不在任何地方
+    recent_approaches: tuple[Approach, ...] = ()  # 近来出招用过的手段，新者在前、至多 RECENT_SIZE 个
+    attempts: Mapping[str, int] = field(default_factory=dict)  # 对象 → 出过几次有赌注的招（出手 / 交涉 / 暗取）
 
     @property
     def skills(self) -> frozenset[str]:
@@ -87,8 +98,10 @@ class PlayerState:
 
     @property
     def inventory(self) -> frozenset[str]:
-        """行囊不是一张表，而是"此刻持有者是我"的那些物品——由物品易手的历史推导。"""
-        return frozenset(item for item, holder in self.item_holders.items() if holder == self.player_id)
+        """行囊不是一张表，而是"此刻持有者是我"且没用掉的那些物品——由物品易手与用掉的历史推导。"""
+        return frozenset(
+            item for item, holder in self.item_holders.items() if holder == self.player_id and item not in self.consumed
+        )
 
     def attitude_of(self, character_id: str) -> Attitude:
         return self.attitudes.get(character_id, Attitude.NEUTRAL)
@@ -98,6 +111,7 @@ class PlayerState:
 #  焦点 —— 玩家亲手打过交道的人与物，供选项的显著性打分与记忆召回
 # ============================================================
 FOCUS_SIZE = 4
+RECENT_SIZE = 4
 
 
 def _engaged(event: DomainEvent, player_id: str) -> tuple[str, ...]:
@@ -105,7 +119,8 @@ def _engaged(event: DomainEvent, player_id: str) -> tuple[str, ...]:
     一条事件里玩家亲手打过交道的实体，排在前面的更要紧：
       出手（SkillExecuted）→ 对手；攀谈（Conversed）→ 对方；
       易手（ItemTransferred）→ 另一端的人（从被制住者身上取、交还物主）在前，那件东西在后；
-      修习（SkillPracticed）→ 传功点拨之人或所凭典籍（闭门苦练没有对象）。
+      修习（SkillPracticed）→ 传功点拨之人或所凭典籍（闭门苦练没有对象）；
+      交涉（Parleyed）→ 对方；暗中取物（Maneuvered）→ 失主在前、那件东西在后。
     人情涟漪（RelationChanged）不算：目睹者并没有和你打交道，被你打的人已由出手记下；
     驳回（ActionFailed）的指称是原话而非实体 id，地点（Moved）是去处而非对象——都不进焦点。
     """
@@ -117,7 +132,21 @@ def _engaged(event: DomainEvent, player_id: str) -> tuple[str, ...]:
             return (other, item) if other.startswith("chr:") else (item,)
         case SkillPracticed(source_id=str(source)):
             return (source,)
+        case Parleyed(npc_id=target):
+            return (target,)
+        case Maneuvered(target_id=target, item_id=item):
+            return (target, item)
     return ()
+
+
+def _attempt(event: DomainEvent) -> tuple[str, Approach] | None:
+    """有赌注的一招：对谁、用什么手段。尝试次数与近来手段由它们折叠。"""
+    match event:
+        case SkillExecuted(target_id=target, approach=approach) | Parleyed(npc_id=target, approach=approach):
+            return target, approach
+        case Maneuvered(target_id=target, approach=approach):
+            return target, approach
+    return None
 
 
 def _refocus(focus: tuple[str, ...], engaged: tuple[str, ...]) -> tuple[str, ...]:
@@ -152,6 +181,15 @@ def evolve(state: PlayerState | None, event: DomainEvent) -> PlayerState:
         state = replace(state, focus=_refocus(state.focus, engaged), focus_fresh=True)
     elif state.focus_fresh and _moves_on(event):
         state = replace(state, focus_fresh=False)
+    if (threads := fold_threads(state.threads, event, state.player_id)) != state.threads:
+        state = replace(state, threads=threads)
+    if attempt := _attempt(event):
+        target, approach = attempt
+        state = replace(
+            state,
+            attempts={**state.attempts, target: state.attempts.get(target, 0) + 1},
+            recent_approaches=(approach, *state.recent_approaches)[:RECENT_SIZE],
+        )
 
     match event:
         case Moved(from_location_id=origin, to_location_id=destination, fleeing=fleeing):
@@ -173,10 +211,12 @@ def evolve(state: PlayerState | None, event: DomainEvent) -> PlayerState:
             )
         case PlayerDied(cause=cause):
             return replace(state, alive=False, death_cause=cause)
-        case SkillExecuted() | Conversed() | ActionFailed():
-            return state  # 只是历史，不改变世界
-        case Parleyed() | FactLearned() | ItemConsumed() | Maneuvered():
-            return state  # P1 的新词汇：先照读不崩，折叠（心事线索、已知见闻、用掉之物、手段）在阶段 B 补上
+        case FactLearned(fact_id=fact):
+            return replace(state, known_facts=state.known_facts | {fact})
+        case ItemConsumed(item_id=item):
+            return replace(state, consumed=state.consumed | {item})
+        case SkillExecuted() | Conversed() | ActionFailed() | Parleyed() | Maneuvered():
+            return state  # 只是历史（线索、焦点、手段、尝试次数已在上面折叠），不改变世界
     raise TypeError(f"未知的领域事件：{type(event).__name__}")
 
 
@@ -236,10 +276,10 @@ class Player:
         return self.state.mastery(skill_id)
 
     def decide(
-        self, intent: PlayerIntent, snapshot: LocalSnapshot, proposal: CombatProposal | None = None
+        self, intent: PlayerIntent, snapshot: LocalSnapshot, proposal: Proposal | CombatProposal | None = None
     ) -> list[DomainEvent]:
         """
-        命令侧入口：守住生死与身份两道门，其余交给纯函数裁决。proposal 是地下城主对胜负未定之事的提议，
+        命令侧入口：守住生死与身份两道门，其余交给纯函数裁决。proposal 是地下城主对胜负未定之事（出手 / 交涉 / 暗中）的提议，
         领域把它钳进可裁区间后才落为事件。返回尚未入账的事件，由调用方追加到事件流。
         """
         return rules.decide(intent, self.ensure_alive(), snapshot, proposal)

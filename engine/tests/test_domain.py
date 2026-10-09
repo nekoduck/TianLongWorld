@@ -2,8 +2,8 @@
 [INPUT]: 依赖 app.domain 的 models / lore / intent / outcomes / events / aggregates / progression / snapshot，依赖 tests/world 的 WORLD
 [OUTPUT]: 本体完整性、事件不可变与 JSONB 往返及旧账上抛、渐进式状态的折算、聚合根纯函数折叠（含焦点与恩怨缘由）的单测；
           P1 词汇：人情阶梯 rank / step、关系 era 与物性缺省、掌故闸门（人设与见闻的悬空引用、知情人须与主体有涉、unlock 须落在边上、字数与出处）、
-          手段 / 所图 / 话题与 USE、四种新事件往返与照读不崩、旧账缺新字段照读、HealthChanged 上抛（调息疗伤 → rest）与焦点只因调息而不新鲜、
-          快照新视图的缺省值与固定排序
+          手段 / 所图 / 话题与 USE、四种新事件往返、旧账缺新字段照读、HealthChanged 上抛（调息疗伤 → rest）与焦点只因调息而不新鲜、
+          快照新视图的缺省值与固定排序；P1 阶段 B 的折叠：已知见闻、用掉之物离开行囊（易手覆盖照旧）、交涉与暗取进焦点 / 近来手段 / 尝试次数 / 心事线索
 [POS]: tests 的领域地基：蓝图是最后一道闸门（悬空引用 / 根基成环 / 人物主键不是本名一律拒收，下落不明的物品合法存在）；
        "当前状态 = reduce(evolve, 历史)"——不查状态表，只凭事件流重算位置、行囊、火候与气血；拿到秘籍不等于学会
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -336,11 +336,31 @@ def test_only_resting_lets_the_focus_go_stale() -> None:
     assert rested is not None and not rested.focus_fresh
 
 
-def test_the_new_vocabulary_folds_without_breaking() -> None:
-    """Parleyed / FactLearned / ItemConsumed / Maneuvered 眼下照读而不改状态（折叠在阶段 B）。"""
+def test_the_new_vocabulary_folds_into_the_aggregate() -> None:
+    """
+    Parleyed / Maneuvered：进焦点（交涉的对方；失主在前、那件东西在后）、近来手段、尝试次数与心事线索；
+    FactLearned 记入已知见闻；ItemConsumed 记入用掉之物，行囊派生时排除它（易手覆盖照旧——用掉之物从此不在任何人身上）。
+    """
     base = [PlayerSpawned(player_id=PID, name="阿星", location_id="loc:无量山")]
     news = [e for e in ALL_EVENTS if isinstance(e, Parleyed | FactLearned | ItemConsumed | Maneuvered)]
-    assert len(news) == 4 and Player.replay([*base, *news]) == Player.replay(base)
+    assert len(news) == 4
+    state = Player.replay([*base, *news])
+    assert state is not None
+    assert state.known_facts == {"fact:东西宗比剑"} and state.consumed == {"itm:金创药"}
+    assert state.focus == ("chr:左子穆", "itm:无量剑") and state.focus_fresh
+    assert state.recent_approaches == (Approach.STEALTH, Approach.WORDS) and state.attempts == {"chr:左子穆": 2}
+    assert {t.key for t in state.threads} == {("chr:左子穆", Aim.LEARN), ("chr:左子穆", Aim.SEIZE)}
+    salve = ItemTransferred(item_id="itm:金创药", from_holder="loc:无量山", to_holder=PID)
+    held = Player.replay([*base, salve])
+    used = Player.replay([*base, salve, ItemConsumed(item_id="itm:金创药", effect="疗伤")])
+    assert held is not None and used is not None
+    assert held.inventory == {"itm:金创药"} and used.inventory == frozenset()
+    assert used.item_holders == {"itm:金创药": PID}  # 易手覆盖照旧，只是不再算在行囊里
+    struck = Player.replay([*base, *(SkillExecuted(skill_id=None, target_id="chr:左子穆", outcome=CombatOutcome.STALEMATE,
+                                                   approach=a) for a in (Approach.PLAIN, Approach.GUILE, Approach.FORCE,
+                                                                         Approach.PLAIN, Approach.GUILE))])
+    assert struck is not None and struck.attempts == {"chr:左子穆": 5}
+    assert struck.recent_approaches == (Approach.GUILE, Approach.PLAIN, Approach.FORCE, Approach.GUILE)  # 至多四个，新者在前
 
 
 def test_events_are_immutable() -> None:

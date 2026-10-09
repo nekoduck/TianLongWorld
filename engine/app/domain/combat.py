@@ -1,7 +1,7 @@
 """
 [INPUT]: 依赖 domain/models 的 Tier / Disposition，依赖 domain/progression 的 MAX_HP / Vitality / vitality
 [OUTPUT]: 对外提供 CombatOutcome（得手 / 相持 / 轻伤 / 重伤 / 毙命）、HP_BANDS（每种结果的气血扣减区间）、
-          Stakes（一次出手的赌注：可裁区间 + 确定性裁决）与 assess()、CombatProposal（地下城主的提议）、CombatRuling 与 settle()（领域定案）
+          Stakes（一次出手的赌注：可裁区间 + 确定性裁决；seize_id 是夺物时得手即易手之物，target_id 与另两路赌注同一口径）与 assess()、CombatProposal（地下城主的提议）、CombatRuling 与 settle()（领域定案）
 [POS]: domain 的模糊裁决护栏（Fuzzy Resolution 的"硬轨"）：
        境界差与性情不再一锤定生死，而是圈出一个可裁区间——地下城主（application/resolution_agent.py 的大模型）只能在区间里挑结果、
        在该结果的气血区间里挑扣减；挑出界、缺席或失灵，就取区间里的确定性裁决。
@@ -53,6 +53,12 @@ class Stakes:
     player_hp: int
     admissible: tuple[CombatOutcome, ...]
     canonical: CombatOutcome
+    seize_id: str | None = None  # 夺物：得手即易手的那件东西（item_id 是出手所持的兵器，两者不混）
+
+    @property
+    def target_id(self) -> str:
+        """三路赌注同一个口径：赌的是对谁。"""
+        return self.defender_id
 
     @property
     def gap(self) -> int:
@@ -94,11 +100,12 @@ def assess(
     defender: Tier,
     disposition: Disposition,
     player_hp: int,
+    seize_id: str | None = None,
 ) -> Stakes:
     admissible, canonical = _envelope(defender.rank - attacker.rank, disposition, player_hp)
     return Stakes(
         defender_id=defender_id, skill_id=skill_id, item_id=item_id, attacker_tier=attacker, defender_tier=defender,
-        disposition=disposition, player_hp=player_hp, admissible=admissible, canonical=canonical,
+        disposition=disposition, player_hp=player_hp, admissible=admissible, canonical=canonical, seize_id=seize_id,
     )
 
 

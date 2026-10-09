@@ -1,9 +1,12 @@
 """
-[INPUT]: 依赖 rules/base 的 Rule / Approval / Rejection / Verdict / resolve / names / present，依赖 domain/events 的 Conversed / ItemTransferred /
-         RelationChanged / DomainEvent，依赖 domain/models 的 Attitude，依赖 domain/combat 的 CombatRuling，依赖 domain/intent 的 PlayerIntent，
+[INPUT]: 依赖 rules/base 的 Rule / Approval / Rejection / Verdict / resolve / names / present / ground，依赖 rules/parley 的 parley，
+         依赖 domain/approach 的 Route / cell_of / infer_aim，依赖 domain/events 的 Conversed / ItemTransferred / RelationChanged / DomainEvent，
+         依赖 domain/models 的 Attitude，依赖 domain/stakes 的 AnyStakes / Ruling，依赖 domain/intent 的 PlayerIntent，
          依赖 domain/snapshot 的 LocalSnapshot；PlayerState 仅作类型标注
-[OUTPUT]: 对外提供 TalkRule（与在场之人交谈）/ GiveRule（赠物；物归原主直升信赖）、TRUST_RESTORED（物归原主的缘由类别）
-[POS]: rules 包里管"人与人"的确定性那几条：交谈是一条 Conversed，赠物是一次易手。
+[OUTPUT]: 对外提供 TalkRule（与在场之人交谈：寻常即闲谈 Conversed（带落了地的话题），威逼 / 言辞 / 人情 / 套话 / 借势即交涉）/
+          GiveRule（赠物；物归原主直升信赖）、TRUST_RESTORED（物归原主的缘由类别）
+[POS]: rules 包里管"人与人"的那几条：寻常交谈是一条 Conversed，赠物是一次易手；带了手段的交谈按兼容表走交涉区间（所图缺省推断：
+       带话题 → 打探，对方敌视或戒备 → 化解，其余 → 结交），定案由门面经 parley.settled 落为 Parleyed 及其附带的事件。
        信赖的来路是一张封闭清单，P1 只有一条——物归原主：对物主的态度低于信赖时直接升到信赖（阶梯「每次至多一档」的例外，与「翻脸直落敌视」对称），
        没有它，「二流及以上须信赖」会打断逻辑死线（一阳指是一流武学）
 [PROTOCOL]: 变更时更新此头部，然后检查 rules/CLAUDE.md
@@ -13,12 +16,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from app.domain.combat import CombatRuling
+from app.domain.approach import Route, cell_of, infer_aim
 from app.domain.events import Conversed, DomainEvent, ItemTransferred, RelationChanged
 from app.domain.intent import PlayerIntent
 from app.domain.models import Attitude
-from app.domain.rules.base import Approval, Rejection, Rule, Verdict, names, present, resolve
+from app.domain.rules.base import Approval, Rejection, Rule, Verdict, ground, names, present, resolve
+from app.domain.rules.parley import parley
 from app.domain.snapshot import LocalSnapshot
+from app.domain.stakes import AnyStakes, Ruling
 
 if TYPE_CHECKING:
     from app.domain.aggregates import PlayerState
@@ -29,13 +34,21 @@ TRUST_RESTORED = "物归原主"
 class TalkRule(Rule):
     def adjudicate(self, intent: PlayerIntent, state: PlayerState, snap: LocalSnapshot) -> Verdict:
         who = present(intent.target_entity, snap)
-        return who if isinstance(who, Rejection) else Approval(intent, target=who.id)
+        if isinstance(who, Rejection):
+            return who
+        topic = ground(intent.topic, snap)
+        if cell_of(intent).route is Route.FIXED:
+            return Approval(intent, target=who.id, topic=topic)
+        return Approval(intent, target=who.id, topic=topic, route=Route.SOCIAL, aim=infer_aim(intent, attitude=who.attitude))
+
+    def stakes(self, ok: Approval, state: PlayerState, snap: LocalSnapshot) -> AnyStakes | None:
+        return parley(ok, state, snap) if ok.route is Route.SOCIAL else None
 
     def consequences(
-        self, ok: Approval, state: PlayerState, snap: LocalSnapshot, ruling: CombatRuling | None
+        self, ok: Approval, state: PlayerState, snap: LocalSnapshot, ruling: Ruling | None
     ) -> list[DomainEvent]:
-        assert ok.target
-        return [Conversed(npc_id=ok.target)]
+        assert ok.target and ok.route is Route.FIXED  # 交涉的定案由门面经 parley.settled 落为事件
+        return [Conversed(npc_id=ok.target, topic_id=ok.topic)]
 
 
 class GiveRule(Rule):
@@ -51,7 +64,7 @@ class GiveRule(Rule):
         return Approval(intent, target=who.id, item=thing.id)
 
     def consequences(
-        self, ok: Approval, state: PlayerState, snap: LocalSnapshot, ruling: CombatRuling | None
+        self, ok: Approval, state: PlayerState, snap: LocalSnapshot, ruling: Ruling | None
     ) -> list[DomainEvent]:
         assert ok.target and ok.item
         events: list[DomainEvent] = [

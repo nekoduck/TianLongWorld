@@ -1,19 +1,25 @@
 """
 [INPUT]: 依赖 app.config 的 Settings，依赖 infrastructure/knowledge_extractor 的 load_corpus / LLMKnowledgeExtractor / CachedExtractor / SeedingPipeline，
          依赖 infrastructure/graph_linter 的 GraphHealer / LLMPlacementOracle / lint / heal_brief / ingest_placements / HEALER_SYSTEM，
+         依赖 infrastructure/canon_audit 的 Library / audit_export / ingest_audit / apply_audit / canonize_audit / audit_lines 与 lore_gate 的 lore_export / ingest_lore / canonize_lore，
          依赖 infrastructure/cypher 的 compile_blueprint / render_script，依赖 infrastructure/persistence/neo4j_graph 的 Neo4jWorldGraph，
          依赖 infrastructure/llm/factory 的 build_llm 与 budget 的 CallBudget（抽取职责，自愈同用，只在 --use-llm 时装配），依赖 domain/models 的 WorldBlueprint
 [OUTPUT]: 对外提供 命令行入口 main()：`python -m app.seed extract --use-llm [--max-chunks N] [--apply] [--reset] [--allow-partial]`、
           `python -m app.seed assemble [--prompt-version V] [--max-chunks N]`、`python -m app.seed export --out DIR [--max-chunks N] [--all]`、
           `python -m app.seed ingest --index I --file F [--source S]`、
           `python -m app.seed heal [--apply] [--reset] [--retry-null] [--export DIR | --ingest FILE --by NAME | --use-llm]`、
+          `python -m app.seed audit [--export DIR [--batch N] [--all] | --ingest FILE --by NAME] [--evidence-version V]`、
+          `python -m app.seed lore [--export DIR [--from LOCATION] [--hops N] [--batch N] | --ingest FILE --by NAME] [--evidence-version V]`、
           `python -m app.seed apply [--reset]` 与 `python -m app.seed script`
 [POS]: World Seeding 的操作面：extract 读 data/source_text 的原著，经大模型抽取、确定性组装，写出 data/world/ 下的
-       blueprint.json（中间表示）、seed.cypher（可交给 cypher-shell 审阅或导入）与 report.txt（丢弃 / 封存 / 孤儿 / 时间线 / 自愈明细）——
+       blueprint.json（中间表示）、seed.cypher（可交给 cypher-shell 审阅或导入）与 report.txt（丢弃 / 封存 / 孤儿 / 时间线 / 自愈 / 审计 / 掌故明细）——
        有失败块时只写报告、不覆盖已有蓝图（缓存保住已抽的块，排障后重跑即续抽）；
        assemble 只读缓存零费用重新组装（组装器改了规则、或要复现入库的蓝图时用）；
-       extract 与 assemble 组装之后都自动套用 healing.json 里已有的安放（零费用、确定性），新的推断只由 heal 发起；
-       heal 为蓝图里下落不明的孤儿物品推断安放：配了真实大模型就问它，离线时只套缓存，export / ingest 让子代理或人工作答；
+       extract 与 assemble 组装之后依次自动套用 healing.json 的安放、audit.json 的 T=0 审计、lore.json 的人设与见闻（零费用、确定性），
+       新的推断与撰写只由 heal / audit / lore 经 --export / --ingest 交给子代理——audit 与 lore 根本没有大模型这条路；
+       heal 为蓝图里下落不明的孤儿物品推断安放：配了真实大模型就问它，离线时只套缓存，export / ingest 让子代理或人工作答（自愈重建蓝图后照缓存补回审计与掌故）；
+       audit 出 T=0 审计的分批题面、收作答过闸后写回蓝图（刚过闸的结论直接套用）；lore 以一地为中心（默认剑湖宫·练武厅走两跳）出人设与见闻的题面、收作答过闸后写回；
+       两者不带参数即按缓存重新套用，只换 report.txt 里自己那几节；
        写回蓝图而不是直接改图——蓝图是正典，Neo4j 只是它的投影（--apply 时经同一个 seeder MERGE 进去）；
        export / ingest 让大模型之外的抽取器接手：export 导出抽取铁律与待抽的块，ingest 把外部抽取器的产出经同一道闸门写入缓存；
        apply 把 blueprint.json 写进 Neo4j。抽取与写图分离：重新播种无需重新读书，蓝图可以人工审阅后再落图。
@@ -26,12 +32,22 @@ import argparse
 import asyncio
 import logging
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from app.config import LLMRole, Settings, get_settings
 from app.domain.models import WorldBlueprint
 from app.errors import ExtractionError
+from app.infrastructure.canon_audit import (
+    EVIDENCE_VERSION,
+    Library,
+    apply_audit,
+    audit_export,
+    audit_lines,
+    canonize_audit,
+    ingest_audit,
+    load_audit,
+)
 from app.infrastructure.cypher import compile_blueprint, render_script
 from app.infrastructure.graph_linter import (
     HEALER_SYSTEM,
@@ -59,11 +75,31 @@ from app.infrastructure.knowledge_extractor import (
 )
 from app.infrastructure.llm.budget import CallBudget
 from app.infrastructure.llm.factory import build_llm
+from app.infrastructure.lore_gate import DEFAULT_FROM, DEFAULT_HOPS, canonize_lore, ingest_lore, load_lore, lore_export
 from app.infrastructure.persistence.neo4j_graph import Neo4jWorldGraph
 
 
 def _healing_cache(settings: Settings) -> Path:
     return settings.world_dir / "healing.json"
+
+
+def _audit_cache(settings: Settings) -> Path:
+    return settings.world_dir / "audit.json"
+
+
+def _lore_cache(settings: Settings) -> Path:
+    return settings.world_dir / "lore.json"
+
+
+def _library(settings: Settings, version: str = EVIDENCE_VERSION) -> Library:
+    return Library.load(settings.source_text_dir, settings.world_dir / "cache", version, settings.extraction_chunk_chars)
+
+
+def _canonize(settings: Settings, blueprint: WorldBlueprint) -> tuple[WorldBlueprint, list[str], list[str]]:
+    """自愈之后依次套用审计缓存与掌故缓存（零费用、确定性、从不抛错）：掌故依赖审计定下的 era 与物性，所以在后。"""
+    audited, audit = canonize_audit(blueprint, _audit_cache(settings))
+    lored, lore = canonize_lore(audited, _lore_cache(settings))
+    return lored, audit, lore
 
 
 def _write_blueprint(settings: Settings, blueprint: WorldBlueprint) -> None:
@@ -130,20 +166,23 @@ async def _seed(
     print(f"读取 {len(documents)} 部原著，共 {len(pipeline.chunks(documents, max_chunks))} 个文本块，开始抽取……")
     result = await pipeline.run(documents, max_chunks=max_chunks)
     healing = await GraphHealer(None, _healing_cache(settings)).heal(result.blueprint)  # 只套缓存：零费用、确定性
+    bp, audited, lored = _canonize(settings, healing.blueprint)
     report = result.report
     report.healed.extend([*healing.healed, *healing.unresolved])
     settings.world_dir.mkdir(parents=True, exist_ok=True)
-    (settings.world_dir / "report.txt").write_text(report.render(), encoding="utf-8")
+    (settings.world_dir / "report.txt").write_text(
+        _with_sections(report.render(), {"审计": audited, "掌故": lored}), encoding="utf-8"
+    )
     if report.failed_chunks and not allow_partial:
         raise SystemExit(
             f"{len(report.failed_chunks)} 个文本块抽取失败（明细见 report.txt），蓝图未写出、旧蓝图保持原样；"
             "排除故障后重跑 extract 即从缓存续抽，或加 --allow-partial 写出残缺蓝图"
         )
-    bp = healing.blueprint
     _write_blueprint(settings, bp)
     print(
         f"蓝图已写出：地点 {len(bp.locations)}、人物 {len(bp.characters)}、武学 {len(bp.martial_arts)}、"
-        f"物品 {len(bp.items)}、关系 {len(bp.relations)}；丢弃 {len(report.dropped)}、封存 {len(report.sealed)}、"
+        f"物品 {len(bp.items)}、关系 {len(bp.relations)}、人设 {len(bp.personas)}、见闻 {len(bp.facts)}；"
+        f"丢弃 {len(report.dropped)}、封存 {len(report.sealed)}、"
         f"孤儿 {len(report.orphans)}（自愈 {len(healing.placements)}）、时间线隔离 {len(report.timeline)}、"
         f"失败块 {len(report.failed_chunks)}（明细见 report.txt）"
     )
@@ -217,22 +256,122 @@ async def heal(
     result = await GraphHealer(oracle, cache, retry_null=retry_null).heal(blueprint)
     if isinstance(oracle, LLMPlacementOracle) and oracle.halted is not None:
         print(f"自愈模型不可用（{oracle.halted}）：尚无答案的孤儿这次没有问成，改用 heal --export / --ingest 交给子代理")
-    _write_blueprint(settings, result.blueprint)
-    _rewrite_healing_section(settings.world_dir / "report.txt", [*result.healed, *result.unresolved])
-    print(f"自愈完成：生效的安放 {len(result.placements)} 条，仍下落不明 {len(lint(result.blueprint))} 件；已写回蓝图与 seed.cypher")
+    healed, audited, lored = _canonize(settings, result.blueprint)  # 自愈重建蓝图时不带掌故：按缓存补回
+    _write_blueprint(settings, healed)
+    _rewrite_sections(settings, {"自愈": [*result.healed, *result.unresolved], "审计": audited, "掌故": lored})
+    print(f"自愈完成：生效的安放 {len(result.placements)} 条，仍下落不明 {len(lint(healed))} 件；已写回蓝图与 seed.cypher")
     for line in [*result.healed, *result.unresolved]:
         print(f"  {line}")
-    return result.blueprint
+    return healed
 
 
-def _rewrite_healing_section(path: Path, lines: Sequence[str]) -> None:
-    """heal 不重新组装：只把 report.txt 的自愈分节换成这一次的结果，其余分节原样保留（自愈分节在抽取失败之前）。"""
-    if not path.exists():
-        return
-    kept = [ln for ln in path.read_text(encoding="utf-8").splitlines() if not ln.startswith("[自愈] ") and ln != "（无异常）"]
-    tail = next((i for i, ln in enumerate(kept) if ln.startswith("[抽取失败] ")), len(kept))
-    merged = [*kept[:tail], *(f"[自愈] {line}" for line in lines), *kept[tail:]]
-    path.write_text("\n".join(merged) or "（无异常）", encoding="utf-8")
+# ============================================================
+#  报告分节 —— 组装之后由操作面填入的三节（自愈 / 审计 / 掌故），依序排在「抽取失败」之前
+# ============================================================
+_SECTIONS = ("自愈", "审计", "掌故")
+
+
+def _with_sections(text: str, sections: Mapping[str, Sequence[str]]) -> str:
+    """把报告里给出的分节换成新内容，没给出的分节与其余各节原样保留。"""
+    lines = [ln for ln in text.splitlines() if ln != "（无异常）"]
+    managed = {t: [ln for ln in lines if ln.startswith(f"[{t}] ")] for t in _SECTIONS}
+    managed |= {t: [f"[{t}] {line}" for line in new] for t, new in sections.items()}
+    rest = [ln for ln in lines if not any(ln.startswith(f"[{t}] ") for t in _SECTIONS)]
+    tail = next((i for i, ln in enumerate(rest) if ln.startswith("[抽取失败] ")), len(rest))
+    return "\n".join([*rest[:tail], *(ln for t in _SECTIONS for ln in managed[t]), *rest[tail:]]) or "（无异常）"
+
+
+def _rewrite_sections(settings: Settings, sections: Mapping[str, Sequence[str]]) -> None:
+    """heal / audit / lore 不重新组装：只换 report.txt 里自己那几节。"""
+    path = settings.world_dir / "report.txt"
+    if path.exists():
+        path.write_text(_with_sections(path.read_text(encoding="utf-8"), sections), encoding="utf-8")
+
+
+# ============================================================
+#  T=0 审计与掌故 —— 只有 export / ingest：撰写归 Claude 子代理，这里没有大模型这条路
+# ============================================================
+def audit(
+    settings: Settings, *, export_dir: Path | None = None, ingest_file: Path | None = None, by: str | None = None,
+    batch: int = 40, everything: bool = False, version: str = EVIDENCE_VERSION,
+) -> WorldBlueprint:
+    blueprint = _load_blueprint(settings)
+    cache = _audit_cache(settings)
+    try:
+        book, notes = load_audit(cache, blueprint)
+        if export_dir is not None:
+            lib = _library(settings, version)
+            files = audit_export(blueprint, lib, book, batch=batch, everything=everything)
+            _write_files(export_dir, files)
+            print(f"已导出 {len(files)} 份审计题面到 {export_dir}（缓存里已有结论 {len(book)} 条，--all 连它们一起出题）：{sorted(files)}")
+            for note in notes:
+                print(f"  {note}")
+            if not lib.chunks:
+                print("  本地没有原著：题面列不出原文块与后文事件，arrives_with 过不了闸门")
+            return blueprint
+        if ingest_file is not None:
+            fresh, notes = ingest_audit(blueprint, ingest_file.read_text(encoding="utf-8"), cache, by or "", _library(settings, version))
+            book, _ = load_audit(cache, blueprint)
+            print(f"已入审计缓存 {len(fresh)} 条（作答者 {by}）；缓存共 {len(book)} 条")
+            for note in notes:
+                print(f"  {note}")
+    except ExtractionError as exc:
+        raise SystemExit(str(exc)) from exc
+    if ingest_file is not None:  # 刚过闸的结论直接套用（重答过的人物，蓝图里还是上一版结论的样子）
+        bp, audited = apply_audit(blueprint, book), audit_lines(blueprint, book)
+        bp, lored = canonize_lore(bp, _lore_cache(settings))
+    else:
+        bp, audited, lored = _canonize(settings, blueprint)
+    _write_blueprint(settings, bp)
+    _rewrite_sections(settings, {"审计": audited, "掌故": lored})
+    print(f"审计已套用并写回蓝图与 seed.cypher；人设 {len(bp.personas)}、见闻 {len(bp.facts)}（掌故依赖审计：改了 era 或物性即整体作废）")
+    for line in [*audited, *lored]:
+        print(f"  {line}")
+    return bp
+
+
+def lore(
+    settings: Settings, *, export_dir: Path | None = None, ingest_file: Path | None = None, by: str | None = None,
+    start: str = DEFAULT_FROM, hops: int = DEFAULT_HOPS, batch: int = 15, version: str = EVIDENCE_VERSION,
+) -> WorldBlueprint:
+    blueprint = _load_blueprint(settings)
+    cache = _lore_cache(settings)
+    try:
+        if export_dir is not None:
+            book, notes = load_lore(cache, blueprint)
+            lib = _library(settings, version)
+            try:
+                files, area = lore_export(blueprint, lib, book, start=start, hops=hops, batch=batch)
+            except ValueError as exc:
+                raise SystemExit(str(exc)) from exc
+            _write_files(export_dir, files)
+            print(f"已导出 {len(files)} 份掌故题面到 {export_dir}：以「{start}」为中心沿 CONNECTS_TO 走 {hops} 跳，"
+                  f"{len(area.places)} 地 {len(area.people)} 人：{[c.true_name for c in area.people]}")
+            for note in notes:
+                print(f"  {note}")
+            if not lib.chunks:
+                print("  本地没有原著：题面列不出原文块，出处过不了闸门")
+            return blueprint
+        if ingest_file is not None:
+            fresh, notes = ingest_lore(blueprint, ingest_file.read_text(encoding="utf-8"), cache, by or "", _library(settings, version))
+            print(f"已入掌故缓存：人设 {len(fresh.personas)}、见闻 {len(fresh.facts)}（作答者 {by}）")
+            for note in notes:
+                print(f"  {note}")
+    except ExtractionError as exc:
+        raise SystemExit(str(exc)) from exc
+    bp, lored = canonize_lore(blueprint, cache)
+    _write_blueprint(settings, bp)
+    _rewrite_sections(settings, {"掌故": lored})
+    print(f"掌故已套用并写回蓝图与 seed.cypher：人设 {len(bp.personas)}、见闻 {len(bp.facts)}")
+    for line in lored:
+        print(f"  {line}")
+    return bp
+
+
+def _write_files(out: Path, files: Mapping[str, str]) -> None:
+    out.mkdir(parents=True, exist_ok=True)
+    for name, text in files.items():
+        (out / name).write_text(text, encoding="utf-8")
 
 
 async def apply(settings: Settings, blueprint: WorldBlueprint, *, reset: bool) -> None:
@@ -285,10 +424,27 @@ def main(argv: list[str] | None = None) -> None:
     who.add_argument("--use-llm", action="store_true", help="调用 engine/.env 配置的大模型推断（会产生费用；本项目由 Claude 子代理经 --export / --ingest 作答）")
     hl.add_argument("--by", default=None, metavar="NAME", help="--ingest 的推断者署名，如 claude-subagent 或人名")
     hl.add_argument("--retry-null", action="store_true", help="重新询问缓存里已被判为无从推断的孤儿（默认沿用判词，不重复付费）")
+    au = sub.add_parser("audit", help="T=0 审计：关系结于何时、描述拆出后文剧情、物性与后来才到场者（经 --export / --ingest 交给子代理；不带参数即按缓存重新套用）")
+    aud = au.add_mutually_exclusive_group()
+    aud.add_argument("--export", type=Path, default=None, metavar="DIR", help="导出分批题面（缓存里已有结论的条目不再出题）")
+    aud.add_argument("--ingest", type=Path, default=None, metavar="FILE", help="作答（JSON 数组，容忍围栏）过闸后入 audit.json，并写回蓝图")
+    au.add_argument("--by", default=None, metavar="NAME", help="--ingest 的作答者署名，如 claude-subagent")
+    au.add_argument("--batch", type=int, default=40, help="每份题面至多几条（关系、人物、物品各自分批）")
+    au.add_argument("--all", action="store_true", help="连缓存里已有结论的条目也出题")
+    au.add_argument("--evidence-version", default=EVIDENCE_VERSION, help=f"后文事件与切片取自哪一版抽取缓存（默认 {EVIDENCE_VERSION}）")
+    lo = sub.add_parser("lore", help="人设与见闻：以一地为中心出题、作答过闸后入 lore.json（经 --export / --ingest 交给子代理；不带参数即按缓存重新套用）")
+    lor = lo.add_mutually_exclusive_group()
+    lor.add_argument("--export", type=Path, default=None, metavar="DIR", help="导出以 --from 为中心的题面")
+    lor.add_argument("--ingest", type=Path, default=None, metavar="FILE", help="作答（JSON 数组，容忍围栏）过闸后入 lore.json，并写回蓝图")
+    lo.add_argument("--by", default=None, metavar="NAME", help="--ingest 的作答者署名，如 claude-subagent")
+    lo.add_argument("--from", dest="start", default=DEFAULT_FROM, metavar="LOCATION", help=f"出发地点的正名（默认 {DEFAULT_FROM}）")
+    lo.add_argument("--hops", type=int, default=DEFAULT_HOPS, help=f"沿 CONNECTS_TO 走几跳（默认 {DEFAULT_HOPS}）")
+    lo.add_argument("--batch", type=int, default=15, help="每份题面至多几人")
+    lo.add_argument("--evidence-version", default=EVIDENCE_VERSION, help=f"后文事件与切片取自哪一版抽取缓存（默认 {EVIDENCE_VERSION}）")
     sub.add_parser("script", help="由 blueprint.json 重新生成 seed.cypher")
     args = parser.parse_args(argv)
-    if args.command == "heal" and args.ingest is not None and not args.by:
-        parser.error("heal --ingest 须以 --by NAME 署名推断者")
+    if args.command in ("heal", "audit", "lore") and args.ingest is not None and not args.by:
+        parser.error(f"{args.command} --ingest 须以 --by NAME 署名作答者")
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("httpx2").setLevel(logging.WARNING)
@@ -300,6 +456,14 @@ def main(argv: list[str] | None = None) -> None:
         return
     if args.command == "ingest":
         ingest(settings, args.index, args.file, source=args.source)
+        return
+    if args.command == "audit":
+        audit(settings, export_dir=args.export, ingest_file=args.ingest, by=args.by, batch=args.batch,
+              everything=args.all, version=args.evidence_version)
+        return
+    if args.command == "lore":
+        lore(settings, export_dir=args.export, ingest_file=args.ingest, by=args.by, start=args.start, hops=args.hops,
+             batch=args.batch, version=args.evidence_version)
         return
 
     async def run() -> None:

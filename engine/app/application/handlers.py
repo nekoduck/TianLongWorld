@@ -3,13 +3,14 @@
          依赖 application/resolution_agent 的 Resolver / Resolution，依赖 application/options 的 OptionGenerator，
          依赖 application/narrator 的 Narrator / NarrationRequest，依赖 application/projections 的 ProjectionCoordinator，
          依赖 application/chronicle 的 describe / known_arts，依赖 domain/aggregates 的 Player，依赖 domain/events 的 SkillExecuted / Moved，
-         依赖 domain/ports 的 EventStore / WorldReader / NarrativeMemory / MemoryRecord，依赖 domain/rules 的 stakes / player_tier，
+         依赖 domain/ports 的 EventStore / WorldReader / NarrativeMemory / MemoryRecord，依赖 domain/rules 的 stakes / player_tier，依赖 domain/combat 的 Stakes，
          依赖 app.errors 的 OptionExpiredError / ProjectionError / UnknownPlayerError / WorldNotSeededError
 [OUTPUT]: 对外提供 TurnPipeline（一回合的完整生命周期）与四个命令处理器 SpawnPlayerHandler / ResumePlayerHandler / SubmitTextHandler /
           ChooseOptionHandler，以及 register_handlers()（把它们挂上总线）
 [POS]: application 的 CQRS 游戏环路：
        命令侧（持玩家锁，串行）：重放事件流 → 自愈投影 → 局部快照 → [Parse] 解析意图（选项点选不经大模型）→
-                                 [Validate] rules.stakes 圈出可裁区间 → [Resolve] 胜负未定（contested）才请地下城主在区间里提议 →
+                                 [Validate] rules.stakes 圈出可裁区间 → [Resolve] 出手胜负未定（contested）才请地下城主在区间里提议
+                                 （交涉 / 暗中的简报在阶段 C，眼下取确定性裁决）→
                                  [Event] Player.decide 携提议定案（combat.settle 钳进区间）→ 追加事件（乐观并发）→ 同步投影图谱；
        查询侧（无锁，并行）：新快照 → 记忆召回 → 推送结果白描 → [Options] 选项生成 ∥ [Render] 叙事流式渲染 ∥ 记忆写入 → 推送终帧。
        大模型在命令侧解析意图、在可裁区间里提议，在查询侧只渲染；领域的定案隔在中间——它说什么都越不过区间，更改不了已入账的结果。
@@ -50,6 +51,7 @@ from app.application.options import ActionOption, OptionGenerator
 from app.application.projections import ProjectionCoordinator
 from app.application.resolution_agent import Resolution, Resolver
 from app.domain.aggregates import Player
+from app.domain.combat import Stakes
 from app.domain.events import DomainEvent, EventEnvelope, Moved, SkillExecuted
 from app.domain.intent import PlayerIntent
 from app.domain.models import EntityKind, entity_id
@@ -150,10 +152,10 @@ class TurnPipeline:
             player.ensure_alive()
             before = await self.snapshot(player)
             intent, said = await source(player, before)  # [Parse]
-            at_stake = stakes(intent, player.state, before)  # [Validate] 只有获准的出手才有赌注（可裁区间）
-            resolution = (  # [Resolve] 胜负未定才请地下城主；它只提议，失灵即空提议
+            at_stake = stakes(intent, player.state, before)  # [Validate] 获准而胜负未定之事才有赌注（出手 / 交涉 / 暗中）
+            resolution = (  # [Resolve] 出手胜负未定才请地下城主；它只提议，失灵即空提议。交涉与暗中待阶段 C 的简报，先取确定性裁决
                 await self._resolver.resolve(at_stake, before, player.state, said)
-                if at_stake is not None and at_stake.contested else None
+                if isinstance(at_stake, Stakes) and at_stake.contested else None
             )
             events = player.decide(intent, before, resolution.proposal if resolution else None)  # 领域定案
             envelopes = await self._store.append(player_id, events, player.version) if events else []  # [Event]

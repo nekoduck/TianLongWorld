@@ -1,11 +1,15 @@
 """
 [INPUT]: 依赖 app.domain.rules 的 decide / adjudicate / stakes / resolve，依赖 app.domain.combat 的 assess / settle / CombatProposal，
-         依赖 app.domain.aggregates 的 Player，依赖 InMemoryWorldGraph 生成快照，依赖 tests/world 的 WORLD
-[OUTPUT]: 裁决规则的单测：每种动作的放行与驳回、模糊裁决的可裁区间与定案钳位、人情涟漪（「敌人之敌」暂停）、火候折算境界、
+         依赖 app.domain.stakes 的 Proposal / risk_of / route_of，依赖 app.domain.aggregates 的 Player，依赖 InMemoryWorldGraph 生成快照，依赖 tests/world 的 WORLD
+[OUTPUT]: scene / act / recast / restock / reitem 助手（别的领域用例复用）；
+          裁决规则的单测：每种动作的放行与驳回、模糊裁决的可裁区间与定案钳位、人情涟漪（只认开篇羁绊，「敌人之敌」升一档）、火候折算境界、
           修习的入门与精进逐条核验、仇人在侧不得修习、求教被拒的理由照实写人情、调息疗伤（source="rest"）、天降神兵此路不通；
           P1：人情按 rank 比——求教门槛随武学境界（三流须友善、二流及以上须信赖，驳回带 unlock）、物归原主直升信赖（已信赖不重复）、
           戒备不是仇人（不拦调息与修习）、服药（ItemConsumed + HealthChanged(source="item")，不在行囊 / 无用法 / 无伤可疗即驳回）、
-          驳回入账带上所图与手段、rules 拆包后旧的导入路径照旧可用
+          驳回入账带上所图与手段、rules 拆包后旧的导入路径照旧可用；
+          P1 阶段 B：取物的物性闸门（不可携带 NOT_PORTABLE 带 unlock、险物到手即受伤且留一口气）、他人之物按手段分三路（寻常驳回并提示、武力夺物同出手区间且得手即易手、
+          言辞讨要、潜行偷取）、重伤逃脱避开去处有仇人的出路、SkillExecuted 记手段、Conversed 记落了地的话题、stakes 门面返回三路赌注之一、
+          通用 Proposal 与 CombatProposal 定案一致、风险档只看最坏一端
 [POS]: tests 的逻辑死线：能力成长、物品获取、人际变化只能由图谱拓扑推导；地下城主只能在领域圈出的区间里挑结局——这里逐条钉死
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -20,6 +24,7 @@ from app.domain.aggregates import Player, PlayerState
 from app.domain.combat import CombatOutcome, CombatProposal, assess, settle
 from app.domain.events import (
     ActionFailed,
+    Conversed,
     DomainEvent,
     EventEnvelope,
     HealthChanged,
@@ -34,9 +39,11 @@ from app.domain.events import (
 )
 from app.domain.intent import ActionType, Aim, Approach, PlayerIntent
 from app.domain.models import Attitude, Disposition, ItemUse, Tier
+from app.domain.outcomes import SocialOutcome
 from app.domain.progression import MAX_HP, REST_GAIN
 from app.domain.rules import Approval, Rejection, adjudicate, decide, resolve, stakes
-from app.domain.snapshot import ItemView, LocalSnapshot
+from app.domain.snapshot import ExitView, ItemView, LocalSnapshot
+from app.domain.stakes import Proposal, Risk, risk_of, route_of
 from app.infrastructure.persistence.memory_graph import InMemoryWorldGraph
 from tests.world import WORLD
 
@@ -57,7 +64,21 @@ async def scene(at: str, *events: DomainEvent, aptitude: float = 1.0) -> tuple[P
 
 
 def act(kind: ActionType, **fields: object) -> PlayerIntent:
-    return PlayerIntent(action_type=kind, **fields)
+    return PlayerIntent(action_type=kind, **fields)  # type: ignore[arg-type]
+
+
+def recast(snap: LocalSnapshot, cid: str, **update: object) -> LocalSnapshot:
+    """改写快照里一位在场者的视图字段（性情、羁绊的 era / lead……）：阶段 B 的图谱实现之外，领域用例自己摆场面。"""
+    people = tuple(c.model_copy(update=update) if c.id == cid else c for c in snap.characters)
+    return snap.model_copy(update={"characters": people})
+
+
+def reitem(snap: LocalSnapshot, iid: str, **update: object) -> LocalSnapshot:
+    return snap.model_copy(update={"items": tuple(i.model_copy(update=update) if i.id == iid else i for i in snap.items)})
+
+
+def restock(snap: LocalSnapshot, *items: ItemView) -> LocalSnapshot:
+    return snap.model_copy(update={"items": (*snap.items, *items)})
 
 
 def failure(events: list[DomainEvent]) -> ActionFailed:
@@ -225,8 +246,10 @@ async def test_attack_ripples_along_has_relation_to_witnesses_only() -> None:
     events = decide(act(ActionType.ATTACK, target_entity="左子穆"), state, snap)
     assert events[0] == SkillExecuted(skill_id=None, target_id="chr:左子穆", outcome=Out.MINOR_WOUND)
     changes = {e.character_id: e.attitude for e in events if isinstance(e, RelationChanged)}
-    assert changes == {"chr:左子穆": Attitude.HOSTILE, "chr:龚光杰": Attitude.HOSTILE}  # 南海鳄神与之无关，不动
-    # 「敌人之敌 → 好感」暂停：辛双清是左子穆的仇家，却不因你出手而生好感（蓝图的仇敌边多是后文的恩怨，P1 按 era 恢复）
+    # 南海鳄神与之无关，不动；辛双清是左子穆开篇就有的仇家（东西宗相争）：敌人之敌，升一档
+    assert changes == {"chr:左子穆": Attitude.HOSTILE, "chr:龚光杰": Attitude.HOSTILE, "chr:辛双清": Attitude.FRIENDLY}
+    causes = {e.character_id: (e.cause, e.basis) for e in events if isinstance(e, RelationChanged)}
+    assert causes["chr:龚光杰"] == ("你打伤其师父左子穆", "师徒") and causes["chr:左子穆"] == ("遭你出手相攻", "交手")
 
 
 async def test_merciful_kin_turns_hostile_but_spares_you() -> None:
@@ -541,9 +564,11 @@ async def test_using_a_remedy_from_the_pack() -> None:
 
 async def test_a_refusal_records_what_was_attempted() -> None:
     state, snap = await scene("loc:无量山")
-    asked = act(ActionType.LEARN, skill_used="无量剑法", approach=Approach.WORDS, aim=Aim.LEARN)
+    asked = act(ActionType.TAKE, target_entity="无量剑", aim=Aim.ASK)
     failed = failure(decide(asked, state, snap))
-    assert (failed.aim, failed.approach, failed.unlock) == (Aim.LEARN, Approach.WORDS, "友善")
+    assert (failed.reason_code, failed.aim, failed.approach, failed.unlock) == ("HELD_BY_OTHER", Aim.ASK, Approach.PLAIN, "强夺、讨要或暗取")
+    begged = failure(decide(act(ActionType.LEARN, skill_used="六脉神剑", approach=Approach.FAVOR), state, snap))
+    assert (begged.reason_code, begged.aim, begged.approach) == ("UNKNOWN_SKILL", None, Approach.FAVOR)
 
 
 def test_the_rules_package_keeps_the_old_import_surface() -> None:
@@ -562,3 +587,95 @@ async def test_unnamed_refusals_speak_of_the_closest_master() -> None:
     friend = RelationChanged(character_id="chr:段正淳", attitude=Attitude.FRIENDLY, cause="c")
     state, snap = await scene("loc:大理城", friend, ROOTED)
     assert failure(decide(act(ActionType.LEARN, skill_used="一阳指"), state, snap)).reason.startswith("段正淳与你交情尚浅")
+
+
+# ============================================================
+#  P1 阶段 B：取物分路、物性闸门、逃向无仇之处、手段与话题入账、三路赌注的门面
+# ============================================================
+async def test_what_cannot_be_carried_cannot_be_taken_by_any_means() -> None:
+    state, snap = await scene("loc:无量山")
+    snap = reitem(snap, "itm:玉佩", portable=False)
+    for approach in (Approach.PLAIN, Approach.STEALTH):
+        failed = failure(decide(act(ActionType.TAKE, target_entity="玉佩", approach=approach), state, snap))
+        assert (failed.reason_code, failed.unlock) == ("NOT_PORTABLE", "就地察看")
+    assert stakes(act(ActionType.TAKE, target_entity="玉佩"), state, snap) is None
+
+
+async def test_a_hazard_hurts_the_hand_that_takes_it_but_never_kills() -> None:
+    state, snap = await scene("loc:无量山")
+    snap = reitem(snap, "itm:玉佩", hazard="剧毒")
+    assert decide(act(ActionType.TAKE, target_entity="玉佩"), state, snap) == [
+        ItemTransferred(item_id="itm:玉佩", from_holder="loc:无量山", to_holder=PID),
+        HealthChanged(delta=-15, cause="触到玉佩，剧毒", source_id="itm:玉佩"),
+    ]
+    frail, snap = await scene("loc:无量山", HealthChanged(delta=-95, cause="与龚光杰交手", source_id="chr:龚光杰"))
+    snap = reitem(snap, "itm:玉佩", hazard="剧毒")
+    events = decide(act(ActionType.TAKE, target_entity="玉佩"), frail, snap)
+    assert events[-1] == HealthChanged(delta=-4, cause="触到玉佩，剧毒", source_id="itm:玉佩")  # 留一口气
+    assert not any(isinstance(e, PlayerDied) for e in events)
+
+
+async def test_anothers_item_is_routed_by_approach() -> None:
+    """他人手中之物：寻常驳回并提示换手段；武力走出手区间（夺物）；言辞 / 人情 / 借势走交涉（讨要）；计谋 / 潜行走暗中。"""
+    state, snap = await scene("loc:无量山")
+    routes = {
+        a: route_of(stakes(act(ActionType.TAKE, target_entity="无量剑", approach=a), state, snap)).value for a in Approach
+    }
+    assert routes == {Approach.PLAIN: "定", Approach.FORCE: "战", Approach.WORDS: "交", Approach.FAVOR: "交",
+                      Approach.GUILE: "暗", Approach.STEALTH: "暗", Approach.LEVERAGE: "交"}
+    seize = stakes(act(ActionType.TAKE, target_entity="无量剑", approach=Approach.FORCE), state, snap)
+    attack = stakes(act(ActionType.ATTACK, target_entity="左子穆"), state, snap)
+    assert seize is not None and attack is not None and seize.admissible == attack.admissible  # 夺物与出手同一个区间
+    assert seize.seize_id == "itm:无量剑" and seize.item_id is None  # type: ignore[union-attr]
+
+
+async def test_seizing_by_force_hands_over_the_item_only_on_success() -> None:
+    state, snap = await scene("loc:无量山", ROOTED)  # 二流对三流：技高一筹，稳稳制住
+    events = decide(act(ActionType.TAKE, target_entity="无量剑", approach=Approach.FORCE), state, snap)
+    assert events[0] == SkillExecuted(skill_id="art:北冥神功", target_id="chr:左子穆", outcome=Out.SUCCESS, approach=Approach.FORCE)
+    assert events[2] == ItemTransferred(item_id="itm:无量剑", from_holder="chr:左子穆", to_holder=PID)  # 交手的气血之后、人情涟漪之前
+    novice, snap = await scene("loc:无量山")
+    lost = decide(act(ActionType.TAKE, target_entity="无量剑", approach=Approach.FORCE), novice, snap)
+    assert lost[0].outcome is Out.MINOR_WOUND and not any(isinstance(e, ItemTransferred) for e in lost)  # type: ignore[attr-defined]
+
+
+async def test_a_subdued_holder_cannot_stop_you_whatever_the_approach() -> None:
+    win = SkillExecuted(skill_id="art:北冥神功", target_id="chr:左子穆", outcome=Out.SUCCESS)
+    state, snap = await scene("loc:无量山", ROOTED, win)
+    sneak = act(ActionType.TAKE, target_entity="无量剑", approach=Approach.STEALTH)
+    assert stakes(sneak, state, snap) is None
+    assert decide(sneak, state, snap) == [ItemTransferred(item_id="itm:无量剑", from_holder="chr:左子穆", to_holder=PID)]
+
+
+async def test_a_severe_escape_avoids_exits_where_a_foe_stands() -> None:
+    came = Moved(from_location_id="loc:无量玉洞", to_location_id="loc:无量山", exit_label="攀上")
+    state, snap = await scene("loc:无量玉洞", came)
+    guarded = tuple(e.model_copy(update={"hostile_ahead": e.to_id == "loc:无量玉洞"}) for e in snap.exits)
+    events = decide(act(ActionType.ATTACK, target_entity="龚光杰"), state, snap.model_copy(update={"exits": guarded}))
+    assert events[-1] == Moved(from_location_id="loc:无量山", to_location_id="loc:大理城", exit_label="南下", fleeing=True)
+    walled = tuple(e.model_copy(update={"hostile_ahead": True}) for e in snap.exits)
+    events = decide(act(ActionType.ATTACK, target_entity="龚光杰"), state, snap.model_copy(update={"exits": walled}))
+    assert events[0].outcome is Out.SEVERE_WOUND and not any(isinstance(e, Moved) for e in events)  # type: ignore[attr-defined]
+    assert ExitView(label="x", to_id="loc:x", to_name="x").hostile_ahead is False
+
+
+async def test_the_approach_and_the_topic_go_on_record() -> None:
+    state, snap = await scene("loc:无量山")
+    feint = decide(act(ActionType.ATTACK, target_entity="左子穆", approach=Approach.GUILE), state, snap)
+    plain = decide(act(ActionType.ATTACK, target_entity="左子穆"), state, snap)
+    assert feint[0].approach is Approach.GUILE and feint[0].outcome is plain[0].outcome  # type: ignore[attr-defined]  # 计谋不越级
+    assert decide(act(ActionType.TALK, target_entity="左子穆", topic="辛双清"), state, snap) == [
+        Conversed(npc_id="chr:左子穆", topic_id="chr:辛双清")
+    ]
+    assert decide(act(ActionType.TALK, target_entity="左子穆", topic="少林寺"), state, snap) == [Conversed(npc_id="chr:左子穆")]
+
+
+async def test_the_facade_returns_one_of_three_stakes_and_a_generic_proposal_settles_combat() -> None:
+    state, snap = await scene("loc:无量山")
+    attack = act(ActionType.ATTACK, target_entity="龚光杰")
+    assert decide(attack, state, snap, Proposal(Out.MINOR_WOUND, -15)) == decide(attack, state, snap, CombatProposal(Out.MINOR_WOUND, -15))
+    assert decide(attack, state, snap, Proposal(SocialOutcome.GRANTED)) == decide(attack, state, snap)  # 别的路线的结局即出界
+    assert risk_of(stakes(attack, state, snap)) is Risk.RISKY
+    assert risk_of(stakes(act(ActionType.ATTACK, target_entity="南海鳄神"), state, snap)) is Risk.GRAVE
+    assert risk_of(stakes(act(ActionType.MOVE, target_entity="南下"), state, snap)) is Risk.SAFE
+    assert risk_of(stakes(act(ActionType.TAKE, target_entity="无量剑", approach=Approach.STEALTH), state, snap)) is Risk.RISKY

@@ -1,9 +1,10 @@
 """
-[INPUT]: 依赖 domain/intent 的 PlayerIntent，依赖 domain/events 的 DomainEvent，依赖 domain/models 的 Tier / Attitude，
-         依赖 domain/combat 的 Stakes / CombatRuling，依赖 domain/progression 的 effective_tier，依赖 domain/snapshot 的 LocalSnapshot / CharacterView / SkillView；
-         PlayerState 仅作类型标注（避免与 aggregates 成环）
-[OUTPUT]: 对外提供 Rejection（驳回：code + reason + unlock 怎样才行）/ Approval（获准：指称已落地）/ Verdict、resolve()（名称 → 实体的唯一匹配）、
-          skill_tier() / player_tier() / best_skill()（火候折算后的境界与看家本领）、Rule 抽象（adjudicate / stakes 钩子 / consequences）、
+[INPUT]: 依赖 domain/intent 的 PlayerIntent / Aim，依赖 domain/events 的 DomainEvent，依赖 domain/models 的 Tier / Attitude，
+         依赖 domain/approach 的 Route，依赖 domain/stakes 的 AnyStakes / Ruling，依赖 domain/progression 的 effective_tier，
+         依赖 domain/snapshot 的 LocalSnapshot / CharacterView / SkillView；PlayerState 仅作类型标注（避免与 aggregates 成环）
+[OUTPUT]: 对外提供 Rejection（驳回：code + reason + unlock 怎样才行）/ Approval（获准：指称已落地，route 走哪一路、aim 所图、topic 落了地的话题）/ Verdict、
+          resolve()（名称 → 实体的唯一匹配）、ground()（话题 → 实体或见闻 id）、
+          skill_tier() / player_tier() / best_skill()（火候折算后的境界与看家本领）、Rule 抽象（adjudicate / stakes 钩子返回三路赌注之一 / consequences 收三路定案之一）、
           present()（指称落到在场之人）、menace()（在场、敌视且行动自如的仇人）、names() / listed() 渲染助手
 [POS]: rules 包的地基：各条 Rule 共用的裁决结果、名称落地、境界折算与"仇人在侧"的判据。纯函数，不做 IO、不调大模型、不看时钟。
        人情只比 rank：仇人只认敌视（戒备不是仇人）
@@ -17,12 +18,13 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from app.domain.combat import CombatRuling, Stakes
+from app.domain.approach import Route
 from app.domain.events import DomainEvent
-from app.domain.intent import PlayerIntent
+from app.domain.intent import Aim, PlayerIntent
 from app.domain.models import Attitude, Tier
 from app.domain.progression import Guidance, effective_tier
 from app.domain.snapshot import CharacterView, LocalSnapshot, SkillView
+from app.domain.stakes import AnyStakes, Ruling
 
 if TYPE_CHECKING:
     from app.domain.aggregates import PlayerState
@@ -49,6 +51,9 @@ class Approval:
     exit_label: str | None = None
     source: str | None = None  # TAKE：物品原持有者；LEARN：传功点拨之人或所凭典籍（闭门苦练为 None）
     guidance: Guidance | None = None  # LEARN：入门，或精进凭的是什么
+    route: Route = Route.FIXED  # 走哪一路裁决：定（确定性规则）/ 战 / 交 / 暗
+    aim: Aim | None = None  # 推断后的所图（交涉、夺物、暗取）
+    topic: str | None = None  # 落了地的话题（实体或见闻 id）
 
 
 type Verdict = Approval | Rejection
@@ -73,6 +78,25 @@ def resolve[T](name: str | None, candidates: Iterable[T], names: Callable[[T], I
 
 def names(view: object) -> Iterable[str]:
     return view.names  # type: ignore[attr-defined]
+
+
+def ground(topic: str | None, snap: LocalSnapshot) -> str | None:
+    """
+    话题落地：此情此景里叫得出名的一切——在场者（含称号）、可见之物、可知的武学、此地与去处、知情人在场的见闻（按正文），
+    以及名称表里出现的远方实体。与 resolve 同一口径：精确优先、包含须唯一、多义不猜。
+    """
+    if not topic:
+        return None
+    pool: dict[str, tuple[str, ...]] = {snap.location.id: (snap.location.name,)}
+    for e in snap.exits:
+        pool[e.to_id] = (e.to_name,)
+    for view in (*snap.characters, *snap.items, *snap.skills):
+        pool[view.id] = view.names
+    for f in snap.facts:
+        pool[f.id] = (f.text,)
+    for any_id, label in snap.labels.items():
+        pool.setdefault(any_id, (label,))
+    return resolve(topic, pool, lambda k: pool[k])
 
 
 def listed(snap: LocalSnapshot, ids: Iterable[str]) -> str:
@@ -108,13 +132,13 @@ class Rule(ABC):
     @abstractmethod
     def adjudicate(self, intent: PlayerIntent, state: PlayerState, snap: LocalSnapshot) -> Verdict: ...
 
-    def stakes(self, ok: Approval, state: PlayerState, snap: LocalSnapshot) -> Stakes | None:
-        """胜负未定之事的可裁区间；结果确定的动作没有赌注（缺省）。"""
+    def stakes(self, ok: Approval, state: PlayerState, snap: LocalSnapshot) -> AnyStakes | None:
+        """胜负未定之事的可裁区间（出手 / 交涉 / 暗中三路之一）；结果确定的动作没有赌注（缺省）。"""
         return None
 
     @abstractmethod
     def consequences(
-        self, ok: Approval, state: PlayerState, snap: LocalSnapshot, ruling: CombatRuling | None
+        self, ok: Approval, state: PlayerState, snap: LocalSnapshot, ruling: Ruling | None
     ) -> list[DomainEvent]: ...
 
 

@@ -1,13 +1,17 @@
 """
-[INPUT]: 依赖 domain/models 的 WorldBlueprint 及节点类型，依赖 json 的 dumps
+[INPUT]: 依赖 domain/models 的 WorldBlueprint / EntityKind / kind_of 及节点类型，依赖 domain/lore 的 Persona，依赖 json 的 dumps
 [OUTPUT]: 对外提供 CypherStatement（参数化语句）、compile_blueprint()（蓝图 → 按依赖排序的批量写图语句）、
-          render_script()（同一批语句渲染为可交给 cypher-shell 的 .cypher 脚本）、cypher_literal()（值 → Cypher 字面量）
+          render_script()（同一批语句渲染为可交给 cypher-shell 的 .cypher 脚本）、cypher_literal()（值 → Cypher 字面量）、
+          CANON_LABELS（正典节点标签，含见闻 Fact）、KIND_LABELS（id 前缀 → 节点标签）
 [POS]: infrastructure 的确定性编译器：原著解析管道的终点、Neo4j 播种器的输入。抽取出的名字一律走 $rows 参数，
        不拼进查询文本——原著里的引号与反斜杠伤不到图谱；脚本渲染只是把同一批参数序列化为字面量，二者同源（DRY）。
        硬性边：CONNECTS_TO（地点↔地点）、LOCATED_IN（人物/物品→地点）、HAS_RELATION（人物↔人物）、KNOWS_SKILL（人物→武学）、
        BELONGS_TO（物品→物主、人物/武学→门派），另有 REQUIRES / CONFLICTS_WITH 把武学的获取要求（典籍 as item、地点 as place）
        与修炼要求（根基 as skill、相冲）展开为可遍历的拓扑。人物节点的 name 恒等于 true_name（本名主键），称号另存 titles；
-       物品的 LOCATED_IN / BELONGS_TO 边带 provenance：自愈代理推断的安放与原著明写的安放在图里一眼分得清；下落不明的物品没有这两条边
+       物品的 LOCATED_IN / BELONGS_TO 边带 provenance：自愈代理推断的安放与原著明写的安放在图里一眼分得清；下落不明的物品没有这两条边。
+       P1 掌故与物性：HAS_RELATION 带 era（结于何时，方向即上首）；人物节点带 arrives_with 与 persona（外显人设 JSON，出处另存 persona_sources，
+       foreshadow 永不入图）；物品节点带 portable / hazard / use（JSON）/ arrives_with；见闻是 (:Fact {id, text, sources}) 节点，
+       (知情人)-[:KNOWS_FACT]->(f)、(f)-[:ABOUT]->(主体)、(f)-[:UNLOCKS {kind}]->(所解之边的那一端)——主体与目标按 id 前缀落到各自的标签上
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -16,10 +20,20 @@ from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from app.domain.models import WorldBlueprint
+from pydantic import BaseModel
+
+from app.domain.lore import Persona
+from app.domain.models import EntityKind, WorldBlueprint, kind_of
 
 BATCH_ROWS = 500
-CANON_LABELS = ("Location", "Character", "MartialArt", "Item", "Faction")
+CANON_LABELS = ("Location", "Character", "MartialArt", "Item", "Faction", "Fact")
+KIND_LABELS = {
+    EntityKind.LOCATION: "Location",
+    EntityKind.CHARACTER: "Character",
+    EntityKind.MARTIAL_ART: "MartialArt",
+    EntityKind.ITEM: "Item",
+    EntityKind.PLAYER: "Player",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,10 +47,11 @@ class CypherStatement:
 # ============================================================
 CONSTRAINTS = [
     *(f"CREATE CONSTRAINT {label.lower()}_id IF NOT EXISTS FOR (n:{label}) REQUIRE n.id IS UNIQUE"
-      for label in ("Location", "Character", "MartialArt", "Item", "Player")),
+      for label in ("Location", "Character", "MartialArt", "Item", "Player", "Fact")),
     "CREATE CONSTRAINT faction_name IF NOT EXISTS FOR (n:Faction) REQUIRE n.name IS UNIQUE",
     "CREATE INDEX item_canon_holder IF NOT EXISTS FOR (n:Item) ON (n.canon_holder)",
     "CREATE INDEX held_by_world IF NOT EXISTS FOR ()-[r:HELD_BY]-() ON (r.world)",
+    "CREATE INDEX consumed_world IF NOT EXISTS FOR ()-[r:CONSUMED]-() ON (r.world)",
 ]
 
 _NODE = "UNWIND $rows AS row MERGE (n:{label} {{id: row.id}}) SET n += row.props"
@@ -52,8 +67,12 @@ def _edge(a: str, rel: str, b: str, key: str = "id") -> str:
     return _EDGE.format(a=a, rel=rel, b=b, key=key)
 
 
+def _json(model: BaseModel | None) -> str | None:
+    return None if model is None else json.dumps(model.model_dump(mode="json"), ensure_ascii=False)
+
+
 def compile_blueprint(bp: WorldBlueprint) -> list[CypherStatement]:
-    """先约束，再节点，最后边——边的 MATCH 依赖节点已存在。全部 MERGE：重复播种幂等。"""
+    """先约束，再节点（含见闻），最后边——边的 MATCH 依赖节点已存在。全部 MERGE：重复播种幂等。"""
     statements = [CypherStatement(q, {}) for q in CONSTRAINTS]
 
     def emit(query: str, rows: Sequence[dict[str, Any]]) -> None:
@@ -66,11 +85,13 @@ def compile_blueprint(bp: WorldBlueprint) -> list[CypherStatement]:
                                "description": x.description}}
         for x in bp.locations
     ])
+    personas = {p.character_id: p for p in bp.personas}
     emit(_NODE.format(label="Character"), [
         {"id": x.id, "props": {"name": x.true_name, "true_name": x.true_name, "titles": list(x.titles),
                                "aliases": list(x.aliases), "faction": x.faction,
                                "status": x.status.value, "tier": x.tier.value, "disposition": x.disposition.value,
-                               "description": x.description}}
+                               "description": x.description, "arrives_with": x.arrives_with,
+                               **_persona(personas.get(x.id))}}
         for x in bp.characters
     ])
     emit(_NODE.format(label="MartialArt"), [
@@ -83,8 +104,12 @@ def compile_blueprint(bp: WorldBlueprint) -> list[CypherStatement]:
     emit(_NODE.format(label="Item"), [
         {"id": x.id, "props": {"name": x.name, "aliases": list(x.aliases), "kind": x.kind,
                                "description": x.description, "canon_holder": x.canon_holder,
-                               "provenance": x.provenance.value}}
+                               "provenance": x.provenance.value, "portable": x.portable, "hazard": x.hazard,
+                               "use": _json(x.use), "arrives_with": x.arrives_with}}
         for x in bp.items
+    ])
+    emit(_NODE.format(label="Fact"), [
+        {"id": f.id, "props": {"text": f.text, "sources": list(f.sources)}} for f in bp.facts
     ])
     factions = sorted({c.faction for c in bp.characters if c.faction} | {m.faction for m in bp.martial_arts if m.faction})
     emit(_FACTION, [{"name": name} for name in factions])
@@ -113,8 +138,22 @@ def compile_blueprint(bp: WorldBlueprint) -> list[CypherStatement]:
         {"a": c.id, "b": s, "props": {}} for c in bp.characters for s in c.skills
     ])
     emit(_edge("Character", "HAS_RELATION", "Character"), [
-        {"a": r.source_id, "b": r.target_id, "props": {"kind": r.kind.value, "note": r.note}} for r in bp.relations
+        {"a": r.source_id, "b": r.target_id, "props": {"kind": r.kind.value, "note": r.note, "era": r.era.value}}
+        for r in bp.relations
     ])
+
+    # ---- 见闻：谁知道、说的是谁、解开哪条边 ----
+    emit(_edge("Character", "KNOWS_FACT", "Fact"), [
+        {"a": k, "b": f.id, "props": {}} for f in bp.facts for k in f.knower_ids
+    ])
+    for kind, label in KIND_LABELS.items():
+        emit(_edge("Fact", "ABOUT", label), [
+            {"a": f.id, "b": s, "props": {}} for f in bp.facts for s in f.subject_ids if kind_of(s) is kind
+        ])
+        emit(_edge("Fact", "UNLOCKS", label), [
+            {"a": f.id, "b": f.unlock.target_id, "props": {"kind": f.unlock.kind}}
+            for f in bp.facts if f.unlock is not None and kind_of(f.unlock.target_id) is kind
+        ])
 
     # ---- 获取要求与修炼要求的拓扑 ----
     emit(_edge("MartialArt", "REQUIRES", "MartialArt"), [
@@ -131,6 +170,14 @@ def compile_blueprint(bp: WorldBlueprint) -> list[CypherStatement]:
         {"a": m.id, "b": s, "props": {}} for m in bp.martial_arts for s in m.practice.conflicts
     ])
     return statements
+
+
+def _persona(persona: Persona | None) -> dict[str, Any]:
+    """外显人设作 JSON 属性随人物节点入图（与武学的两道门同一口径）；出处另存，供审阅。"""
+    if persona is None:
+        return {"persona": None, "persona_sources": None}
+    shown = {"likes": list(persona.likes), "dislikes": list(persona.dislikes), "worry": persona.worry}
+    return {"persona": json.dumps(shown, ensure_ascii=False), "persona_sources": list(persona.sources)}
 
 
 # ============================================================

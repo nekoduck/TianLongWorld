@@ -5,12 +5,19 @@
 - `blueprint.json` —— 原著蓝图，也是图谱的正典：抽取与写图之间的中间表示，可人工审阅后再 `apply`（Neo4j 与内存图谱都只是它的投影）
 - `seed.cypher` —— 由蓝图确定性生成的写图脚本，可交给 cypher-shell
 - `report.txt` —— 组装报告：丢弃（泛称 / 描述性称呼 / 悬空引用）、封存（门径落不了地的武学）、孤儿（被武学引用却下落不明的物品）、
-  时间线（被 T=0 之后的事件否决的开篇状态）、自愈（孤儿的推断安放）、抽取失败的文本块
+  时间线（被 T=0 之后的事件否决的开篇状态）、自愈（孤儿的推断安放）、审计（T=0 审计的覆盖率与每处偏离缺省的结论）、
+  掌故（每条人设与见闻及其出处、作答者）、抽取失败的文本块
 - `healing.json` —— 自愈缓存（有孤儿被安放时才出现）：每条推断的安放、理由与推断者；`assemble` / `extract` 零费用自动套用
+- `audit.json` —— T=0 审计缓存（首次 `audit --ingest` 之后出现）：`{version, fingerprint, relations, characters, items}`，
+  每条结论名字已落成 id、带作答者 `by`；人物结论另记作答时的原描述 `was`（原描述一变即作废），到场结论带出处 `evidence {ref, quote}`。
+  版本（`tlbb-audit-v1`）或蓝图指纹（只覆盖审计不改的骨架）不符整体作废
+- `lore.json` —— 掌故缓存（首次 `lore --ingest` 之后出现）：`{version, fingerprint, personas: [{persona, by}], facts: [{fact, by}]}`，
+  provenance 一律是推断。指纹覆盖名字、所在、武学、关系与其 era、物性——审计改了 era 或物性，掌故整体作废、蓝图上的掌故随之清空
 - `cache/<提示词版本>/` —— 逐块抽取记录（按提示词版本 + 文本哈希命名，内容是名称级的结构化记录而非原文，
   与本块原文共享 ≥16 字的描述已清空）：中断后重跑不重复花钱；组装器改了规则，凭缓存零费用重新组装
 
-本项目的原著抽取与图谱自愈一律由 Claude 子代理经 `export` / `ingest`（`heal --export` / `--ingest`）完成，不调用付费大模型；
+本项目的原著抽取、图谱自愈、T=0 审计与掌故一律由 Claude 子代理经 `export` / `ingest`（`heal` / `audit` / `lore` 的 `--export` / `--ingest`）完成，
+不调用付费大模型（`audit` / `lore` 连 `--use-llm` 都没有）；
 缓存里早期由 Gemini 抽取的记录（v4 全部、v5 前 16 块）只留作溯源。
 
 ## 当前切片：前 40 块 = 第一回「青衫磊落险峰行」至第九回「换巢鸾凤」（大理篇）
@@ -48,6 +55,25 @@ python -m app.seed assemble --prompt-version tlbb-extract-v6 --max-chunks 40
 ```bash
 python -m app.seed apply --reset
 ```
+
+## 离线正典：T=0 审计与掌故（P1）
+
+套用顺序是 自愈 → 审计 → 掌故，`assemble` / `extract` 每次组装后都零费用自动套用三份缓存；`heal` / `audit` / `lore` 不重新组装，只写回蓝图、换掉报告里自己那几节。
+
+```bash
+python -m app.seed audit --export DIR [--batch 40] [--all]          # 分批题面 audit-{relation,character,item}-NN.txt，每份自足；已审的不再出题
+python -m app.seed audit --ingest F --by claude-subagent              # 过闸（有一条不合格整批拒收）→ audit.json → 写回蓝图
+python -m app.seed lore --export DIR [--from 剑湖宫·练武厅] [--hops 2]  # 以一地为中心的人设与见闻题面 lore-NN.txt，打印几地几人
+python -m app.seed lore --ingest F --by claude-subagent               # 过闸 → lore.json → 写回蓝图
+python -m app.seed audit | lore                                       # 不带参数：按缓存重新套用
+```
+
+审计闸门：名称全等（不做包含匹配）、枚举封闭（era 开篇 / 将至 / 后文，hazard 剧毒 / 有毒 / 蛊毒，use 疗伤 / 解毒 × 1~3）、
+新描述与后文剧情的专名 ⊆ 原描述的专名、险性须在原描述里有「毒」「蛊」字眼、`arrives_with`（`portent:<名>`）须有出处——
+`ev:<块>#<序>`（与此人此物有涉的后文事件）或 `chunk:<块>`（切片里的原文块，附该块逐字 4~15 字摘句）、与原著共享 ≥16 字的字段清空。
+掌故闸门：名称全等、出处落在切片里且提到此人、专名 ⊆ 蓝图专名、不写后文才有的身故 / 所得 / 所会、不牵涉结于后文的关系、
+不照抄原著 ≥16 字，见闻的 unlock 须落在蓝图的一条边上、知情人须是主体本人 / 同门 / 有开篇或将至关系边的人。
+后文事件与切片取自 `cache/tlbb-extract-v6/` 与 `data/source_text/` 的原著（`--evidence-version` 可换）；本地没有原著时出处无从核验，引出处的作答一律拒收。
 
 ## 已知局限（审阅蓝图时值得留意）
 

@@ -1,15 +1,19 @@
 """
 [INPUT]: 依赖 neo4j 的 AsyncGraphDatabase / AsyncDriver / AsyncManagedTransaction，依赖 domain/ports 的 WorldReader / WorldProjector / WorldSeeder，
          依赖 domain/events 的领域事件，依赖 domain/combat 的 CombatOutcome，依赖 domain/progression 的 MAX_HP，
-         依赖 domain/models 的 Attitude / CharacterStatus / EntityKind / Acquisition / Practice / kind_of / WorldBlueprint，依赖 domain/snapshot 的视图，
-         依赖 infrastructure/cypher 的 compile_blueprint / CANON_LABELS，依赖 app.errors 的 ProjectionError
+         依赖 domain/models 的 Attitude / CharacterStatus / Era / ItemUse / Acquisition / Practice / kind_of / WorldBlueprint，依赖 domain/snapshot 的视图，
+         依赖 infrastructure/cypher 的 compile_blueprint / CANON_LABELS / KIND_LABELS，依赖 app.errors 的 ProjectionError
 [OUTPUT]: 对外提供 Neo4jWorldGraph（connect / close + 图谱三端口 + stale_canon 旧纪元残留检查）
 [POS]: persistence 的生产图谱快照。正典 = 播种写入的节点与硬性边，永不被事件改写；
        平行世界 = 以玩家为锚的覆盖层：(:Player) 节点（name / alive / version 检查点 / aptitude 悟性 / hp 气血）、LOCATED_IN（所在）、
        KNOWS_SKILL {proficiency}（所学及熟练度之和——SkillPracticed 在边上做加法，与 evolve 的 reduce 同构；加法不幂等，
        故检查点在 Player 写锁下读取；旧引擎留下的无熟练度边按上抛口径读作 LEGACY_MASTERY_POINTS）、
-       SUBDUED（制住之人）、(:Character)-[:REGARDS {attitude}]->(:Player)（人情）、(:Item)-[:HELD_BY {world}]->(持有者)（易手之物）。
+       SUBDUED（制住之人）、(:Character)-[:REGARDS {attitude}]->(:Player)（人情）、(:Item)-[:HELD_BY {world}]->(持有者)（易手之物）、
+       (:Item)-[:CONSUMED {world}]->(:Player)（用掉之物：HELD_BY 原样留着，快照据此滤掉——只删 HELD_BY 会让它回到正典持有者手里）。
        物品此刻的持有者 = 本世界的 HELD_BY，否则正典的 canon_holder——覆盖层可整体抹去并从事件流重放重建。
+       P1 视图：在场口径排除 arrives_with（后来才到场者 P1 不进任何场景）；羁绊带 era 与 lead（startNode 即上首）；
+       出口的 hostile_ahead 是去处在场者里有没有对本世界玩家 REGARDS 敌视且未被 SUBDUED 的人；人设读 persona JSON 的外显部分；
+       见闻经 KNOWS_FACT 取知情人在场者，ABOUT / UNLOCKS 还原主体与解锁；labels 把 fact:<slug> 映射为见闻正文。
        每种事件一个投影函数（开闭）；投影在单个写事务内推进检查点，版本不超过检查点的事件被跳过（幂等，可安全重试）
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -26,6 +30,7 @@ from app.domain.events import (
     DomainEvent,
     EventEnvelope,
     HealthChanged,
+    ItemConsumed,
     ItemTransferred,
     Moved,
     PlayerDied,
@@ -34,22 +39,26 @@ from app.domain.events import (
     SkillExecuted,
     SkillPracticed,
 )
-from app.domain.models import Acquisition, Attitude, CharacterStatus, EntityKind, Practice, WorldBlueprint, kind_of
+from app.domain.models import Acquisition, Attitude, CharacterStatus, Era, ItemUse, Practice, WorldBlueprint, kind_of
 from app.domain.ports import WorldProjector, WorldReader, WorldSeeder
 from app.domain.progression import MAX_HP
-from app.domain.snapshot import BondView, CharacterView, ExitView, ItemView, LocalSnapshot, LocationView, SkillView
+from app.domain.snapshot import (
+    BondView,
+    CharacterView,
+    ExitView,
+    FactView,
+    ItemView,
+    LocalSnapshot,
+    LocationView,
+    PersonaView,
+    SkillView,
+)
 from app.errors import ProjectionError
-from app.infrastructure.cypher import CANON_LABELS, compile_blueprint
+from app.infrastructure.cypher import CANON_LABELS, KIND_LABELS, compile_blueprint
 
 logger = logging.getLogger(__name__)
 
-_LABEL = {
-    EntityKind.LOCATION: "Location",
-    EntityKind.CHARACTER: "Character",
-    EntityKind.MARTIAL_ART: "MartialArt",
-    EntityKind.ITEM: "Item",
-    EntityKind.PLAYER: "Player",
-}
+_LABEL = KIND_LABELS
 
 type _Tx = AsyncManagedTransaction
 type _Projector = Callable[[_Tx, str, Any], Awaitable[None]]
@@ -130,12 +139,20 @@ async def _regarded(tx: _Tx, pid: str, e: RelationChanged) -> None:
     )
 
 
+async def _consumed(tx: _Tx, pid: str, e: ItemConsumed) -> None:
+    """用掉的东西记成本世界的 CONSUMED 边，HELD_BY 原样留着：只删 HELD_BY 会让它回到正典持有者手里。"""
+    await tx.run(
+        "MATCH (i:Item {id: $item}) MATCH (p:Player {id: $pid}) MERGE (i)-[:CONSUMED {world: $pid}]->(p)",
+        item=e.item_id, pid=pid,
+    )
+
+
 async def _died(tx: _Tx, pid: str, e: PlayerDied) -> None:
     await tx.run("MATCH (p:Player {id: $pid}) SET p.alive = false, p.death_cause = $cause", pid=pid, cause=e.cause)
 
 
 async def _nothing(tx: _Tx, pid: str, e: DomainEvent) -> None:
-    """Conversed / ActionFailed：只是历史，不改变图谱；P1 的 Parleyed / FactLearned / ItemConsumed / Maneuvered 与 evolve 同口径，暂不改覆盖层。"""
+    """Conversed / ActionFailed / Parleyed / FactLearned / Maneuvered：只是历史或只进聚合（心事、已知见闻），不改变图谱的快照。"""
 
 
 _PROJECTORS: dict[str, _Projector] = {
@@ -151,7 +168,7 @@ _PROJECTORS: dict[str, _Projector] = {
     "ActionFailed": _nothing,
     "Parleyed": _nothing,
     "FactLearned": _nothing,
-    "ItemConsumed": _nothing,
+    "ItemConsumed": _consumed,
     "Maneuvered": _nothing,
 }
 
@@ -166,17 +183,27 @@ RETURN p.name AS name, p.alive AS alive, coalesce(p.version, 0) AS version,
        l {.id, .name, .region, .description} AS location,
        COLLECT { MATCH (p)-[k:KNOWS_SKILL]->(a:MartialArt) RETURN {id: a.id, points: coalesce(k.proficiency, $legacy)} } AS practice,
        COLLECT { MATCH (p)-[:SUBDUED]->(c:Character) RETURN c.id } AS subdued,
-       COLLECT { MATCH (l)-[e:CONNECTS_TO]->(d:Location) RETURN {label: e.label, to_id: d.id, to_name: d.name} } AS exits
+       COLLECT {
+           MATCH (l)-[e:CONNECTS_TO]->(d:Location)
+           RETURN {label: e.label, to_id: d.id, to_name: d.name, hostile_ahead: EXISTS {
+               MATCH (c:Character)-[:LOCATED_IN]->(d)
+               WHERE c.status = $alive AND c.arrives_with IS NULL
+                 AND EXISTS { (c)-[:REGARDS {attitude: $hostile}]->(p) } AND NOT EXISTS { (p)-[:SUBDUED]->(c) }
+           }}
+       } AS exits
 """
 
 _Q_CHARACTERS = """
 MATCH (c:Character)-[:LOCATED_IN]->(:Location {id: $loc})
-WHERE c.status = $alive
+WHERE c.status = $alive AND c.arrives_with IS NULL
 OPTIONAL MATCH (c)-[r:REGARDS]->(:Player {id: $pid})
-RETURN c {.id, .name, .titles, .aliases, .faction, .tier, .disposition, .description} AS c,
+RETURN c {.id, .name, .titles, .aliases, .faction, .tier, .disposition, .description, .persona} AS c,
        r.attitude AS attitude,
        COLLECT { MATCH (c)-[:KNOWS_SKILL]->(a:MartialArt) RETURN a.id } AS skills,
-       COLLECT { MATCH (c)-[h:HAS_RELATION]-(o:Character) RETURN {other_id: o.id, kind: h.kind} } AS bonds
+       COLLECT {
+           MATCH (c)-[h:HAS_RELATION]-(o:Character)
+           RETURN {other_id: o.id, kind: h.kind, era: coalesce(h.era, $opening), lead: startNode(h) = c}
+       } AS bonds
 """
 
 _Q_ITEMS = """
@@ -194,8 +221,20 @@ CALL (h) {
     WHERE NOT EXISTS { (i)-[:HELD_BY {world: $pid}]->() }
     RETURN i
 }
+WITH h, i WHERE i.arrives_with IS NULL AND NOT EXISTS { (i)-[:CONSUMED {world: $pid}]->() }
 OPTIONAL MATCH (i)-[:BELONGS_TO]->(o:Character)
-RETURN i {.id, .name, .aliases, .kind, .description} AS item, h.id AS holder_id, o.id AS owner_id
+RETURN i {.id, .name, .aliases, .kind, .description, .portable, .hazard, .use} AS item,
+       h.id AS holder_id, o.id AS owner_id
+"""
+
+_Q_FACTS = """
+MATCH (k:Character)-[:KNOWS_FACT]->(f:Fact) WHERE k.id IN $chars
+WITH DISTINCT f
+OPTIONAL MATCH (f)-[u:UNLOCKS]->(t)
+RETURN f.id AS id, f.text AS text,
+       COLLECT { MATCH (f)-[:ABOUT]->(s) RETURN s.id } AS subject_ids,
+       COLLECT { MATCH (w:Character)-[:KNOWS_FACT]->(f) RETURN w.id } AS knower_ids,
+       CASE WHEN u IS NULL THEN null ELSE {kind: u.kind, target_id: t.id} END AS unlock
 """
 
 _ART = "a {.id, .name, .aliases, .tier, .kind, .faction, .description, .acquisition, .practice} AS a"
@@ -211,9 +250,11 @@ FOREACH (_ IN CASE WHEN p IS NULL THEN [] ELSE [1] END | SET p.version = coalesc
 RETURN coalesce(p.version, 0) AS v
 """
 
-_Q_LABELS = "\nUNION ALL\n".join(
-    f"MATCH (n:{label}) WHERE n.id IN ${kind.value} RETURN n.id AS id, n.name AS name" for kind, label in _LABEL.items()
-)
+_FACT = "fact"  # 见闻的 id 前缀：它不是实体种类，名字是正文
+_Q_LABELS = "\nUNION ALL\n".join([
+    *(f"MATCH (n:{label}) WHERE n.id IN ${kind.value} RETURN n.id AS id, n.name AS name" for kind, label in _LABEL.items()),
+    f"MATCH (n:Fact) WHERE n.id IN ${_FACT} RETURN n.id AS id, n.text AS name",
+])
 
 
 class Neo4jWorldGraph(WorldReader, WorldProjector, WorldSeeder):
@@ -243,9 +284,9 @@ class Neo4jWorldGraph(WorldReader, WorldProjector, WorldSeeder):
 
     async def stale_canon(self, blueprint: WorldBlueprint) -> list[str]:
         """不属于这份蓝图的正典节点 id——换蓝图却没 reset 时，新旧两版正典会悄悄混成一个世界。"""
-        ids = [e.id for e in blueprint.entities()]
+        ids = [*(e.id for e in blueprint.entities()), *(f.id for f in blueprint.facts)]
         records, _, _ = await self._driver.execute_query(
-            "MATCH (n) WHERE (n:Location OR n:Character OR n:MartialArt OR n:Item) AND NOT n.id IN $ids "
+            "MATCH (n) WHERE (n:Location OR n:Character OR n:MartialArt OR n:Item OR n:Fact) AND NOT n.id IN $ids "
             "RETURN n.id AS id ORDER BY id",
             ids=ids, database_=self._db,
         )
@@ -289,7 +330,7 @@ class Neo4jWorldGraph(WorldReader, WorldProjector, WorldSeeder):
 
     async def forget(self, player_id: str) -> None:
         await self._driver.execute_query(
-            "MATCH ()-[r:HELD_BY {world: $pid}]->() DELETE r", pid=player_id, database_=self._db
+            "MATCH ()-[r:HELD_BY|CONSUMED {world: $pid}]->() DELETE r", pid=player_id, database_=self._db
         )
         await self._driver.execute_query(
             "MATCH (p:Player {id: $pid}) DETACH DELETE p", pid=player_id, database_=self._db
@@ -320,7 +361,7 @@ async def _column(result: Any, key: str) -> AsyncIterator[Any]:
 
 
 async def _labels_tx(tx: _Tx, ids: list[str]) -> dict[str, str]:
-    buckets: dict[str, list[str]] = {kind.value: [] for kind in _LABEL}
+    buckets: dict[str, list[str]] = {prefix: [] for prefix in (*(kind.value for kind in _LABEL), _FACT)}
     for any_id in ids:
         prefix = any_id.split(":", 1)[0]
         if prefix in buckets:
@@ -330,14 +371,19 @@ async def _labels_tx(tx: _Tx, ids: list[str]) -> dict[str, str]:
 
 
 async def _snapshot_tx(tx: _Tx, player_id: str) -> LocalSnapshot:
-    head = await (await tx.run(_Q_PLAYER, pid=player_id, max_hp=MAX_HP, legacy=LEGACY_MASTERY_POINTS)).single()
+    head = await (await tx.run(
+        _Q_PLAYER, pid=player_id, max_hp=MAX_HP, legacy=LEGACY_MASTERY_POINTS,
+        alive=CharacterStatus.ALIVE.value, hostile=Attitude.HOSTILE.value,
+    )).single()
     if head is None:
         raise ProjectionError(f"图谱中没有 {player_id} 的覆盖层")
     loc = head["location"]
     subdued = set(head["subdued"])
 
     characters = []
-    async for r in await tx.run(_Q_CHARACTERS, loc=loc["id"], pid=player_id, alive=CharacterStatus.ALIVE.value):
+    async for r in await tx.run(
+        _Q_CHARACTERS, loc=loc["id"], pid=player_id, alive=CharacterStatus.ALIVE.value, opening=Era.OPENING.value
+    ):
         c = r["c"]
         characters.append(CharacterView(
             id=c["id"], name=c["name"], titles=tuple(c["titles"] or ()), aliases=tuple(c["aliases"] or ()),
@@ -345,16 +391,21 @@ async def _snapshot_tx(tx: _Tx, player_id: str) -> LocalSnapshot:
             tier=c["tier"], disposition=c["disposition"], description=c["description"] or "",
             subdued=c["id"] in subdued, attitude=r["attitude"] or Attitude.NEUTRAL,
             skill_ids=r["skills"], bonds=[BondView(**b) for b in r["bonds"]],
+            persona=PersonaView.model_validate_json(c["persona"]) if c["persona"] else None,
         ))
+    present = [c.id for c in characters]
 
     items = [
         ItemView(
             id=r["item"]["id"], name=r["item"]["name"], aliases=tuple(r["item"]["aliases"] or ()),
             kind=r["item"]["kind"] or "", description=r["item"]["description"] or "",
             holder_id=r["holder_id"], owner_id=r["owner_id"],
+            portable=r["item"]["portable"] is not False, hazard=r["item"]["hazard"],
+            use=ItemUse.model_validate_json(r["item"]["use"]) if r["item"]["use"] else None,
         )
-        async for r in await tx.run(_Q_ITEMS, loc=loc["id"], pid=player_id, chars=[c.id for c in characters])
+        async for r in await tx.run(_Q_ITEMS, loc=loc["id"], pid=player_id, chars=present)
     ]
+    facts = [FactView(**r.data()) async for r in await tx.run(_Q_FACTS, chars=present)]
 
     inventory = [i.id for i in items if i.holder_id == player_id]
     practice = {row["id"]: int(row["points"] or 0) for row in head["practice"]}
@@ -383,5 +434,6 @@ async def _snapshot_tx(tx: _Tx, player_id: str) -> LocalSnapshot:
         player_practice=practice,
         player_aptitude=float(head["aptitude"]),
         player_hp=int(head["hp"]),
+        facts=facts,
     )
     return snapshot.model_copy(update={"labels": await _labels_tx(tx, sorted(snapshot.referenced_ids()))})
