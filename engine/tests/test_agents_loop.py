@@ -350,6 +350,7 @@ async def test_an_npc_with_an_agenda_walks_up_and_the_meeting_is_judged(settings
 
         _, _, events, spent = await say(container, llm, pid)  # 驻足中：不走、不再撞；眼前挂着他的戒心，文本回合请地下城主一次
         assert spent == 3 and not any(isinstance(e, NpcMoved | EncounterBegan) for e in events)
+        assert "来意：去大理城寻辛双清" in llm.calls[-2][1]  # 地下城主的简报：来意过 veil，身在大理城即照名写
     finally:
         await container.aclose()
 

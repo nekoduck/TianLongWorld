@@ -3,7 +3,7 @@
          依赖 application/ports 的 LLMClient
 [OUTPUT]: 对外提供 build_llm(settings, role, budget) —— 按 LLM_PROVIDER 与该职责的（模型, 思考档位）装配 LLMClient，给了保险丝就套上；
           mock 返回 None（由组合根换上离线实现）
-[POS]: llm 包的唯一装配点，四种职责各取各的（模型, 思考档位）：container.py 装配意图 / 叙事 / 地下城主三种在线职责，seed.py 只在 --use-llm 时装配离线的抽取职责；
+[POS]: llm 包的唯一装配点，五种职责各取各的（模型, 思考档位）：container.py 装配意图 / 叙事 / 地下城主 / 议程四种在线职责，seed.py 只在 --use-llm 时装配离线的抽取职责；
        同一进程的各职责共用一份 CallBudget（LLM_CALL_LIMIT），配置缺失在启动期就失败，而非等到第一位玩家出招
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """

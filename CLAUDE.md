@@ -5,7 +5,7 @@ TLBB-Engine（engine/）：Python 3.12+ + FastAPI WebSocket + Pydantic v2 + Post
 <directory>
 backend/ - FastAPI 服务：前后端协议、内存会话、记忆仓储（GraphRAG 接口地基）、导演管线（RAG 上下文注入）、大模型适配 (3子目录: app/director 导演管线, app/llm 大模型适配, tests 用例)
 frontend/ - React SPA：三段式沉浸 UI、打字机叙事、死亡锁死；构建期开关 VITE_ENGINE 在 engine（WebSocket 流式，默认入口）与旧 backend（HTTP，dev:backend）之间切换 (3子目录: src/api 后端门面与 engine 套接字, src/hooks 状态机与打字机, src/components 视图)
-engine/ - TLBB-Engine 下一代后端：DDD + CQRS + 事件溯源 + Graph RAG，原著播种（T=0 锚点 + 图谱自愈 + T=0 审计与掌故）、事件流折叠（渐进式状态）、图谱裁决 + 语义物理引擎（地下城主推演 → 领域闸门：量级、叙事时钟、等价交换；点选凭气运）、世界心跳（命令耗时、过去式进图谱、消息扩散、黎明生态、局部认知）、「招」菜单、流式叙事 (4子目录: app/domain 本体·掌故·渐进式状态·三路赌注·叙事时钟·物理闸门·命令耗时·世界心跳（活动 / 痕迹 / 消息 / 人群）·事件·聚合·裁决·端口, app/application 总线·解析·一席裁决（地下城主·气运·简报）·世界时钟·选项（招）·叙事·状态栏·编排, app/infrastructure 播种管道·图谱自愈·审计与掌故闸门·持久化·大模型, app/presentation WebSocket；另有 data/source_text 原著, tests 用例)
+engine/ - TLBB-Engine 下一代后端：DDD + CQRS + 事件溯源 + Graph RAG，原著播种（T=0 锚点 + 图谱自愈 + T=0 审计、掌故与地理注记）、事件流折叠（渐进式状态）、图谱裁决 + 语义物理引擎（地下城主推演 → 领域闸门：量级、叙事时钟、等价交换；点选凭气运）、世界心跳（命令耗时、过去式进图谱、消息扩散、黎明生态、局部认知）、空间属性图与探索迷雾（出路带方位 / 交通方式 / 耗时，未知去处只露「未知区域」，方位导航单独下发，问路解开迷雾）、分层 NPC 生态（议程大模型立议程、寻路行军不调大模型、撞见与狭路相逢交判官）、「招」菜单与意图风味封装（叙事同一次调用从可供性目录挑招配风味）、流式叙事 (4子目录: app/domain 本体·掌故·空间属性图与迷雾·渐进式状态·三路赌注·叙事时钟·物理闸门·命令耗时·世界心跳（活动 / 痕迹 / 消息 / 人群）·H-Agent（议程·行军·相撞裁决）·事件·聚合·裁决·端口, app/application 总线·解析·一席裁决（地下城主·气运·简报）·世界时钟·NPC 议程与判官·选项（招·风味闸门）·方位导航·叙事·状态栏·编排, app/infrastructure 播种管道·图谱自愈·审计、掌故与地理闸门·持久化·大模型, app/presentation WebSocket；另有 data/source_text 原著, tests 用例)
 </directory>
 
 <config>
@@ -14,7 +14,7 @@ backend/.env.example - 大模型、会话与上下文配置模板（HISTORY_TURN
 frontend/package.json - 前端依赖与脚本（dev 连 engine，默认 / dev:engine 同义 / dev:backend 连旧 backend / dev:mock 脱离后端 / build 构建 engine 版 / build:backend）
 frontend/vite.config.ts - Vite 插件与开发代理：/api → backend :8000，/ws → engine :8001（ws: true）
 engine/requirements.txt - 引擎运行依赖（fastapi / uvicorn / pydantic-settings / httpx2 / asyncpg / neo4j / qdrant-client）
-engine/.env.example - 引擎配置模板：大模型四选一且意图 / 叙事 / 地下城主 / 抽取四职责各配模型与思考档位（附推荐的 Gemini 组合）、LLM_CALL_LIMIT 调用次数保险丝、FORTUNE_ON_CLICK 点选回合的气运开关、EVENT_STORE / GRAPH_BACKEND / QDRANT_URL 各自 memory 或生产实现、MEMORY_RECALL_K 1~10、播种参数；默认全内存 + mock 零依赖可跑
+engine/.env.example - 引擎配置模板：大模型四选一且意图 / 叙事 / 地下城主 / 抽取 / 议程五职责各配模型与思考档位（附推荐的 Gemini 组合）、LLM_CALL_LIMIT 调用次数保险丝、FORTUNE_ON_CLICK 点选回合的气运开关、NPC_AGENDA 宏观议程开关与 LLM_AGENDA_BUDGET、EVENT_STORE / GRAPH_BACKEND / QDRANT_URL 各自 memory 或生产实现、MEMORY_RECALL_K 1~10、播种参数；默认全内存 + mock 零依赖可跑
 engine/docker-compose.yml - 引擎三件套后端 postgres:16 + neo4j:5.26 + qdrant
 </config>
 
@@ -71,21 +71,23 @@ engine/docker-compose.yml - 引擎三件套后端 postgres:16 + neo4j:5.26 + qdr
 TLBB-Engine 一回合（engine/app/application/handlers.py）：
   WebSocket 帧 → CommandBus → TurnPipeline
     命令侧（玩家锁内串行）：重放 PostgreSQL 事件流（decode_event 上抛旧账）→ Player 聚合（evolve 纯函数折叠，熟练度与气血只做加法，无状态表）→ 投影检查点自愈
-      → Neo4j 局部真理快照 → [Parse] 自由文本经 WorldviewGuard + 意图解析器（选项点选按快照重算核验，不经大模型）
-      → [Validate] domain/rules 纯函数裁决（物理看快照、逻辑看聚合与火候，驳回落为 ActionFailed；出手 / 交涉 / 暗中由 combat / social / covert 圈出可裁区间，经 stakes 统一门面；rules.envelope 把它换算成物理边界 Envelope，结果已定之事为 FIXED；rules.command 按裁决结果查表定下这一招花几刻 time_cost）
+      → Neo4j 局部真理快照 → [Parse] 自由文本经 WorldviewGuard + 意图解析器（选项与导航的点选按快照重算 affordances ∪ navigation 核验、取回 underlying_command，不经大模型）
+      → [Validate] domain/rules 纯函数裁决（物理看快照、逻辑看聚合与火候，驳回落为 ActionFailed；出手 / 交涉 / 暗中由 combat / social / covert 圈出可裁区间，经 stakes 统一门面；rules.envelope 把它换算成物理边界 Envelope，结果已定之事为 FIXED；rules.command 按裁决结果查表定下这一招花几刻 time_cost，移动取所走那条出路的耗时）
       → [Resolve] 一席裁决（语义物理引擎）：自由文本在胜负未定或此景挂着时钟时请地下城主——大模型按 属性碰撞 → 量级（爆炸 / 暗流）→ 代价 → 时钟与收敛 推演出 ResolutionOutput（deltas / clock_mutations / new_facts / action_trigger）；点选只在胜负未定时由气运（FortuneResolver，种子 = 玩家 | 对象 | 尝试次数）确定性地取值
       → [Event] 领域闸门 resolution.settle：由属性变化推出结局（出界整份作废取确定性裁决）、钳位、按等价交换补足代价、时钟满格坍缩为硬结算，再经 settle_any 落成路线事件
-      → 世界时钟 WorldClock.advance：余波（交手的往事与痕迹、人群受惊溃散、公开之事成一枚只有此地知道的消息）→ TimePassed(time_cost，驳回也花一刻) → 消息沿 CONNECTS_TO 扩散 → 黎明生态（风化、顺手牵羊），死者无心跳；
+      → 世界时钟 WorldClock.advance：余波（交手的往事与痕迹、人群受惊溃散、公开之事成一枚只有此地知道的消息）→ TimePassed(time_cost，驳回也花一刻) → 消息沿 CONNECTS_TO 扩散 → 黎明生态（风化、顺手牵羊）→ 微观行军（带议程的 NPC 沿最省时之路一刻一刻推进，走进玩家所在即撞见、走到开篇仇人所在即狭路相逢，中断并停步），死者无心跳；
         定案与心跳同批乐观并发追加（时钟四事件 / FactEmerged / RenownChanged / 心跳七事件一并入账）→ 同步投影 Neo4j 覆盖层
-    查询侧（无锁）：新快照 → Qdrant 两路召回（原话一路、焦点与在场者一路）→ turn_resolved（事实白描，含时钟四事件 / 微观事实 / 名望，空串不出声）→ [Options] 「招」菜单 3~4 席（五类候选源，带 why 与风险档，同一对象至多两席）
-      → [Render] Hard Prompt 流式叙事（菜单先算好，「标签（why）」作端倪进 <hooks>；<clocks> 与 <emerged> 进真理快照，时钟只作暗流；<time> / <crowds> / <activities> / <traces> / <rumors> 只给此地的切片，跨进新地方那一回合带 <short_term_memory>）∥ 记忆写入 → turn_completed（状态栏带人情 bonds、心事 pursuits、名望 renown、时辰 time 与至多 4 只眼前的时钟 clocks）
+      → H-Agent（application/npc_agent）：中断非空即请判官裁决（撞见在结果已定的物理边界里推演、过 resolution.settle；狭路相逢在可裁区间里挑结局、可致带伤败退；每回合至多一场请判官，其余确定性）
+        → 规划时机（初临江湖 / 新的一日 / 江湖震动）才请议程大模型为核心 NPC 立议程、过 npc.admit → 第二批追加与投影
+    查询侧（无锁）：新快照 → Qdrant 两路召回（原话一路、焦点与在场者一路）→ turn_resolved（事实白描，含时钟四事件 / 微观事实 / 名望，空串不出声）→ [Options] 先算好三份：可供性目录（≤12 招，按战术轴激化 / 诡道 / 化解 / 旁观轮转，编号 m1…）、退路菜单（3~4 席「招」，四类候选源，带 why 与风险档，同一对象至多两席）、方位导航
+      → [Render] Hard Prompt 流式叙事，同一次调用正文之后交 <menu> 挑 3~4 招配风味（目录进 <affordances>，正文只给挑中的招铺垫端倪；<exits> 写「方位｜去处｜交通方式｜路程」、未知去处只写「未知区域」；在场者附来意；<clocks> 与 <emerged> 进真理快照，时钟只作暗流；<time> / <crowds> / <activities> / <traces> / <rumors> 只给此地的切片，跨进新地方那一回合带 <short_term_memory>）∥ 记忆写入 → options.compose 过闸（风味不合格退回朴素标签、不足由退路补）→ turn_completed（options 带 flavor_text 与 tactical_axis、navigation 方位导航；状态栏带人情 bonds、心事 pursuits、名望 renown、时辰 time 与至多 4 只眼前的时钟 clocks）
 
 关键决策：
 - 世界播种：原著 TXT → 语料清洗（去水印、去序跋）→ 大模型逐块抽取名称级记录（时间锚点 T=0：开篇之后的变化只进 events，描述防抄）
   → 组装器确定性定案（泛称与描述不成实体、正名互见才合并、本名只在知本名的记录里投票、events 否决被时间线污染的开篇状态、
   落不了地即丢弃、门径落不了地即封存、被武学引用却无处安放的物品留作孤儿）→ 图谱自愈（据原著常识安放孤儿，provenance=推断，过闸门、可审阅）
-  → T=0 审计（关系结于何时 era、描述拆出后文剧情、物性、后来才到场）→ 掌故（外显人设、可打探的见闻与无名人群）→ WorldBlueprint（图谱正典）→ 参数化 Cypher；引擎不凭空捏造地点人物武功，推断永远与原著分得清。
-  当前入库：前 40 块（第一回至第九回）的 v6 蓝图、逐块抽取记录与自愈 / 审计 / 掌故缓存（engine/data/world/）；抽取器、自愈者、审计者与撰写者可换、契约不变——
+  → T=0 审计（关系结于何时 era、描述拆出后文剧情、物性、后来才到场）→ 掌故（外显人设、可打探的见闻与无名人群）→ 地理注记（出路的方位、交通方式、耗时，地标与名胜；没注记的由出口标签与处所名推出）→ WorldBlueprint（图谱正典）→ 参数化 Cypher；引擎不凭空捏造地点人物武功，推断永远与原著分得清。
+  当前入库：前 40 块（第一回至第九回）的 v6 蓝图、逐块抽取记录与自愈 / 审计 / 掌故 / 地理缓存（engine/data/world/；地理 248 条道路注记、19 条可见性注记）；抽取器、自愈者、审计者与撰写者可换、契约不变——
   export / ingest 让大模型之外的作答者（子代理、人工）经同一道闸门入缓存
 - 语义本体：人物以本名 true_name 为主键（称号 titles、别名 aliases 只作指称）；武学分获取要求（门径）与修炼要求（根基）两道门
 - 渐进式状态：武学等级 = Σ SkillPracticed 熟练度 × 悟性系数 → 火候（火候不到境界打折）；气血 = Σ HealthChanged（钳位）→ 伤势；拿到秘籍不等于学会
@@ -97,15 +99,22 @@ TLBB-Engine 一回合（engine/app/application/handlers.py）：
 - 等价交换：欠的格数 = 结局好过确定性裁决几格 +（得手类结局时）越出舒适区的 strain；付的格数 = 旁人人情一档一格 + 凶险时钟净添的格数（只算满了还会有后果的：挂在被制住之人身上的敌意时钟不算）+ 名望五点一格 +（暗取）气血十点一格；
   不够的由领域补成对象身上一只凶险时钟（旧恨 / 戒心 / 疑心），补满即坍缩，挂不上或对象已被制住折名望——规则与气运好过确定性裁决同样要付
 - 菜单跟着剧情走：选项是 (状态, 快照) 的纯函数、世界不变则逐字不变；按焦点（近来亲手打过交道的人与物）、仇人、伤势打分，
-  设调养席 / 脱身席（不逃回险地）/ 跟进席，其余按 MMR 取，每项附 ≤12 字的 why；断线重连走 quiet 续接，只回选项与状态、不调大模型；
+  设调养席 / 跟进席，其余按 MMR 取，每项附 ≤12 字的 why；移动不在菜单里，脱身之路是方位导航上的 retreat 标记（不逃回险地）；断线重连走 quiet 续接，只回选项、导航与状态、不调大模型；
   P1 起选项是「招」(动作, 手段)：一人身上按兼容表展开攀谈 / 结交化解 / 打探 / 出手 / 求艺恳请 / 讨要偷取夺物 / 借势，心事未了时给出没试过的手段（换个手段），每项带风险档（稳妥 / 有险 / 凶险，不露结局）
-- 平行世界：一位玩家 = 一条事件流 = 一个聚合；Neo4j 正典只读，每个世界一层可抹去重放的覆盖层（HELD_BY / CONSUMED / LEARNED {world}、叙事时钟 (:Clock)-[:ON]->实体、微观事实 (:Emerged)-[:ABOUT]->实体 等）
-- 世界心跳：时间是第一物理量——每条命令都花时间（一刻 15 分钟：移动 4 / 同一处所内 1 / 修习调息 8 / 其余与驳回 1）；过去式经 Activity / EnvironmentalTrace 持久化于 Neo4j 覆盖层 (:Activity|Trace|Rumor {world})，痕迹随时间消散，人群（正典 :Swarm，掌故入库）受惊溃散、半日后回来，黎明结算露天之物的风化与顺手牵羊（哈希确定）；
+- 意图风味封装：一招 = 引擎可读的标准指令 underlying_command（rules.command 算出，只在服务端）+ 战术维度（激化 / 诡道 / 化解 / 旁观，approach.axis_of 封闭表定，不由措辞定）+ 玩家看见的 flavor_text；
+  叙事大模型只在引擎给定的可供性目录里挑 3~4 招配 ≤20 字风味，options.compose 过闸（无结局字眼、不点场景之外的原著名字，不合格退回朴素标签），点了执行的永远是 underlying_command，指令与意图从不进提示词
+- 空间属性图与探索迷雾：CONNECTS_TO 带方位 / 交通方式 / 耗时（domain/geography.ways：子代理撰写、经 geo 闸门入库的注记优先，否则由出口标签与处所嵌套推出，往返方位永远相反），移动耗时、NPC 寻路与导航同读它；
+  去处的认知（亲历 / 问路 / 远眺 / 名胜 / 未知）是玩家的、不是世界的，未知只露「未知区域」，出口标签与迷雾里的地名不进任何提示词与下发字段；移动从菜单剥离为方位导航（指令只用方位把手），寻常攀谈问此地或去处即问路（PlacesLearned）解开迷雾
+- 分层 NPC 生态（H-Agent）：宏观层议程大模型只在初临江湖 / 新的一日 / 江湖震动时为有执念的核心 NPC 立一轮议程（按执念与传到他所在之处的消息，过 npc.admit），微观层按道路耗时寻路行军、一个大模型也不调，
+  撞见玩家或与开篇仇人狭路相逢才中断交给判官（地下城主职责）在领域闸门里坍缩——撞见只动时钟 / 事实 / 名望，狭路相逢可致带伤一日、议程败退（带伤者交手与被暗取时境界折一档）；失灵一律退回确定性裁决，别处的事只经消息与快照被感知
+- 平行世界：一位玩家 = 一条事件流 = 一个聚合；Neo4j 正典只读，每个世界一层可抹去重放的覆盖层（HELD_BY / CONSUMED / LEARNED / VISITED / HEARD_OF {world}、叙事时钟 (:Clock)-[:ON]->实体、微观事实 (:Emerged)-[:ABOUT]->实体、NPC 此世所在 (:Character)-[:AT {world}]、带伤 WOUNDED {world, until} 等）
+- 世界心跳：时间是第一物理量——每条命令都花时间（一刻 15 分钟：移动取所走那条出路的耗时（道路注记，没注记时换处所 4 / 同一处所内 1，远行至多七日）/ 修习调息 8 / 其余与驳回 1）；过去式经 Activity / EnvironmentalTrace 持久化于 Neo4j 覆盖层 (:Activity|Trace|Rumor {world})，痕迹随时间消散，人群（正典 :Swarm，掌故入库）受惊溃散、半日后回来，黎明结算露天之物的风化与顺手牵羊（哈希确定）；
   FactToken 沿 CONNECTS_TO 一刻一两处地物理传播，在场之人只知传到此地的消息、亲眼所见与自己的 T=0 见闻，全局事件流从不进提示词；MOVE 的此行所为随 Moved 入账，跨进新地方那一回合的短期记忆与眼前所见对照写出预期落差
-- 大模型四职责皆无状态且无写端口：抽取原著（含自愈推断）、解析意图、地下城主推演（只在自由文本回合，简报只用 T=0 事实，foreshadow 与未知见闻永不进；微观事实点了原著名录里却不在此景的名字即丢）、渲染文本；推演必经领域闸门，入账的只有闸门放行的属性、时钟、≤3 条不带状态字眼的微观事实，叙事散文不入事件与记忆；
-  一回合至多三次调用（意图 + 地下城主 + 叙事；地下城主不合契约时的一次重采样是唯一例外），点选回合只有叙事，结果已定的文本回合只在眼前挂着时钟时请地下城主；<hooks> 只许露成端倪，不许写成结果
-- 花钱的边界：原著抽取、图谱自愈、T=0 审计与掌故由 Claude 子代理经 export / ingest 担任，绝不调用付费大模型（抽取与自愈须显式 --use-llm 才装配、审计与掌故根本没有这条路，2026-10 曾两次跑空 Gemini 预付额度）；
-  付费大模型只服务运行期三职责，各职责共用每进程的调用次数保险丝 LLM_CALL_LIMIT，熔断即走各自的退路
+- 大模型五职责皆无状态且无写端口：抽取原著（含自愈推断）、解析意图、地下城主推演（只在自由文本回合，简报只用 T=0 事实，foreshadow 与未知见闻永不进；微观事实点了原著名录里却不在此景的名字即丢；撞见与狭路相逢的判官也是它）、宏观议程（只在规划时机，过 npc.admit）、渲染文本（连同挑招配风味）；推演必经领域闸门，入账的只有闸门放行的属性、时钟、≤3 条不带状态字眼的微观事实，叙事散文不入事件与记忆；
+  一回合的调用：意图 + 地下城主 +（撞见 / 狭路相逢的判官，每回合至多一场）+（议程，只在初临江湖 / 新的一日 / 江湖震动时一次）+ 叙事（菜单与正文同一次调用交出）——寻常回合仍至多三次，地下城主与判官不合契约各可重采样一次；
+  点选回合不调意图与地下城主，结果已定的文本回合只在眼前挂着时钟时请地下城主；正文只许给挑中的招露成端倪，不许写成结果
+- 花钱的边界：原著抽取、图谱自愈、T=0 审计、掌故与地理注记由 Claude 子代理经 export / ingest 担任，绝不调用付费大模型（抽取与自愈须显式 --use-llm 才装配、审计、掌故与地理根本没有这条路，2026-10 曾两次跑空 Gemini 预付额度）；
+  付费大模型只服务运行期四职责（意图 / 地下城主（含判官）/ 议程 / 叙事），各职责共用每进程的调用次数保险丝 LLM_CALL_LIMIT，熔断即走各自的退路
 - 每个端口都有内存实现，与生产实现共跑契约测试；内存图谱复用领域 evolve，与 Neo4j 快照逐字段相等
 </engine_architecture>
 

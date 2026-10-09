@@ -29,7 +29,7 @@
                        [Render] 叙事流式渲染 ∥ 记忆写入：叙事流里的 str 是正文（NarrationDelta），MenuPicks 是说书人在同一次调用里交出的挑选（留着）→
                        options.compose 过闸（key 在目录里、风味文案合格才换上 flavor_text，不足由退路补，一招都没挑中即原样下发退路）→
                        记进最近菜单 → 推送终帧 TurnCompleted(options=过闸的 3~4 席, navigation=导航)。
-       在场者的来意：离了家、带着议程的核心 NPC 的意图经 NarrationRequest.errands（本名 → 意图，过 veil：叫不出名的地方抹成「别处」）交给说书人，只作神色举止的端倪。
+       在场者的来意：离了家、带着议程的核心 NPC 的意图经 NarrationRequest.errands（本名 → 意图，过 veil：叫不出名的地方抹成「别处」）交给说书人，只作神色举止的端倪；交给地下城主的玩家状态同样先过 veil（_veiled），定案仍按原状态。
        局部认知：白描（turn_resolved.facts、<settled_facts>）与记忆只收玩家眼前的那一面——别处狭路相逢冒出的微观事实（FactEmerged 的主体
        不在出招前后的两张快照里）不宣告，它挂在人与地上，等玩家走到那里由快照的 <emerged> 照出来；其余别处之事由 describe 自己不出声。
        大模型在命令侧解析意图、在物理边界里推演、裁决撞见与狭路相逢、立议程，在查询侧只渲染（连同挑招配风味）；领域的定案隔在中间——
@@ -58,6 +58,7 @@ import weakref
 import zlib
 from collections import OrderedDict
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from dataclasses import replace
 from functools import reduce
 from uuid import uuid4
 
@@ -251,7 +252,7 @@ class TurnPipeline:
             command = rules.command(intent, player.state, before)  # 这一招花几刻：驳回一刻，移动取那条出路的耗时
             env = rules.envelope(intent, player.state, before)  # [Validate] 获准之举的物理边界（三路赌注或结果已定），驳回为 None
             # [Resolve] 一席裁决：文本在胜负未定或挂着时钟时请地下城主推演、点选在胜负未定时交给气运，其余谁也不请；它们只提议，失灵即空提议
-            resolution = await self._slot.resolve(env, before, player.state, intent, said, clicked=clicked)
+            resolution = await self._slot.resolve(env, before, self._veiled(player.state, before), intent, said, clicked=clicked)
             decided = player.decide(intent, before, resolution.proposal if resolution else None)  # 领域过闸定案
             # 世界心跳：余波 → 时间 → 扩散 → 生态 → 行军，与定案一并原子追加——静观、沉思也花时间；死者没有心跳
             events = [*decided, *self._clock.advance(command, before, player.state, decided)]
@@ -355,6 +356,15 @@ class TurnPipeline:
     def _menus_of(self, state: PlayerState, snap: LocalSnapshot) -> Menus:
         """可供性目录（交给说书人）、退路菜单（compose 补位）与方位导航：一回合只算这一次。"""
         return self.options.catalogue(state, snap), self.options.generate(state, snap), navigation(state, snap)
+
+    def _veiled(self, state: PlayerState, snap: LocalSnapshot) -> PlayerState:
+        """地下城主眼里的玩家状态：议程意图过 veil——简报里在场者的来意与说书人隔着同一层迷雾，定案仍按原状态。"""
+        if not state.agendas:
+            return state
+        return replace(state, agendas={
+            npc: agenda.model_copy(update={"intent": veil(agenda.intent, state, snap, self._atlas)})
+            for npc, agenda in state.agendas.items()
+        })
 
     def _errands(self, state: PlayerState, snap: LocalSnapshot) -> dict[str, str]:
         """
