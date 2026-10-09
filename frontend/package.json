@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "dev:mock": "vite --mode mock",
+    "dev:engine": "vite --mode engine",
     "build": "tsc && vite build",
     "typecheck": "tsc",
     "preview": "vite preview"

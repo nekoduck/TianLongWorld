@@ -2,4 +2,6 @@
 interface ImportMetaEnv {
   readonly VITE_USE_MOCK?: string
   readonly VITE_API_BASE?: string
+  /** 'true' 时连 TLBB-Engine（WebSocket /ws/play），否则连 backend（HTTP /api） */
+  readonly VITE_ENGINE?: string
 }

@@ -1,18 +1,34 @@
 /**
- * [INPUT]: 依赖 react 的 useReducer / useRef / useCallback，依赖 api/client.ts 的 api 与 ApiError，依赖 types.ts 的 GameState 等协议类型
- * [OUTPUT]: 对外提供 useGame() -> { ...GameView, start, act }、Phase 类型
- * [POS]: hooks 的游戏状态机，前端唯一的状态源；App 读取它的快照，组件通过 start / act 发出意图
+ * [INPUT]: 依赖 react 的 useReducer / useRef / useCallback / useMemo，依赖 api/client.ts 的 api 与 ApiError，依赖 types.ts 的 GameState 等协议类型，
+ *          依赖 view.ts 的 Phase / Choice / Tone
+ * [OUTPUT]: 对外提供 useGame() -> { ...GameView, facts, choices, start, act }（满足 view.GameFacade）、Phase 类型（转出）
+ * [POS]: hooks 的 backend 游戏状态机，缺省模式下前端唯一的状态源；App 读取它的快照，组件通过 start / act 发出意图。
+ *        A/B/C 选项在此映射为通用抉择（观 / 探 / 险），value 即选项原文，act('choice', 原文) 与旧版逐字相同
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
-import { useCallback, useReducer, useRef } from 'react'
+import { useCallback, useMemo, useReducer, useRef } from 'react'
 
 import { api, ApiError } from '../api/client'
-import type { ActionType, GameState, InteractResponse, Options } from '../types'
+import type { ActionType, GameState, InteractResponse, OptionKey, Options } from '../types'
+import type { Choice, Phase, Tone } from '../view'
+
+export type { Phase }
 
 // ============================================================
-//  状态机：idle（未入世）→ loading → playing ⇄ loading → dead
+//  状态机：idle（未入世）→ loading → playing ⇄ loading → dead（backend 不经 streaming）
 // ============================================================
-export type Phase = 'idle' | 'loading' | 'playing' | 'dead'
+
+// 三档风险：观（灰）→ 探（金）→ 险（血）
+const TIERS: { key: OptionKey; hint: string; tone: Tone }[] = [
+  { key: 'A', hint: '观', tone: 'calm' },
+  { key: 'B', hint: '探', tone: 'probe' },
+  { key: 'C', hint: '险', tone: 'risk' },
+]
+
+const choicesOf = (options: Options | null): Choice[] | null =>
+  options && TIERS.map(({ key, hint, tone }) => ({ key, label: options[key], hint, tone, value: options[key] }))
+
+const NO_FACTS: readonly string[] = []
 
 interface GameView {
   phase: Phase
@@ -126,5 +142,7 @@ export function useGame() {
     [flight, phase, sessionId, current],
   )
 
-  return { ...state, start, act }
+  const choices = useMemo(() => choicesOf(state.options), [state.options])
+
+  return { ...state, facts: NO_FACTS, choices, start, act }
 }

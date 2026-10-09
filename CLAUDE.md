@@ -4,15 +4,15 @@ TLBB-Engine（engine/）：Python 3.12+ + FastAPI WebSocket + Pydantic v2 + Post
 
 <directory>
 backend/ - FastAPI 服务：前后端协议、内存会话、记忆仓储（GraphRAG 接口地基）、导演管线（RAG 上下文注入）、大模型适配 (3子目录: app/director 导演管线, app/llm 大模型适配, tests 用例)
-frontend/ - React SPA：三段式沉浸 UI、打字机叙事、死亡锁死 (3子目录: src/api 后端门面, src/hooks 状态机与打字机, src/components 视图)
+frontend/ - React SPA：三段式沉浸 UI、打字机叙事、死亡锁死；构建期开关 VITE_ENGINE 在 backend（HTTP）与 engine（WebSocket 流式，dev:engine）之间切换 (3子目录: src/api 后端门面与 engine 套接字, src/hooks 状态机与打字机, src/components 视图)
 engine/ - TLBB-Engine 下一代后端：DDD + CQRS + 事件溯源 + Graph RAG，原著播种（T=0 锚点 + 图谱自愈）、事件流折叠（渐进式状态）、图谱裁决 + 地下城主模糊裁决、流式叙事 (4子目录: app/domain 本体·渐进式状态·战斗护栏·事件·聚合·裁决·端口, app/application 总线·解析·地下城主·选项·叙事·编排, app/infrastructure 播种管道·图谱自愈·持久化·大模型, app/presentation WebSocket；另有 data/source_text 原著, tests 用例)
 </directory>
 
 <config>
 backend/requirements.txt - 运行依赖（fastapi / uvicorn / pydantic-settings / httpx2）
 backend/.env.example - 大模型、会话与上下文配置模板（HISTORY_TURNS 滑动窗口 3~5、GRAPH_LIMIT 关系网行数 1~30、SEMANTIC_TOP_K 语义检索条数 1~10），复制为 backend/.env 生效（.env 存放密钥，永不入库）；默认 mock 零密钥可跑，推荐 gemini
-frontend/package.json - 前端依赖与脚本（dev / dev:mock / build）
-frontend/vite.config.ts - Vite 插件与 /api → :8000 开发代理
+frontend/package.json - 前端依赖与脚本（dev 连 backend / dev:mock 脱离后端 / dev:engine 连 engine / build）
+frontend/vite.config.ts - Vite 插件与开发代理：/api → backend :8000，/ws → engine :8001（ws: true）
 engine/requirements.txt - 引擎运行依赖（fastapi / uvicorn / pydantic-settings / httpx2 / asyncpg / neo4j / qdrant-client）
 engine/.env.example - 引擎配置模板：大模型四选一且意图 / 叙事 / 地下城主 / 抽取四职责各配模型与思考档位（附推荐的 Gemini 组合）、LLM_CALL_LIMIT 调用次数保险丝、EVENT_STORE / GRAPH_BACKEND / QDRANT_URL 各自 memory 或生产实现、MEMORY_RECALL_K 1~10、播种参数；默认全内存 + mock 零依赖可跑
 engine/docker-compose.yml - 引擎三件套后端 postgres:16 + neo4j:5.26 + qdrant
@@ -64,7 +64,7 @@ engine/docker-compose.yml - 引擎三件套后端 postgres:16 + neo4j:5.26 + qdr
   User Message = 玩家状态 + 私密情报（至多 16 条 × 60 字）+ 局部环境 + 滑动窗口（3~5 回合）——每一项都有上限，长度与游戏进度、台账长度无关
 - 局部环境：同一地图（新地点包含原地点全称）只认到场 / 离场增减；切换地图强制清空旧在场者；在场者经 lore.kin 按身份认人；
   满员时绝顶高手优先留下；开局种子点名的高手按开局地点登记，规则层的生死判定不依赖大模型记得写出他们
-- 协议单一来源：backend/app/schemas.py 定义形状，frontend/src/types.ts 逐字段镜像
+- 协议单一来源：backend/app/schemas.py 定义形状，frontend/src/types.ts 逐字段镜像；engine 的线协议由 engine/app/presentation/protocol.py 定义，frontend/src/engineTypes.ts 逐字段镜像
 </architecture>
 
 <engine_architecture>
@@ -74,7 +74,7 @@ TLBB-Engine 一回合（engine/app/application/handlers.py）：
       → Neo4j 局部真理快照 → [Parse] 自由文本经 WorldviewGuard + 意图解析器（选项点选按快照重算核验，不经大模型）
       → [Validate] domain/rules 纯函数裁决（物理看快照、逻辑看聚合与火候，驳回落为 ActionFailed；出手由 combat 圈出可裁区间）
       → [Resolve] 胜负未定才请地下城主（ResolutionAgent）在区间里提议 → [Event] 领域 settle 钳位定案、乐观并发追加 → 同步投影 Neo4j 覆盖层
-    查询侧（无锁并行）：新快照 ∥ Qdrant 召回 → turn_resolved（事实白描）→ [Options] 合法边 3~4 个选项 ∥ [Render] Hard Prompt 流式叙事 ∥ 记忆写入 → turn_completed
+    查询侧（无锁并行）：新快照 → Qdrant 两路召回（原话一路、焦点与在场者一路）→ turn_resolved（事实白描）→ [Options] 显著性菜单 3~4 席（带 why）∥ [Render] Hard Prompt 流式叙事 ∥ 记忆写入 → turn_completed
 
 关键决策：
 - 世界播种：原著 TXT → 语料清洗（去水印、去序跋）→ 大模型逐块抽取名称级记录（时间锚点 T=0：开篇之后的变化只进 events，描述防抄）
@@ -86,7 +86,9 @@ TLBB-Engine 一回合（engine/app/application/handlers.py）：
 - 语义本体：人物以本名 true_name 为主键（称号 titles、别名 aliases 只作指称）；武学分获取要求（门径）与修炼要求（根基）两道门
 - 渐进式状态：武学等级 = Σ SkillPracticed 熟练度 × 悟性系数 → 火候（火候不到境界打折）；气血 = Σ HealthChanged（钳位）→ 伤势；拿到秘籍不等于学会
 - 逻辑死线 + 模糊裁决：境界是有序等级；出手不再一锤定生死——境界差 × 性情 × 伤势圈出可裁区间，地下城主在区间里挑结局与扣减，
-  越级取胜与非极端找死的毙命不在区间里；好感只来自物归原主与敌人之敌，武功只来自肯教之人或原著典籍且两道门逐条核验，兵器不改境界
+  越级取胜与非极端找死的毙命不在区间里；好感只来自物归原主（「敌人之敌」暂停：开篇关系里混着后文才结下的仇，P1 按关系的时代 era 恢复），武功只来自肯教之人或原著典籍且两道门逐条核验，兵器不改境界
+- 菜单跟着剧情走：选项是 (状态, 快照) 的纯函数、世界不变则逐字不变；按焦点（近来亲手打过交道的人与物）、仇人、伤势打分，
+  设调养席 / 脱身席（不逃回险地）/ 跟进席，其余按 MMR 取，每项附 ≤12 字的 why；断线重连走 quiet 续接，只回选项与状态、不调大模型
 - 平行世界：一位玩家 = 一条事件流 = 一个聚合；Neo4j 正典只读，每个世界一层可抹去重放的覆盖层（HELD_BY {world} 等）
 - 大模型四职责皆无状态且无写端口：抽取原著（含自愈推断）、解析意图、地下城主提议、渲染文本；提议必经领域闸门，散文（速写、叙事）不入事件与记忆
 - 花钱的边界：原著抽取与图谱自愈由 Claude 子代理经 export / ingest 担任，绝不调用付费大模型（seed 须显式 --use-llm 才装配，2026-10 曾两次跑空 Gemini 预付额度）；
