@@ -44,7 +44,7 @@ class NarrationRequest:
     hint: str = ""  # 地下城主对这一招过程的速写：只在其结局被领域采纳时才有，与 facts 一致
     fled: LocalSnapshot | None = None  # 本回合夺路逃离之处（交手的现场）：快照已是逃抵之地，仇人只在这里
     causes: Mapping[str, str] = field(default_factory=dict)  # 在场者本名 → 对你态度的由来（PlayerState.attitude_causes）
-    hooks: tuple[str, ...] = ()  # 本回合菜单的端倪「标签（why）」：只许露在场面里，不是结果（集成时由 hooks(options) 先算好）
+    hooks: tuple[str, ...] = ()  # 本回合菜单的端倪「标签（why）」：只许露在场面里，不是结果（handlers 先算菜单、经 hooks(options) 填好）
 
 
 class _Offered(Protocol):  # ActionOption 的结构子集：叙事不必认识选项包

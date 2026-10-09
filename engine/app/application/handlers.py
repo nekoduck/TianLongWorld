@@ -34,6 +34,8 @@ import zlib
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from uuid import uuid4
 
+from app.application import status
+from app.application.adjudication import AdjudicationSlot, adopted_sketch
 from app.application.bus import (
     ChooseOption,
     CommandBus,
@@ -48,8 +50,6 @@ from app.application.bus import (
     TurnMessage,
     TurnResolved,
 )
-from app.application import status
-from app.application.adjudication import AdjudicationSlot, adopted_sketch
 from app.application.chronicle import describe, known_arts
 from app.application.intent_parser import IntentParser
 from app.application.narrator import NarrationRequest, Narrator, hooks

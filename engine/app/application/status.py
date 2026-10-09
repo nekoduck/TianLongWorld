@@ -5,7 +5,7 @@
 [OUTPUT]: 对外提供 bonds(state, snap, names)（人情一栏）、pursuits(state, names)（心事一栏）、referenced(state)（两栏需要取名的 id）、
           BONDS_MAX / PURSUITS_MAX
 [POS]: application 的状态栏附栏：把聚合根里的人情与心事线索翻成玩家看得懂的几行字。纯函数，只读状态与名字表，不查图、不经大模型；
-       名字由调用方据 referenced() 向 WorldReader.labels 取来——集成时一回合一次 labels、两次调用，世界不变则逐字不变。
+       名字由 handlers 据 referenced() 向 WorldReader.labels 取来——一回合至多一次 labels、两次调用，世界不变则逐字不变。
        情报隔离：打探线索的标的是见闻（fact:），见闻正文是玩家还不知道的事——这里从不为它取名，标签只写对象「打探 · 左子穆」
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """

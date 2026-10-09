@@ -5,7 +5,7 @@ TLBB-Engine（engine/）：Python 3.12+ + FastAPI WebSocket + Pydantic v2 + Post
 <directory>
 backend/ - FastAPI 服务：前后端协议、内存会话、记忆仓储（GraphRAG 接口地基）、导演管线（RAG 上下文注入）、大模型适配 (3子目录: app/director 导演管线, app/llm 大模型适配, tests 用例)
 frontend/ - React SPA：三段式沉浸 UI、打字机叙事、死亡锁死；构建期开关 VITE_ENGINE 在 engine（WebSocket 流式，默认入口）与旧 backend（HTTP，dev:backend）之间切换 (3子目录: src/api 后端门面与 engine 套接字, src/hooks 状态机与打字机, src/components 视图)
-engine/ - TLBB-Engine 下一代后端：DDD + CQRS + 事件溯源 + Graph RAG，原著播种（T=0 锚点 + 图谱自愈 + T=0 审计与掌故）、事件流折叠（渐进式状态）、图谱裁决 + 地下城主模糊裁决、流式叙事 (4子目录: app/domain 本体·掌故·渐进式状态·三路赌注·事件·聚合·裁决·端口, app/application 总线·解析·地下城主·选项·叙事·编排, app/infrastructure 播种管道·图谱自愈·审计与掌故闸门·持久化·大模型, app/presentation WebSocket；另有 data/source_text 原著, tests 用例)
+engine/ - TLBB-Engine 下一代后端：DDD + CQRS + 事件溯源 + Graph RAG，原著播种（T=0 锚点 + 图谱自愈 + T=0 审计与掌故）、事件流折叠（渐进式状态）、图谱裁决 + 一席模糊裁决（文本请地下城主、点选凭气运）、「招」菜单、流式叙事 (4子目录: app/domain 本体·掌故·渐进式状态·三路赌注·事件·聚合·裁决·端口, app/application 总线·解析·一席裁决（地下城主·气运·简报）·选项（招）·叙事·状态栏·编排, app/infrastructure 播种管道·图谱自愈·审计与掌故闸门·持久化·大模型, app/presentation WebSocket；另有 data/source_text 原著, tests 用例)
 </directory>
 
 <config>
@@ -14,7 +14,7 @@ backend/.env.example - 大模型、会话与上下文配置模板（HISTORY_TURN
 frontend/package.json - 前端依赖与脚本（dev 连 engine，默认 / dev:engine 同义 / dev:backend 连旧 backend / dev:mock 脱离后端 / build 构建 engine 版 / build:backend）
 frontend/vite.config.ts - Vite 插件与开发代理：/api → backend :8000，/ws → engine :8001（ws: true）
 engine/requirements.txt - 引擎运行依赖（fastapi / uvicorn / pydantic-settings / httpx2 / asyncpg / neo4j / qdrant-client）
-engine/.env.example - 引擎配置模板：大模型四选一且意图 / 叙事 / 地下城主 / 抽取四职责各配模型与思考档位（附推荐的 Gemini 组合）、LLM_CALL_LIMIT 调用次数保险丝、EVENT_STORE / GRAPH_BACKEND / QDRANT_URL 各自 memory 或生产实现、MEMORY_RECALL_K 1~10、播种参数；默认全内存 + mock 零依赖可跑
+engine/.env.example - 引擎配置模板：大模型四选一且意图 / 叙事 / 地下城主 / 抽取四职责各配模型与思考档位（附推荐的 Gemini 组合）、LLM_CALL_LIMIT 调用次数保险丝、FORTUNE_ON_CLICK 点选回合的气运开关、EVENT_STORE / GRAPH_BACKEND / QDRANT_URL 各自 memory 或生产实现、MEMORY_RECALL_K 1~10、播种参数；默认全内存 + mock 零依赖可跑
 engine/docker-compose.yml - 引擎三件套后端 postgres:16 + neo4j:5.26 + qdrant
 </config>
 
@@ -73,8 +73,10 @@ TLBB-Engine 一回合（engine/app/application/handlers.py）：
     命令侧（玩家锁内串行）：重放 PostgreSQL 事件流（decode_event 上抛旧账）→ Player 聚合（evolve 纯函数折叠，熟练度与气血只做加法，无状态表）→ 投影检查点自愈
       → Neo4j 局部真理快照 → [Parse] 自由文本经 WorldviewGuard + 意图解析器（选项点选按快照重算核验，不经大模型）
       → [Validate] domain/rules 纯函数裁决（物理看快照、逻辑看聚合与火候，驳回落为 ActionFailed；出手 / 交涉 / 暗中由 combat / social / covert 圈出可裁区间，经 stakes 统一门面）
-      → [Resolve] 胜负未定才请地下城主（ResolutionAgent）在区间里提议 → [Event] 领域 settle 钳位定案、乐观并发追加 → 同步投影 Neo4j 覆盖层
-    查询侧（无锁并行）：新快照 → Qdrant 两路召回（原话一路、焦点与在场者一路）→ turn_resolved（事实白描）→ [Options] 显著性菜单 3~4 席（带 why）∥ [Render] Hard Prompt 流式叙事 ∥ 记忆写入 → turn_completed
+      → [Resolve] 一席裁决：胜负未定时，文本回合请地下城主按路线（战 / 交 / 暗）在区间里提议，点选回合由气运（FortuneResolver，种子 = 玩家 | 对象 | 尝试次数）确定性地取值
+      → [Event] 领域 settle_any 钳位定案、乐观并发追加 → 同步投影 Neo4j 覆盖层
+    查询侧（无锁）：新快照 → Qdrant 两路召回（原话一路、焦点与在场者一路）→ turn_resolved（事实白描，空串不出声）→ [Options] 「招」菜单 3~4 席（五类候选源，带 why 与风险档，同一对象至多两席）
+      → [Render] Hard Prompt 流式叙事（菜单先算好，「标签（why）」作端倪进 <hooks>）∥ 记忆写入 → turn_completed（状态栏带人情 bonds 与心事 pursuits）
 
 关键决策：
 - 世界播种：原著 TXT → 语料清洗（去水印、去序跋）→ 大模型逐块抽取名称级记录（时间锚点 T=0：开篇之后的变化只进 events，描述防抄）
@@ -88,9 +90,11 @@ TLBB-Engine 一回合（engine/app/application/handlers.py）：
 - 逻辑死线 + 模糊裁决：境界是有序等级；出手不再一锤定生死——境界差 × 性情 × 伤势圈出可裁区间，地下城主在区间里挑结局与扣减，
   越级取胜与非极端找死的毙命不在区间里；人情是五档阶梯（敌视 / 戒备 / 漠然 / 友善 / 信赖），信赖只来自物归原主（封闭清单，从物主本人手里拿来的再还不算），交涉止于友善，名声只认开篇羁绊（休戚与共者记恨、开篇仇家升一档），求艺三流须友善、二流以上须信赖，武功只来自肯教之人或原著典籍且两道门逐条核验，兵器不改境界；「招」= (动作, 手段) 查封闭兼容表分战 / 交 / 暗三路，交涉与暗中永不致死，暗取差两境以上绝不到手
 - 菜单跟着剧情走：选项是 (状态, 快照) 的纯函数、世界不变则逐字不变；按焦点（近来亲手打过交道的人与物）、仇人、伤势打分，
-  设调养席 / 脱身席（不逃回险地）/ 跟进席，其余按 MMR 取，每项附 ≤12 字的 why；断线重连走 quiet 续接，只回选项与状态、不调大模型
+  设调养席 / 脱身席（不逃回险地）/ 跟进席，其余按 MMR 取，每项附 ≤12 字的 why；断线重连走 quiet 续接，只回选项与状态、不调大模型；
+  P1 起选项是「招」(动作, 手段)：一人身上按兼容表展开攀谈 / 结交化解 / 打探 / 出手 / 求艺恳请 / 讨要偷取夺物 / 借势，心事未了时给出没试过的手段（换个手段），每项带风险档（稳妥 / 有险 / 凶险，不露结局）
 - 平行世界：一位玩家 = 一条事件流 = 一个聚合；Neo4j 正典只读，每个世界一层可抹去重放的覆盖层（HELD_BY / CONSUMED / LEARNED {world} 等）
-- 大模型四职责皆无状态且无写端口：抽取原著（含自愈推断）、解析意图、地下城主提议、渲染文本；提议必经领域闸门，散文（速写、叙事）不入事件与记忆
+- 大模型四职责皆无状态且无写端口：抽取原著（含自愈推断）、解析意图、地下城主提议（只在自由文本回合，简报只用 T=0 事实，foreshadow 与未知见闻永不进）、渲染文本；提议必经领域闸门，散文（速写、叙事）不入事件与记忆；
+  一回合至多三次调用（意图 + 地下城主 + 叙事；地下城主越界时的一次重采样是唯一例外），点选回合只有叙事；<hooks> 只许露成端倪，不许写成结果
 - 花钱的边界：原著抽取、图谱自愈、T=0 审计与掌故由 Claude 子代理经 export / ingest 担任，绝不调用付费大模型（抽取与自愈须显式 --use-llm 才装配、审计与掌故根本没有这条路，2026-10 曾两次跑空 Gemini 预付额度）；
   付费大模型只服务运行期三职责，各职责共用每进程的调用次数保险丝 LLM_CALL_LIMIT，熔断即走各自的退路
 - 每个端口都有内存实现，与生产实现共跑契约测试；内存图谱复用领域 evolve，与 Neo4j 快照逐字段相等
