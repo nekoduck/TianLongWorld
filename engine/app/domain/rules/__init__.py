@@ -33,7 +33,7 @@ from app.domain.combat import CombatProposal
 from app.domain.commands import Command, time_cost
 from app.domain.covert import CovertStakes
 from app.domain.events import ActionFailed, DomainEvent, Moved, RelationChanged
-from app.domain.intent import ActionType, PlayerIntent
+from app.domain.intent import ActionType, Aim, Approach, PlayerIntent
 from app.domain.models import Attitude
 from app.domain.resolution import Envelope, ResolutionOutput, envelope_of, output_for, settle
 from app.domain.rules.base import (
@@ -130,9 +130,25 @@ def _held(intent: PlayerIntent, state: PlayerState, snap: LocalSnapshot) -> bool
     return thing is None or snap.character(thing.holder_id) is not None
 
 
+def _asks_the_way(intent: PlayerIntent, snap: LocalSnapshot) -> bool:
+    """
+    打听此地或某个去处、而四下还有不认得的去处——这是问路，不是交涉：实测意图解析会把「打听这四周有哪些去处」读成言辞·打探，
+    走进交涉区间碰一鼻子灰、迷雾照旧。只认寻常或言辞、所图空或打探；话题须落在此地或一条出路的去处上。
+    """
+    if intent.action_type is not ActionType.TALK or intent.approach not in (Approach.PLAIN, Approach.WORDS):
+        return False
+    if intent.aim not in (None, Aim.PROBE) or not intent.topic or all(e.known for e in snap.exits):
+        return False
+    place = ground(intent.topic, snap)
+    return place is not None and (place == snap.location.id or any(e.to_id == place for e in snap.exits))
+
+
 def normalized(intent: PlayerIntent, state: PlayerState, snap: LocalSnapshot) -> PlayerIntent:
-    """按此情此景规整意图：表外的手段退回寻常、所图与动作不配置空、话题落不了地置空。幂等。"""
-    return normalize(intent, held=_held(intent, state, snap), grounds=lambda t: ground(t, snap) is not None)
+    """按此情此景规整意图：表外的手段退回寻常、所图与动作不配置空、话题落不了地置空；问路恒为寻常、无所图。幂等。"""
+    intent = normalize(intent, held=_held(intent, state, snap), grounds=lambda t: ground(t, snap) is not None)
+    if _asks_the_way(intent, snap) and (intent.approach, intent.aim) != (Approach.PLAIN, None):
+        return intent.model_copy(update={"approach": Approach.PLAIN, "aim": None})
+    return intent
 
 
 def adjudicate(intent: PlayerIntent, state: PlayerState, snap: LocalSnapshot) -> Verdict:

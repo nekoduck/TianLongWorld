@@ -38,9 +38,9 @@ from app.domain.geography import (
     geography_errors,
     ways,
 )
-from app.domain.intent import ActionType, Approach, PlayerIntent
+from app.domain.intent import ActionType, Aim, Approach, PlayerIntent
 from app.domain.models import Location, WorldBlueprint
-from app.domain.rules import command, decide
+from app.domain.rules import command, decide, normalized
 from app.domain.rules.talk import directions
 from app.domain.snapshot import ExitView, LocalSnapshot, LocationView
 from tests.test_heartbeat import look
@@ -293,8 +293,15 @@ async def test_asking_the_way_names_the_unknown_neighbours() -> None:
     assert by_name[-1] == PlacesLearned(location_ids=(CITY, CAVE), source_id="chr:辛双清")
     assert decide(act(ActionType.TALK, target_entity="左子穆", topic="辛双清"), state, snap) == [
         Conversed(npc_id="chr:左子穆", topic_id="chr:辛双清")]  # 话题不是地点：只是闲谈
-    parley = decide(act(ActionType.TALK, target_entity="左子穆", topic="无量山", approach=Approach.WORDS), state, snap)
-    assert isinstance(parley[0], Parleyed) and not any(isinstance(e, PlacesLearned) for e in parley)  # 交涉不是问路
+    parley = decide(act(ActionType.TALK, target_entity="左子穆", topic="无量山", approach=Approach.WORDS, aim=Aim.BEFRIEND),
+                    state, snap)
+    assert isinstance(parley[0], Parleyed) and not any(isinstance(e, PlacesLearned) for e in parley)  # 结交是交涉，不是问路
+    threat = decide(act(ActionType.TALK, target_entity="左子穆", topic="无量山", approach=Approach.FORCE), state, snap)
+    assert isinstance(threat[0], Parleyed) and not any(isinstance(e, PlacesLearned) for e in threat)  # 威逼也不是
+    for probe in (Approach.WORDS, Approach.PLAIN):  # 实测：意图解析把「打听这四周有哪些去处」读成言辞·打探——打听地点而四下有未知去处即问路
+        asked_words = act(ActionType.TALK, target_entity="左子穆", topic="无量山", approach=probe, aim=Aim.PROBE)
+        assert decide(asked_words, state, snap) == decide(asked, state, snap)
+        assert normalized(asked_words, state, snap) == normalized(asked, state, snap)
     told, snap = await look(WORLD, HILL, *decide(asked, state, snap))
     assert decide(asked, told, snap) == [Conversed(npc_id="chr:左子穆", topic_id=HILL)]  # 认得全了，不再出
     assert directions(HILL, told, snap) == ()
