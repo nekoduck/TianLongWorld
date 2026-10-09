@@ -1,9 +1,9 @@
 """
 [INPUT]: 依赖 domain/models 的 Tier，依赖 enum 的 StrEnum，依赖 zlib 的 crc32
-[OUTPUT]: 对外提供 渐进式状态的两把尺——Mastery 火候（mastery_of 熟练度 × 悟性 → 火候、effective_tier 火候折算境界（降档且封顶）、FOUNDATION 根基门槛）、
+[OUTPUT]: 对外提供 渐进式状态的三把尺——Mastery 火候（mastery_of 熟练度 × 悟性 → 火候、effective_tier 火候折算境界（降档且封顶）、FOUNDATION 根基门槛）、
           Guidance 修习方式、GAIN 基础所得与 gain()（越高深的武学一次所得越少）、aptitude_for() 根骨天定的悟性系数；
-          Vitality 伤势（MAX_HP 气血上限、vitality() 气血 → 伤势、REST_GAIN 调息所得）
-[POS]: domain 的渐进式状态（Progressive State）：内部是可加减的整数（熟练度、气血），对外只露语义标签（火候、伤势）。
+          Vitality 伤势（MAX_HP 气血上限、vitality() 气血 → 伤势、REST_GAIN 调息所得）；Renown 名望（RENOWN_MAX、renown() 名望点数 → 江湖上的说法）
+[POS]: domain 的渐进式状态（Progressive State）：内部是可加减的整数（熟练度、气血、名望），对外只露语义标签（火候、伤势、名望）。
        聚合根的 evolve 只做加法（reduce），一切折算都在这里——事件里记的是"练了多少"，"练到了哪一步"永远由此处现算：
        调整门槛或折算方式不必改写一条历史
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -119,3 +119,32 @@ def vitality(hp: int) -> Vitality:
     if hp >= 20:
         return Vitality.WOUNDED
     return Vitality.DYING
+
+
+# ============================================================
+#  名望 —— Σ RenownChanged（钳在 ±RENOWN_MAX）经此折算为江湖上的说法
+# ============================================================
+RENOWN_MAX = 100
+
+
+class Renown(StrEnum):
+    INFAMOUS = "声名狼藉"
+    NOTORIOUS = "略有恶名"
+    UNKNOWN = "籍籍无名"
+    NOTED = "小有名气"
+    FAMED = "名动一方"
+    LEGEND = "威震江湖"
+
+
+def renown(points: int) -> Renown:
+    if points <= -30:
+        return Renown.INFAMOUS
+    if points <= -10:
+        return Renown.NOTORIOUS
+    if points < 10:
+        return Renown.UNKNOWN
+    if points < 30:
+        return Renown.NOTED
+    if points < 60:
+        return Renown.FAMED
+    return Renown.LEGEND

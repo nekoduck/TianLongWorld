@@ -1,13 +1,15 @@
 """
-[INPUT]: 依赖 domain/events 的全部领域事件（含 P1 的 Parleyed / FactLearned / ItemConsumed / Maneuvered）与 EventEnvelope，依赖 domain/models 的 Attitude，依赖 domain/progression 的 MAX_HP / Mastery / Vitality /
-         mastery_of / vitality / aptitude_for，依赖 domain/combat 的 CombatOutcome / CombatProposal，依赖 domain/stakes 的 Proposal，
+[INPUT]: 依赖 domain/events 的全部领域事件（含 P1 的 Parleyed / FactLearned / ItemConsumed / Maneuvered 与语义物理引擎的时钟 / 微观事实 / 名望事件）与 EventEnvelope，
+         依赖 domain/clocks 的 NarrativeClock / started / advanced / retired，依赖 domain/models 的 Attitude，依赖 domain/progression 的 MAX_HP / Mastery / Vitality /
+         mastery_of / vitality / aptitude_for，依赖 domain/combat 的 CombatOutcome / CombatProposal，依赖 domain/stakes 的 Proposal，依赖 domain/resolution 的 ResolutionOutput，
          依赖 domain/threads 的 Thread / fold，依赖 domain/intent 的 Approach / PlayerIntent，
          依赖 domain/rules 的 decide()（裁决），依赖 app.errors 的 UnknownPlayerError / PlayerDeadError
 [OUTPUT]: 对外提供 PlayerState（不可变状态值：practice 熟练度之和、aptitude 悟性、hp 气血、came_from 来路、fled_from 逃离过的险地、
           focus 近来打过交道的人与物（至多 FOCUS_SIZE 个，新者在前）与 focus_fresh 上一个主动作是否正与它打交道、attitude_causes 人情的缘由、
           threads 心事线索（至多 6 条）、known_facts 已知见闻、consumed 用掉之物、recent_approaches 近来用过的手段（至多 RECENT_SIZE 个）、
           attempts 对每个对象出过几次有赌注的招（FortuneResolver 的种子）、taken_from 物品最初从谁手里到你身上，
-          mastery / vitality / inventory 现算）、FOCUS_SIZE、RECENT_SIZE、
+          clocks 悬着的叙事时钟、emerged 推演出的微观事实（新者在前、至多 EMERGED_MAX 条）、renown 名望点数，
+          mastery / vitality / inventory 现算）、FOCUS_SIZE、RECENT_SIZE、EMERGED_MAX、EmergedFact、
           evolve(state, event) 纯函数折叠、Player 聚合根（apply / from_history / replay / spawn / ensure_alive / mastery / decide）
 [POS]: domain 的一致性边界：一位玩家的平行世界就是一条事件流，世界在这条流上相对原著的全部偏离（位置、行囊、武学火候、气血、
        被制住之人、人情冷暖、物品易手）都是 PlayerState 的字段。没有状态表——当前状态只能由 evolve 从头折叠事件流算出；
@@ -19,6 +21,8 @@
        FactLearned 记入已知见闻；ItemConsumed 记入 consumed，行囊派生时把它排除（易手覆盖照旧，用掉之物从此不在任何人身上）；
        ItemTransferred 第一次到你手上时记下来路 taken_from（此后转手再拿回来也不改）：从物主手里拿来的东西再还给他，
        只是易手，不是物归原主——经第三人转一道手也洗不白。
+       语义物理引擎的落账同样只做折叠：时钟按 id 挂上、推进回退（钳在阈值之下）、坍缩或销毁即退场；微观事实按正文摘要去重、新者在前；
+       名望只做加法并钳在 ±RENOWN_MAX。
        内存图谱投影（infrastructure/persistence/memory_graph.py）复用同一个 evolve，投影与真相因此同构
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -28,12 +32,18 @@ from dataclasses import dataclass, field, replace
 from functools import reduce
 
 from app.domain import rules
+from app.domain.clocks import NarrativeClock, advanced, retired, started
 from app.domain.combat import CombatOutcome, CombatProposal
 from app.domain.events import (
     ActionFailed,
+    ClockAdvanced,
+    ClockCleared,
+    ClockCollapsed,
+    ClockStarted,
     Conversed,
     DomainEvent,
     EventEnvelope,
+    FactEmerged,
     FactLearned,
     HealthChanged,
     ItemConsumed,
@@ -44,17 +54,38 @@ from app.domain.events import (
     PlayerDied,
     PlayerSpawned,
     RelationChanged,
+    RenownChanged,
     SkillExecuted,
     SkillPracticed,
 )
 from app.domain.intent import Approach, PlayerIntent
 from app.domain.models import Attitude
-from app.domain.progression import MAX_HP, Mastery, Vitality, aptitude_for, mastery_of, vitality
+from app.domain.progression import (
+    MAX_HP,
+    RENOWN_MAX,
+    Mastery,
+    Renown,
+    Vitality,
+    aptitude_for,
+    mastery_of,
+    renown,
+    vitality,
+)
+from app.domain.resolution import ResolutionOutput
 from app.domain.snapshot import LocalSnapshot
 from app.domain.stakes import Proposal
 from app.domain.threads import Thread
 from app.domain.threads import fold as fold_threads
 from app.errors import PlayerDeadError, UnknownPlayerError
+
+
+@dataclass(frozen=True, slots=True)
+class EmergedFact:
+    """推演出的微观事实：正文与它点了名的场景实体（图谱据此把它挂在人、物、地上）。"""
+
+    id: str
+    text: str
+    subject_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +117,9 @@ class PlayerState:
     recent_approaches: tuple[Approach, ...] = ()  # 近来出招用过的手段，新者在前、至多 RECENT_SIZE 个
     attempts: Mapping[str, int] = field(default_factory=dict)  # 对象 → 出过几次有赌注的招（出手 / 交涉 / 暗取）
     taken_from: Mapping[str, str] = field(default_factory=dict)  # 物品 → 它最初从谁那里到你手上（物归原主据此辨认偷来、讨来、夺来的）
+    clocks: tuple[NarrativeClock, ...] = ()  # 悬着的叙事时钟（按 id 排序）
+    emerged: tuple[EmergedFact, ...] = ()  # 推演出的微观事实，新者在前、至多 EMERGED_MAX 条
+    renown_points: int = 0  # 名望：Σ RenownChanged，钳在 ±RENOWN_MAX
 
     @property
     def skills(self) -> frozenset[str]:
@@ -110,12 +144,20 @@ class PlayerState:
     def attitude_of(self, character_id: str) -> Attitude:
         return self.attitudes.get(character_id, Attitude.NEUTRAL)
 
+    @property
+    def renown(self) -> Renown:
+        return renown(self.renown_points)
+
+    def clock(self, clock_id: str) -> NarrativeClock | None:
+        return next((c for c in self.clocks if c.id == clock_id), None)
+
 
 # ============================================================
 #  焦点 —— 玩家亲手打过交道的人与物，供选项的显著性打分与记忆召回
 # ============================================================
 FOCUS_SIZE = 4
 RECENT_SIZE = 4
+EMERGED_MAX = 24  # 微观事实只留最近的二十四条：它们是此世的细节，不是史书
 
 
 def _engaged(event: DomainEvent, player_id: str) -> tuple[str, ...]:
@@ -222,6 +264,17 @@ def evolve(state: PlayerState | None, event: DomainEvent) -> PlayerState:
             return replace(state, known_facts=state.known_facts | {fact})
         case ItemConsumed(item_id=item):
             return replace(state, consumed=state.consumed | {item})
+        case ClockStarted(clock=clock):
+            return replace(state, clocks=started(state.clocks, clock))
+        case ClockAdvanced(clock_id=clock_id, steps=steps):
+            return replace(state, clocks=advanced(state.clocks, clock_id, steps))
+        case ClockCollapsed(clock_id=clock_id) | ClockCleared(clock_id=clock_id):
+            return replace(state, clocks=retired(state.clocks, clock_id))
+        case FactEmerged(fact_id=fact_id, text=text, subject_ids=subjects):
+            fresh = EmergedFact(id=fact_id, text=text, subject_ids=subjects)
+            return replace(state, emerged=(fresh, *(f for f in state.emerged if f.id != fact_id))[:EMERGED_MAX])
+        case RenownChanged(delta=delta):
+            return replace(state, renown_points=max(-RENOWN_MAX, min(RENOWN_MAX, state.renown_points + delta)))
         case SkillExecuted() | Conversed() | ActionFailed() | Parleyed() | Maneuvered():
             return state  # 只是历史（线索、焦点、手段、尝试次数已在上面折叠），不改变世界
     raise TypeError(f"未知的领域事件：{type(event).__name__}")
@@ -283,10 +336,13 @@ class Player:
         return self.state.mastery(skill_id)
 
     def decide(
-        self, intent: PlayerIntent, snapshot: LocalSnapshot, proposal: Proposal | CombatProposal | None = None
+        self,
+        intent: PlayerIntent,
+        snapshot: LocalSnapshot,
+        proposal: ResolutionOutput | Proposal | CombatProposal | None = None,
     ) -> list[DomainEvent]:
         """
-        命令侧入口：守住生死与身份两道门，其余交给纯函数裁决。proposal 是地下城主对胜负未定之事（出手 / 交涉 / 暗中）的提议，
-        领域把它钳进可裁区间后才落为事件。返回尚未入账的事件，由调用方追加到事件流。
+        命令侧入口：守住生死与身份两道门，其余交给纯函数裁决。proposal 是地下城主的推演（ResolutionOutput）或规则 / 气运的结局（Proposal），
+        领域经语义物理闸门定案后才落为事件。返回尚未入账的事件，由调用方追加到事件流。
         """
         return rules.decide(intent, self.ensure_alive(), snapshot, proposal)

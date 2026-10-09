@@ -1,15 +1,18 @@
 """
 [INPUT]: 依赖 pydantic v2 的 BaseModel，依赖 domain/models 的 Tier / Disposition / Attitude / Era / RelationKind / Acquisition / Practice / ItemUse，
-         依赖 domain/lore 的 FactUnlock，依赖 domain/progression 的 MAX_HP / Mastery / Vitality / mastery_of / vitality
+         依赖 domain/lore 的 FactUnlock，依赖 domain/clocks 的 NarrativeClock，依赖 domain/progression 的 MAX_HP / Mastery / Vitality / mastery_of / vitality
 [OUTPUT]: 对外提供 局部真理快照 LocalSnapshot（集合字段构造即按固定键排序、referenced_ids 列出名称表须覆盖的 id、玩家的熟练度 / 悟性 / 气血
           及现算的 mastery / vitality、facts 知情人在场或已知而与在场者有涉的见闻（known 标明已知））及其视图 LocationView / ExitView（hostile_ahead 去处有仇人）/
           CharacterView（含称号、persona 外显人设）/ BondView（era 结于何时、lead 本人是关系的上首）/ ItemView（portable / hazard / use）/
-          SkillView（获取要求 + 修炼要求）/ PersonaView / FactView
+          SkillView（获取要求 + 修炼要求）/ PersonaView / FactView / EmergedView（推演出的微观事实）；
+          clocks 挂在眼前之物上的叙事时钟（此地、在场之人、可见之物、玩家自己）、emerged 点了在场者名的微观事实
 [POS]: domain 的读模型（CQRS 查询侧）：图谱投影在"玩家此刻所在之处"的一个切片。
        裁决规则只凭它判定物理事实（出口、在场者、物品所在），叙事大模型只凭它落笔（Hard Prompt），选项生成器只遍历它的合法边；
        快照之外的世界对这一回合不存在——这是杜绝幻觉的边界。
        P1 的视图字段（era / lead / hostile_ahead / portable / hazard / use / persona / facts）都有缺省值：图谱实现不填也照样构造，
-       阶段 B 两套图谱同时填上；人设只给外显部分，后文剧情（foreshadow）永远不进快照
+       阶段 B 两套图谱同时填上；人设只给外显部分，后文剧情（foreshadow）永远不进快照。
+       语义物理引擎的两样此世之物同样经图谱召回：时钟只召回挂在眼前之物上的（挂在远方之人身上的照样悬着，只是此刻不在场），
+       微观事实只召回点了此地、在场之人或可见之物之名的——地下城主与说书人看到的暗流，永远是眼前的暗流
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -18,6 +21,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
+from app.domain.clocks import NarrativeClock
 from app.domain.lore import FactUnlock
 from app.domain.models import Acquisition, Attitude, Disposition, Era, ItemUse, Practice, RelationKind, Tier
 from app.domain.progression import MAX_HP, Mastery, Vitality, mastery_of, vitality
@@ -123,6 +127,19 @@ class FactView(_View):
         return _canonical(data, {"subject_ids": str, "knower_ids": str})
 
 
+class EmergedView(_View):
+    """推演出的微观事实（FactEmerged）：正文与它点了名的场景实体。"""
+
+    id: str
+    text: str
+    subject_ids: tuple[str, ...] = ()
+
+    @model_validator(mode="before")
+    @classmethod
+    def _order(cls, data: Any) -> Any:
+        return _canonical(data, {"subject_ids": str})
+
+
 class CharacterView(_Named):
     """name 是本名；titles 是江湖称号——玩家喊「恶贯满盈」也能落到段延庆身上。"""
 
@@ -175,6 +192,8 @@ class LocalSnapshot(_View):
     player_aptitude: float = 1.0
     player_hp: int = MAX_HP
     facts: tuple[FactView, ...] = ()  # 知情人之一在场的见闻 ∪ 已知且主体或 unlock 目标在场的见闻（known 标明已知）
+    clocks: tuple[NarrativeClock, ...] = ()  # 挂在此地、在场之人、可见之物或玩家身上的叙事时钟
+    emerged: tuple[EmergedView, ...] = ()  # 点了此地、在场之人或可见之物之名的微观事实
     labels: dict[str, str] = {}
 
     @model_validator(mode="before")
@@ -185,7 +204,7 @@ class LocalSnapshot(_View):
 
         return _canonical(data, {
             "exits": lambda e: (_get(e, "to_id"), _get(e, "label")),
-            "characters": by_id, "items": by_id, "skills": by_id, "facts": by_id,
+            "characters": by_id, "items": by_id, "skills": by_id, "facts": by_id, "clocks": by_id, "emerged": by_id,
         })
 
     @property
@@ -212,7 +231,13 @@ class LocalSnapshot(_View):
             ids |= {*p.skills, *a.items, *p.conflicts, *([a.location_id] if a.location_id else [])}
         for f in self.facts:  # 见闻本身也要有名：labels 把 fact:<slug> 映射为见闻正文，白描与记忆才不会露出 slug
             ids |= {f.id, *f.subject_ids, *f.knower_ids, *([f.unlock.target_id] if f.unlock else [])}
+        ids |= {c.anchor_id for c in self.clocks}
+        for e in self.emerged:
+            ids |= set(e.subject_ids)
         return ids
+
+    def clocks_on(self, anchor_id: str) -> tuple[NarrativeClock, ...]:
+        return tuple(c for c in self.clocks if c.anchor_id == anchor_id)
 
     def character(self, character_id: str) -> CharacterView | None:
         return next((c for c in self.characters if c.id == character_id), None)

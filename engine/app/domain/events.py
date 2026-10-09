@@ -1,17 +1,20 @@
 """
-[INPUT]: 依赖 pydantic v2 的 BaseModel / TypeAdapter / Field(discriminator)，依赖 domain/models 的 Attitude / Remedy，
+[INPUT]: 依赖 pydantic v2 的 BaseModel / TypeAdapter / Field(discriminator)，依赖 domain/models 的 Attitude / Remedy，依赖 domain/clocks 的 NarrativeClock，
          依赖 domain/intent 的 ActionType / Approach / Aim，依赖 domain/combat 的 CombatOutcome，依赖 domain/outcomes 的 SocialOutcome / CovertOutcome
 [OUTPUT]: 对外提供 不可变领域事件 DomainEvent 基类及 PlayerSpawned / Moved（fleeing 标明夺路而逃）/ ItemTransferred / SkillPracticed /
           SkillExecuted（approach 手段）/ HealthChanged（source：blow 伤人 / rest 调息 / item 服药）/ Conversed（topic_id 话题）/
           RelationChanged（basis 关系称谓或缘由类别）/ ActionFailed（unlock 怎样才行、aim / approach 当时的所图与手段、
           target_id / subject_id 落了地的对象与标的）/ PlayerDied / Parleyed 交涉（subject_id 所图的标的）/ FactLearned 得知见闻 /
-          ItemConsumed 用掉随身之物 / Maneuvered 暗中取物、AnyEvent 判别联合、EVENT_ADAPTER（JSONB 编码）、
+          ItemConsumed 用掉随身之物 / Maneuvered 暗中取物、
+          语义物理引擎的六种事件 ClockStarted / ClockAdvanced（负为回退）/ ClockCollapsed（满格坍缩）/ ClockCleared（销毁）/
+          FactEmerged（推演出的微观事实）/ RenownChanged（名望涨落）、AnyEvent 判别联合、EVENT_ADAPTER（JSONB 编码）、
           decode_event()（JSONB 解码：先经上抛器把旧账升级为现行词汇）、EventEnvelope（流内版本 + 事件 id + 记录时间）
 [POS]: domain 的事实词汇：世界此刻的一切都由这些事件经纯函数折叠而来；事件一经写入永不修改，
        新增事件类型只需在此加一个类并挂进 AnyEvent（开闭），时间戳只在信封上，事件本体保持确定性以便裁决可单测。
        词汇演进靠上抛（upcast）而不是改历史：废弃的 SkillLearned（"获得即学会"）在读出时折算为一次 SkillPracticed，
        旧的「受挫」折算为「轻伤」，旧账里 cause=="调息疗伤" 而没有 source 的气血回升读作 source="rest"——账本里的字节永远是当年写下的样子。
-       一切新字段都有缺省值，旧账照读；唯一需要上抛的是 HealthChanged.source
+       一切新字段都有缺省值，旧账照读；唯一需要上抛的是 HealthChanged.source。
+       地下城主推演出的时钟、微观事实与名望涨落，经领域闸门（resolution.py）定案后才写成这里的事件——大模型从不直接落账
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -23,6 +26,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
+from app.domain.clocks import NarrativeClock
 from app.domain.combat import CombatOutcome
 from app.domain.intent import ActionType, Aim, Approach
 from app.domain.models import Attitude, Remedy
@@ -170,6 +174,67 @@ class Maneuvered(DomainEvent):
     outcome: CovertOutcome
 
 
+# ============================================================
+#  语义物理引擎 —— 叙事时钟、微观事实、名望：推演经领域闸门定案后的落账形态
+# ============================================================
+class ClockStarted(DomainEvent):
+    """一只时钟挂上某个实体：名称、种类、阈值与满则如何都在 clock 里，初始进度即 clock.progress。"""
+
+    type: Literal["ClockStarted"] = "ClockStarted"
+    clock: NarrativeClock
+    cause: str = ""
+
+
+class ClockAdvanced(DomainEvent):
+    """推进（steps > 0）或回退（steps < 0）。满格不经此事件，而是一条 ClockCollapsed。name / progress / maximum 让白描不必回查时钟表。"""
+
+    type: Literal["ClockAdvanced"] = "ClockAdvanced"
+    clock_id: str
+    steps: int = Field(ge=-8, le=8)
+    name: str = ""
+    progress: int = 0  # 推进 / 回退之后的进度
+    maximum: int = 0
+    cause: str = ""
+
+
+class ClockCollapsed(DomainEvent):
+    """时钟满格：暗流坍缩为硬结算。它的后果另由同一批里的明写事件落账（翻脸、受创、脱身……），这条只宣告它退场。"""
+
+    type: Literal["ClockCollapsed"] = "ClockCollapsed"
+    clock_id: str
+    name: str
+    consequence: str = ""
+
+
+class ClockCleared(DomainEvent):
+    """时钟化解或作罢：不再悬着，也不再有后果。"""
+
+    type: Literal["ClockCleared"] = "ClockCleared"
+    clock_id: str
+    name: str = ""
+    cause: str = ""
+
+
+class FactEmerged(DomainEvent):
+    """
+    推演出的一条微观事实（≤40 字的一行中文）：不改任何属性、归属、生死与位置，只是此世此刻确实发生了的细节。
+    fact_id = emg:<正文摘要>，subject_ids 是正文里点了名的场景实体，图谱据此把它挂在人、物、地上，下回合在场即召回。
+    """
+
+    type: Literal["FactEmerged"] = "FactEmerged"
+    fact_id: str
+    text: str = Field(min_length=1, max_length=40)
+    subject_ids: tuple[str, ...] = ()
+
+
+class RenownChanged(DomainEvent):
+    """名望涨落：江湖上怎么说你。折叠时钳在 [−100, 100]，对外只露语义标签（progression.Renown）。"""
+
+    type: Literal["RenownChanged"] = "RenownChanged"
+    delta: int = Field(ge=-20, le=20)
+    cause: str
+
+
 AnyEvent = Annotated[
     PlayerSpawned
     | Moved
@@ -184,7 +249,13 @@ AnyEvent = Annotated[
     | Parleyed
     | FactLearned
     | ItemConsumed
-    | Maneuvered,
+    | Maneuvered
+    | ClockStarted
+    | ClockAdvanced
+    | ClockCollapsed
+    | ClockCleared
+    | FactEmerged
+    | RenownChanged,
     Field(discriminator="type"),
 ]
 
