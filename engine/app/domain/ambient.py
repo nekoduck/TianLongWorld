@@ -108,6 +108,7 @@ class FactToken(_Ambient):
     speed: int = Field(ge=1, le=2)  # 每刻传开几处：有人群目睹的消息走得快
     radius: int = Field(ge=0, le=RADIUS_MAX)  # 传出几跳为止
     reached: tuple[str, ...] = ()
+    signature: tuple[str, ...] = ()  # 消息里那人的模样（玩家所为时是他当时外露的特质）：听到消息的人凭它认人；旧账缺省为空
 
     @model_validator(mode="after")
     def _from_origin(self) -> Self:

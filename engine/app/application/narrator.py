@@ -47,6 +47,7 @@ from app.application.chronicle import known_arts, titled
 from app.application.navigation import duration_label
 from app.application.ports import LLMClient
 from app.domain.approach import TacticalAxis
+from app.domain.arc import PROLOGUE, Chapter
 from app.domain.commands import TICKS_PER_SHICHEN
 from app.domain.intent import PlayerIntent
 from app.domain.snapshot import ActivityView, CharacterView, ExitView, LocalSnapshot, SwarmView, TraceView
@@ -125,6 +126,8 @@ class NarrationRequest:
     motivation: str = ""  # 最近一次移动的此行所为（PlayerState.motivation）：没跨地方的回合也照应得上预期落差
     menu: tuple[Afforded, ...] = ()  # 可供性目录（options.catalogue 的 ActionOption，按次序编号 m1、m2……）：说书人只许从中挑 3~4 招配上风味
     errands: Mapping[str, str] = field(default_factory=dict)  # 在场者本名 → 他此行的议程意图（离了家、带议程的核心 NPC）
+    challenges: Mapping[str, str] = field(default_factory=dict)  # 在场者本名 → 他对你的对峙（「盘问：外人擅入后山禁地」，世界本份）
+    chapter: Chapter = PROLOGUE  # 当下这一章：主题、基调、意象、潜台词（编剧的强制性潜台词约束，进 <subtext>）
 
 
 class Narrator(ABC):

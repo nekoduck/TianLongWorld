@@ -1,6 +1,6 @@
 """
-[INPUT]: 依赖 pydantic v2 的 BaseModel / Field，依赖 enum 的 StrEnum，依赖 hashlib 的 sha1
-[OUTPUT]: 对外提供 分层 NPC 生态的名词——NpcAgenda（宏观议程：谁、去哪、为何、轻重、何时立下）、AgendaEnd（议程如何了结：抵达 / 受阻 / 中断 / 败退 / 作罢）、
+[INPUT]: 依赖 pydantic v2 的 BaseModel / Field，依赖 enum 的 StrEnum，依赖 hashlib 的 sha1，依赖 domain/signature 的 TargetSignature
+[OUTPUT]: 对外提供 分层 NPC 生态的名词——NpcAgenda（宏观议程：谁、去哪、为何、轻重、何时立下，可带目标签名 signature 与因果线 karma_id）、AgendaEnd（议程如何了结：抵达 / 受阻 / 中断 / 败退 / 作罢）、
           EncounterKind（撞见：NPC 与玩家同处一地；狭路相逢：两位有开篇仇怨的核心 NPC 同处一地）、Encounter（一次中断：id = enc:<10hex>、种类、来者、对方、地点、刻）、
           encounter_id()、SkirmishOutcome（狭路相逢的结局：来者胜 / 在此者胜 / 两败俱伤 / 口角 / 相安无事，.fight 是否动了手）、AGENDA_CHARS
 [POS]: domain 的 H-Agent 本体（只有名词，没有动词——推进、中断、裁决在 domain/npc.py，以免与 events 成环）：
@@ -13,6 +13,8 @@ import hashlib
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.domain.signature import TargetSignature
 
 AGENDA_CHARS = 16
 
@@ -35,6 +37,8 @@ class NpcAgenda(BaseModel):
     intent: str = Field(min_length=2, max_length=AGENDA_CHARS)  # 战略意图：「去剑湖宫打探秘奥」
     priority: int = Field(default=2, ge=1, le=3)  # 1 寻常 / 2 要紧 / 3 志在必得
     issued_tick: int = Field(ge=0)
+    signature: TargetSignature | None = None  # 要找的那个人的模样（命格特质引力场）：只能取他见过、听说过、丢在那人手里的（npc.admit 守）
+    karma_id: str | None = None  # 出于哪条因果线（编剧注入的动机）：狭路重逢即了结
 
 
 class EncounterKind(StrEnum):

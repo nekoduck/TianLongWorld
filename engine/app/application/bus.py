@@ -99,6 +99,7 @@ class PlayerStatus(_Message):
     clocks: tuple[ClockInfo, ...] = ()  # 眼前的暗流：至多 4 只（status.clocks）
     renown: str = ""  # 名望的语义标签（籍籍无名……）；空即旧服务端未填
     time: str = ""  # 时辰「第一日·辰正」（快照的 time_label；死者停在最后时刻）；空即旧服务端未填
+    traits: tuple[str, ...] = ()  # 命格特质（相貌 / 口音 / 装束 / 印记）：旁人眼里的你（status.traits）；空即旧服务端未填
 
 
 class SessionOpened(_Message):

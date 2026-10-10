@@ -349,9 +349,10 @@ def apply_lore(bp: WorldBlueprint, book: LoreBook) -> WorldBlueprint:
 def lore_fingerprint(bp: WorldBlueprint) -> str:
     """
     覆盖掌故所依赖的一切——名字、所在、门派、武学、关系与其 era、物性、出路——不含描述、后文剧情、掌故本身（人设、见闻、人群）
-    与地理注记（passages / sights：地理不改掌故所依赖之事，套上它们掌故不作废，入库的 lore.json 照旧有效）。
+    与地理注记（passages / sights：地理不改掌故所依赖之事，套上它们掌故不作废，入库的 lore.json 照旧有效）、
+    局势（fronts：世界本份的注记同理，套上不作废掌故）。
     """
-    data = bp.model_dump(mode="json", exclude={"personas", "facts", "swarms", "passages", "sights"})
+    data = bp.model_dump(mode="json", exclude={"personas", "facts", "swarms", "passages", "sights", "fronts"})
     for kind in ("locations", "characters", "martial_arts", "items", "relations"):
         for entry in data[kind]:
             for noise in ("description", "foreshadow", "note"):

@@ -191,7 +191,7 @@ def test_status_and_risk_mirror_the_frontend_contract() -> None:
     assert frame["status"]["clocks"] == [{"name": "钟灵的戒心", "kind": "疑心", "progress": 2, "maximum": 4}]
     assert frame["status"]["renown"] == "小有名气" and frame["status"]["time"] == "第二日·子初三刻"
     assert set(frame["status"]) == {"name", "location", "tier", "health", "alive", "death_cause", "inventory", "skills",
-                                    "bonds", "pursuits", "clocks", "renown", "time"}
+                                    "bonds", "pursuits", "clocks", "renown", "time", "traits"}
     assert "clk:" not in str(frame["status"])  # 时钟的 id 与挂处从不下发
     assert "intent" not in str(frame["options"]) and "underlying_command" not in str(frame)
     assert "label" not in frame["options"][0]

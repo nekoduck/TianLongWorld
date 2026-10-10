@@ -1,6 +1,6 @@
 """
 [INPUT]: 依赖 pydantic v2 的 BaseModel，依赖 domain/models 的 Tier / Disposition / Attitude / Era / RelationKind / Acquisition / Practice / ItemUse，
-         依赖 domain/lore 的 FactUnlock，依赖 domain/clocks 的 NarrativeClock，依赖 domain/progression 的 MAX_HP / Mastery / Vitality / mastery_of / vitality
+         依赖 domain/lore 的 FactUnlock / Stance / Trigger，依赖 domain/karma 的 KarmaKind / KarmaStatus，依赖 domain/clocks 的 NarrativeClock，依赖 domain/progression 的 MAX_HP / Mastery / Vitality / mastery_of / vitality
 [OUTPUT]: 对外提供 局部真理快照 LocalSnapshot（集合字段构造即按固定键排序、referenced_ids 列出名称表须覆盖的 id、玩家的熟练度 / 悟性 / 气血
           及现算的 mastery / vitality、facts 知情人在场或已知而与在场者有涉的见闻（known 标明已知））及其视图 LocationView / ExitView（hostile_ahead 去处有仇人）/
           CharacterView（含称号、persona 外显人设）/ BondView（era 结于何时、lead 本人是关系的上首）/ ItemView（portable / hazard / use）/
@@ -9,7 +9,9 @@
           世界心跳的四样此地之物 ActivityView（此地的活动，进行与否按 tick 现算）/ TraceView（尚未消散的痕迹与还剩几刻）/
           SwarmView（人群与 current_state）/ RumorView（传到此地的消息），tick 与现算的 time_label / daylight；ItemView 另有现算的 material / ownership；
           空间属性图与探索迷雾：ExitView 带 direction / travel_method / time_cost / discovery（known、shown_name「未知区域」、names 未知即只剩标签），
-          LocalSnapshot.handle()（出路的方位把手）/ exit_names()；CharacterView.wounded 此世带伤
+          LocalSnapshot.handle()（出路的方位把手）/ exit_names()；CharacterView.wounded 此世带伤；
+          世界本份：PersonaView.aversions（AversionView 人设的排异区，按触发与地点排序）、RumorView.signature（消息里那人的模样）；
+          编剧代理：KarmaView 与 LocalSnapshot.karma（牵涉此地、在场之人或可见之物的因果线，按 id 排序；referenced_ids 含其牵涉实体与排异区的禁地）
 [POS]: domain 的读模型（CQRS 查询侧）：图谱投影在"玩家此刻所在之处"的一个切片。
        裁决规则只凭它判定物理事实（出口、在场者、物品所在），叙事大模型只凭它落笔（Hard Prompt），选项生成器只遍历它的合法边；
        快照之外的世界对这一回合不存在——这是杜绝幻觉的边界。
@@ -32,7 +34,8 @@ from app.domain.clocks import NarrativeClock
 from app.domain.commands import SPAWN_TICK, TIME_COSTS, daylight, time_label
 from app.domain.geography import UNKNOWN_PLACE, Direction, DiscoveryStatus, TravelMethod
 from app.domain.intent import ActionType
-from app.domain.lore import FactUnlock
+from app.domain.karma import KarmaKind, KarmaStatus
+from app.domain.lore import FactUnlock, Stance, Trigger
 from app.domain.models import (
     Acquisition,
     Attitude,
@@ -152,12 +155,27 @@ class ItemView(_Named):
         return ownership(self.owner_id, self.holder_id)
 
 
+class AversionView(_View):
+    """人设的一条排异区（lore.Aversion 去掉出处）：什么情形会触犯他、触犯了是盘问、喝止还是起杀心。"""
+
+    trigger: Trigger
+    stance: Stance
+    basis: str
+    location_id: str | None = None
+
+
 class PersonaView(_View):
-    """外显人设：玩家看得出的好恶与心事。"""
+    """外显人设：玩家看得出的好恶与心事，以及人设里的排异区（世界本份据它判定你有没有触犯他）。"""
 
     likes: tuple[str, ...] = ()
     dislikes: tuple[str, ...] = ()
     worry: str = ""
+    aversions: tuple[AversionView, ...] = ()
+
+    @model_validator(mode="before")
+    @classmethod
+    def _order(cls, data: Any) -> Any:
+        return _canonical(data, {"aversions": lambda a: (str(_get(a, "trigger")), _get(a, "location_id") or "")})
 
 
 class FactView(_View):
@@ -233,6 +251,23 @@ class RumorView(_View):
     subject_ids: tuple[str, ...] = ()
     origin_id: str
     born_tick: int
+    signature: tuple[str, ...] = ()  # 消息里那人的模样（玩家当时外露的特质）：听到的人凭它认人
+
+    @model_validator(mode="before")
+    @classmethod
+    def _order(cls, data: Any) -> Any:
+        return _canonical(data, {"subject_ids": str})
+
+
+class KarmaView(_View):
+    """一条牵涉此地、在场之人或可见之物的因果线（编剧的伏笔）：说书人只拿它作回响与心绪，不据此改写事实。"""
+
+    id: str
+    kind: KarmaKind
+    source: str
+    unresolved: str
+    subject_ids: tuple[str, ...] = ()
+    status: KarmaStatus = KarmaStatus.OPEN
 
     @model_validator(mode="before")
     @classmethod
@@ -300,6 +335,7 @@ class LocalSnapshot(_View):
     traces: tuple[TraceView, ...] = ()  # 此地尚未消散的痕迹
     swarms: tuple[SwarmView, ...] = ()  # 此地的人群及其此刻的样子
     rumors: tuple[RumorView, ...] = ()  # 传到此地的消息：在场之人所知的玩家所作所为，只有这些
+    karma: tuple[KarmaView, ...] = ()  # 牵涉此地、在场之人或可见之物的因果线（编剧的伏笔，图谱覆盖层 (:Karma)）
     labels: dict[str, str] = {}
 
     @model_validator(mode="before")
@@ -311,7 +347,7 @@ class LocalSnapshot(_View):
         return _canonical(data, {
             "exits": lambda e: (_get(e, "to_id"), _get(e, "label")),
             "characters": by_id, "items": by_id, "skills": by_id, "facts": by_id, "clocks": by_id, "emerged": by_id,
-            "activities": by_id, "traces": by_id, "swarms": by_id, "rumors": by_id,
+            "activities": by_id, "traces": by_id, "swarms": by_id, "rumors": by_id, "karma": by_id,
         })
 
     @property
@@ -355,6 +391,11 @@ class LocalSnapshot(_View):
         ids |= {s.id for s in self.swarms}
         for r in self.rumors:
             ids |= {r.origin_id, *r.subject_ids}
+        for k in self.karma:
+            ids |= set(k.subject_ids)
+        for c in self.characters:  # 排异区的禁地是远方的地点：也要有名
+            if c.persona is not None:
+                ids |= {a.location_id for a in c.persona.aversions if a.location_id}
         return ids
 
     def handle(self, way: ExitView) -> str:

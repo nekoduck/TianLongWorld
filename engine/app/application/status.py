@@ -3,7 +3,7 @@
          依赖 domain/intent 的 Aim，依赖 domain/models 的 Attitude，依赖 domain/outcomes 的 SocialOutcome / CovertOutcome，
          依赖 domain/snapshot 的 LocalSnapshot
 [OUTPUT]: 对外提供 bonds(state, snap, names)（人情一栏）、pursuits(state, names)（心事一栏）、referenced(state)（两栏需要取名的 id）、
-          clocks(snap)（眼前的暗流，至多 CLOCKS_SHOWN 只）、renown(state)（名望的语义标签）、BONDS_MAX / PURSUITS_MAX / CLOCKS_SHOWN
+          clocks(snap)（眼前的暗流，至多 CLOCKS_SHOWN 只）、renown(state)（名望的语义标签）、traits(state)（命格特质：旁人眼里的你）、BONDS_MAX / PURSUITS_MAX / CLOCKS_SHOWN
 [POS]: application 的状态栏附栏：把聚合根里的人情与心事线索翻成玩家看得懂的几行字。纯函数，只读状态与名字表，不查图、不经大模型；
        名字由 handlers 据 referenced() 向 WorldReader.labels 取来——一回合至多一次 labels、两次调用，世界不变则逐字不变。
        情报隔离：打探线索的标的是见闻（fact:），见闻正文是玩家还不知道的事——这里从不为它取名，标签只写对象「打探 · 左子穆」。
@@ -93,3 +93,8 @@ def clocks(snap: LocalSnapshot) -> tuple[ClockInfo, ...]:
 def renown(state: PlayerState) -> str:
     """名望的语义标签：江湖上怎么说你。"""
     return state.renown.value
+
+
+def traits(state: PlayerState) -> tuple[str, ...]:
+    """命格特质：旁人眼里的你（相貌、口音、装束、印记，按命格次序；刀疤后来添上）。"""
+    return state.traits

@@ -12,6 +12,10 @@
           ItemDecayed（露天无主之物朽坏）/ ItemPilfered（遗落之物被人顺手拿走），Moved.motivation 此行所为、
           空间认知与分层 NPC 生态的八种事件 PlacesLearned（问路得知）/ AgendaPlanned / AgendaIssued / AgendaConcluded（宏观议程）/
           NpcMoved（微观行军，witnessed 玩家看见的一面）/ EncounterBegan / EncounterResolved（相撞中断与裁决）/ NpcWounded（战力洗牌）、
+          世界本份的九种事件 TraitAcquired（后来添上的特质：刀疤）/ ItemShown（亮出藏着的东西）/ PlayerNoticed（一位 NPC 看见了你这副模样）/
+          ThreatDeclared（被你触犯的 NPC 起了盘问、喝止或敌意）/ ChallengeEnded（对峙了结）/ FrontAdvanced / FrontEnded（局势推进与了结）/
+          CollateralStruck / CollateralEnded（被卷进局势与脱身）、编剧代理的三种事件 KarmaThreadOpened / KarmaThreadResolved（因果线立下与了结）/
+          ChapterOpened（命运弧光开新章）、PlayerSpawned.traits 命格（旧账缺省由 id 现算）、ItemTransferred.concealed 到手即藏（旧账缺省视作外露）、
           AnyEvent 判别联合、EVENT_ADAPTER（JSONB 编码）、
           decode_event()（JSONB 解码：先经上抛器把旧账升级为现行词汇）、EventEnvelope（流内版本 + 事件 id + 记录时间）
 [POS]: domain 的事实词汇：世界此刻的一切都由这些事件经纯函数折叠而来；事件一经写入永不修改，
@@ -21,7 +25,9 @@
        一切新字段都有缺省值，旧账照读；唯一需要上抛的是 HealthChanged.source。
        地下城主推演出的时钟、微观事实与名望涨落，经领域闸门（resolution.py）定案后才写成这里的事件——大模型从不直接落账。
        世界心跳的事件由 application/world_clock 按 domain/heartbeat 的纯函数算出：时间、余波与生态同样是入账的事实，不是读取时的幻象；
-       痕迹的消散与活动的了结是时间的纯函数，不另写事件
+       痕迹的消散与活动的了结是时间的纯函数，不另写事件。
+       世界本份的事件由 domain/friction 与 domain/fronts 的纯函数按图谱快照算出（感知、施压、局势推进、波及），不调大模型；
+       编剧代理的事件只记伏笔与潜台词，不改变任何物理事实——它们经 domain/screenplay 的闸门才入账
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
@@ -31,16 +37,21 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
 from app.domain.agenda import AgendaEnd, Encounter, EncounterKind, NpcAgenda, SkirmishOutcome
 from app.domain.ambient import Activity, EnvironmentalTrace, FactToken
+from app.domain.arc import Chapter
 from app.domain.clocks import NarrativeClock
 from app.domain.combat import CombatOutcome
 from app.domain.commands import MAX_TIME_COST
 from app.domain.intent import ActionType, Aim, Approach
+from app.domain.karma import KarmaThread
+from app.domain.lore import Stance, Trigger
 from app.domain.models import Attitude, Material, Remedy
 from app.domain.outcomes import CovertOutcome, SocialOutcome
+from app.domain.signature import KIND_OF, trait_errors
+from app.domain.stage import ChallengeEnd, FrontEnd, FrontKind
 
 
 class DomainEvent(BaseModel):
@@ -53,6 +64,14 @@ class PlayerSpawned(DomainEvent):
     name: str
     location_id: str
     aptitude: float = Field(default=1.0, ge=0.5, le=1.5)  # 悟性系数：根骨天定，折算一切修习所得
+    traits: tuple[str, ...] | None = None  # 命格（相貌 / 口音 / 装束 / 印记）：旧账缺省为 None，折叠时由 id 现算（signature.fated）
+
+    @field_validator("traits")
+    @classmethod
+    def _fated(cls, value: tuple[str, ...] | None) -> tuple[str, ...] | None:
+        if value is not None and (errors := trait_errors(value)):
+            raise ValueError("；".join(errors))
+        return value
 
 
 class Moved(DomainEvent):
@@ -71,6 +90,7 @@ class ItemTransferred(DomainEvent):
     item_id: str
     from_holder: str
     to_holder: str
+    concealed: bool | None = None  # 到了玩家手上即藏起（暗中得手、或本就藏得住的小物件）；None 为旧账或与玩家无涉，视作外露
 
 
 class SkillPracticed(DomainEvent):
@@ -382,6 +402,141 @@ class NpcWounded(DomainEvent):
     cause: str = ""
 
 
+# ============================================================
+#  世界本份 —— 命格与外显、被看见、被触犯、对峙了结、局势推进与波及
+# ============================================================
+class TraitAcquired(DomainEvent):
+    """命格之外后来添上的特质（重伤于刀兵之下 → 面有刀疤）：此后旁人眼里的你就是这副模样。"""
+
+    type: Literal["TraitAcquired"] = "TraitAcquired"
+    trait: str
+    cause: str = Field(default="", max_length=24)
+
+    @field_validator("trait")
+    @classmethod
+    def _known(cls, value: str) -> str:
+        if value not in KIND_OF:
+            raise ValueError(f"不认识的特质：{value}")
+        return value
+
+
+class ItemShown(DomainEvent):
+    """你把藏在身上的东西亮给人看（出示信物）：它从此外露，在场之人都看得见。to_id 是出示的对象（chr:）。"""
+
+    type: Literal["ItemShown"] = "ItemShown"
+    item_id: str
+    to_id: str | None = None
+
+
+class PlayerNoticed(DomainEvent):
+    """一位 NPC 看见了你：这副模样（外露的特质与物件，digest 是签名摘要）第一次落进他眼里，此后他凭它认人。"""
+
+    type: Literal["PlayerNoticed"] = "PlayerNoticed"
+    npc_id: str
+    location_id: str
+    tick: int = Field(ge=0)
+    traits: tuple[str, ...] = ()
+    items: tuple[str, ...] = ()
+    digest: str = ""
+
+
+class ThreatDeclared(DomainEvent):
+    """
+    世界本份：一位 NPC 被你触犯（trigger），对你起了盘问、喝止或敌意（stance）。basis 是缘由的白描（人设原文、物名、局势名），
+    item_id 是他认出的那件东西，clock_id 是随之挂上或推进的那只时钟（挂在他身上；满则按坍缩表结算）。
+    """
+
+    type: Literal["ThreatDeclared"] = "ThreatDeclared"
+    npc_id: str
+    stance: Stance
+    trigger: Trigger
+    basis: str = Field(default="", max_length=24)
+    location_id: str
+    tick: int = Field(ge=0)
+    item_id: str | None = None
+    clock_id: str | None = None
+
+
+class ChallengeEnded(DomainEvent):
+    """对峙了结：你应对了他、你走开了、置之不理而时钟满了、或他走开了。"""
+
+    type: Literal["ChallengeEnded"] = "ChallengeEnded"
+    npc_id: str
+    how: ChallengeEnd
+    tick: int = Field(ge=0)
+
+
+class FrontAdvanced(DomainEvent):
+    """
+    一股局势推进到路线上的第 stop 站（自带种类、名字与一伙人，白描与折叠都不回查正典）。
+    同伴的挪步另有 NpcMoved（witnessed 留空），玩家看见的那一面只在这里：一伙人来到你所在之处、或从你身边离开。
+    """
+
+    type: Literal["FrontAdvanced"] = "FrontAdvanced"
+    front_id: str
+    kind: FrontKind
+    name: str
+    actors: tuple[str, ...] = Field(min_length=1)
+    rivals: tuple[str, ...] = ()
+    stop: int = Field(ge=0)
+    location_id: str
+    tick: int = Field(ge=0)
+    witnessed: Literal["", "来到", "离开"] = ""
+
+
+class FrontEnded(DomainEvent):
+    type: Literal["FrontEnded"] = "FrontEnded"
+    front_id: str
+    how: FrontEnd
+    tick: int = Field(ge=0)
+
+
+class CollateralStruck(DomainEvent):
+    """局势推进到你所在之处，你被卷了进去（被波及者）：clock_id 是随之挂上的那只时钟。"""
+
+    type: Literal["CollateralStruck"] = "CollateralStruck"
+    source_id: str
+    kind: FrontKind
+    location_id: str
+    tick: int = Field(ge=0)
+    clock_id: str | None = None
+
+
+class CollateralEnded(DomainEvent):
+    type: Literal["CollateralEnded"] = "CollateralEnded"
+    source_id: str
+    how: ChallengeEnd
+    tick: int = Field(ge=0)
+
+
+# ============================================================
+#  编剧代理 —— 因果线（伏笔与回收）与命运弧光（章回主题）；不改变任何物理事实
+# ============================================================
+class KarmaThreadOpened(DomainEvent):
+    """一条因果线挂上了墙：by 标明出自编剧大模型的评估，还是规则的确定性退路。"""
+
+    type: Literal["KarmaThreadOpened"] = "KarmaThreadOpened"
+    thread: KarmaThread
+    by: Literal["规则", "编剧"] = "规则"
+
+
+class KarmaThreadResolved(DomainEvent):
+    """一条因果线了结：狭路重逢、恩怨化解、物归原主、人死仇消……"""
+
+    type: Literal["KarmaThreadResolved"] = "KarmaThreadResolved"
+    thread_id: str
+    how: str = Field(min_length=1, max_length=12)
+    tick: int = Field(ge=0)
+
+
+class ChapterOpened(DomainEvent):
+    """命运弧光转入新阶段，开新的一章：主题、基调、意象与潜台词从此约束说书人的笔触。"""
+
+    type: Literal["ChapterOpened"] = "ChapterOpened"
+    chapter: Chapter
+    by: Literal["规则", "编剧"] = "规则"
+
+
 AnyEvent = Annotated[
     PlayerSpawned
     | Moved
@@ -417,7 +572,19 @@ AnyEvent = Annotated[
     | NpcMoved
     | EncounterBegan
     | EncounterResolved
-    | NpcWounded,
+    | NpcWounded
+    | TraitAcquired
+    | ItemShown
+    | PlayerNoticed
+    | ThreatDeclared
+    | ChallengeEnded
+    | FrontAdvanced
+    | FrontEnded
+    | CollateralStruck
+    | CollateralEnded
+    | KarmaThreadOpened
+    | KarmaThreadResolved
+    | ChapterOpened,
     Field(discriminator="type"),
 ]
 

@@ -4,18 +4,25 @@
           Fact（可经交涉、打探入账的见闻：≤40 字、主体、知情人、出处）、lore_integrity_errors(bp)（人设与见闻的蓝图闸门：
           悬空引用、重复的人设与见闻、主体或知情人有重复、知情人与主体无涉、unlock 落不到边上；关系边只认开篇的，后来才到场的物品不作主体、不作险物目标；
           人群须落在蓝图的地点上、id 即 swm:{名称}、门派须是蓝图里有人的门派）、
-          SwarmNode（人群：一处地方成群出现、没有名姓的人——人数、惊惧阈值、平日在做什么、出处）
+          SwarmNode（人群：一处地方成群出现、没有名姓的人——人数、惊惧阈值、平日在做什么、出处）、
+          世界本份的排异词汇——Trigger（摩擦的触发：撰写的十种 生面孔 / 擅入 / 持械 / 血污 / 恃强 / 喧哗 / 花言 / 窥探 / 动武 / 偷采 与图谱推出的七种
+          失物 / 信物 / 旧怨 / 闻讯 / 寻踪 / 清场 / 波及；.authored / .deed）、Stance（NPC 的反应：盘问 / 喝止 / 敌意，.rank 由轻到重）、
+          Aversion（人设的排异区：trigger、stance、basis 须是此人某条 dislikes 或 worry 的原文、擅入须带地点、出处）与 Persona.aversions（至多 AVERSIONS_MAX 条）
 [POS]: domain 的「掌故」本体：原著蓝图里除了人、地、功、物与关系之外，玩家能察觉的脾性与能打听到的事。
        它们属于蓝图（离线由子代理撰写、经闸门入库、provenance 永远是推断），不是运行期的新端口；
        人设只收对玩家可见的外显部分（后文剧情另在 Character.foreshadow，不进任何提示词）；
        见闻的 unlock 必须落在蓝图已有的一条边上——它只是让玩家"知道"那条边，从不凭空造一条边。
        字数、出处格式由字段约束守住；"不得照抄原文 ≥16 字"需要原著全文，由离线 ingest 闸门守（阶段 B）。
-       人群（SwarmNode）同属掌故：原著写了他们在场，却没给名姓——他们不能攀谈、不能交手，只目睹、传话、受惊溃散（世界心跳）
+       人群（SwarmNode）同属掌故：原著写了他们在场，却没给名姓——他们不能攀谈、不能交手，只目睹、传话、受惊溃散（世界心跳）。
+       排异区（Aversion）是人设的一部分：「多疑的人看见生面孔」「外人擅入禁地」——它只把人设里已有的一条好恶落成可检验的触发（basis 必须是原文），
+       由子代理撰写、经 friction 闸门入库；图谱推出的触发（失物认主、亲故认出信物、仇人相见、闻讯认人、按议程签名寻人、局势清场与波及）不需撰写，
+       由 domain/friction 按图谱现算。反应只有三档，落成悬在那人身上的时钟（盘问 → 疑心、喝止 / 敌意 → 敌意）
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -26,6 +33,7 @@ if TYPE_CHECKING:
 PERSONA_CHARS = 16
 FACT_CHARS = 40
 SWARM_CHARS = 12
+AVERSIONS_MAX = 4  # 一个人的排异区至多四条：人设里最扎眼的几条好恶
 
 Trait = Annotated[str, Field(min_length=1, max_length=PERSONA_CHARS)]
 Source = Annotated[str, Field(pattern=r"^(ev|chunk):\S+$")]  # "ev:<块号>"（抽取记录里的事件）或 "chunk:<块号>"（原文块）
@@ -36,6 +44,77 @@ class _Lore(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
+class Trigger(StrEnum):
+    """
+    世界本份的摩擦触发。前十种由子代理照人设撰写（排异区），后七种由图谱推出、不需撰写：
+      在场即触发：生面孔（他从没见过你）、擅入（你身在他的禁地）、持械（你手里有兵刃）、血污（你一身是血）；
+      当着他的面做了什么：恃强（欺凌弱者）、喧哗（威逼喝问）、花言（言辞讨好他）、窥探（打探他或他的人）、动武（任何交手）、偷采（在他的地头拾取东西）；
+      图谱推出：失物（他认出你身上是他丢的东西）、信物（他认出你身上是他亲故之物）、旧怨（敌视你的人认出了你）、闻讯（传到此地的消息里那人的模样就是你）、
+      寻踪（他的议程签名对上了你）、清场（局势推进到你所在之处）、波及（别人的恶斗溅到你身上）。
+    """
+
+    STRANGER = "生面孔"
+    TRESPASS = "擅入"
+    ARMED = "持械"
+    BLOODIED = "血污"
+    BULLY = "恃强"
+    CLAMOR = "喧哗"
+    FLATTERY = "花言"
+    PRYING = "窥探"
+    BRAWL = "动武"
+    POACH = "偷采"
+    OWN_ITEM = "失物"
+    TOKEN = "信物"
+    GRUDGE = "旧怨"
+    RUMOR = "闻讯"
+    HUNT = "寻踪"
+    SWEEP = "清场"
+    SPILL = "波及"
+
+    @property
+    def authored(self) -> bool:
+        """可以写进排异区的触发（其余由图谱推出）。"""
+        return self in _AUTHORED
+
+    @property
+    def deed(self) -> bool:
+        """当着他的面做了什么才触发（其余在场即触发）。"""
+        return self in _DEEDS
+
+
+_AUTHORED = frozenset({
+    Trigger.STRANGER, Trigger.TRESPASS, Trigger.ARMED, Trigger.BLOODIED, Trigger.BULLY,
+    Trigger.CLAMOR, Trigger.FLATTERY, Trigger.PRYING, Trigger.BRAWL, Trigger.POACH,
+})
+_DEEDS = frozenset({Trigger.BULLY, Trigger.CLAMOR, Trigger.FLATTERY, Trigger.PRYING, Trigger.BRAWL, Trigger.POACH})
+PLACED = frozenset({Trigger.TRESPASS, Trigger.POACH})  # 可带地点：擅入必带，偷采不带即任何地方
+
+
+class Stance(StrEnum):
+    """NPC 的反应，由轻到重：盘问（问你的来历）/ 喝止（令你住手或离开）/ 敌意（起了杀心）。"""
+
+    INTERROGATE = "盘问"
+    WARN = "喝止"
+    HOSTILE = "敌意"
+
+    @property
+    def rank(self) -> int:
+        return (Stance.INTERROGATE, Stance.WARN, Stance.HOSTILE).index(self) + 1
+
+
+class Aversion(_Lore):
+    """
+    排异区：人设里一条好恶落成的可检验触发。basis 必须是此人人设某条 dislikes 或 worry 的原文——它不发明新脾气，
+    只说明那条脾气在什么情形下会被触犯、触犯了是盘问、喝止还是起杀心。擅入必带地点（他的禁地），偷采可带地点（他的地头）。
+    """
+
+    trigger: Trigger
+    stance: Stance
+    basis: str = Field(min_length=1, max_length=PERSONA_CHARS)
+    location_id: str | None = None
+    sources: tuple[Source, ...] = Field(min_length=1)
+
+
 class Persona(_Lore):
     """外显人设：玩家看得出的好恶与心事。只给外显部分——后文的命运、未示人的秘密都不在这里。"""
 
@@ -44,6 +123,7 @@ class Persona(_Lore):
     dislikes: tuple[Trait, ...] = ()
     worry: str = Field(default="", max_length=PERSONA_CHARS)  # 心事
     sources: tuple[Source, ...] = Field(min_length=1)
+    aversions: tuple[Aversion, ...] = Field(default=(), max_length=AVERSIONS_MAX)  # 排异区（friction 闸门入库）
 
 
 class FactUnlock(_Lore):
@@ -116,12 +196,14 @@ def lore_integrity_errors(bp: WorldBlueprint) -> list[str]:
 
     errors: list[str] = []
     personas: set[str] = set()
+    places = {loc.id for loc in bp.locations}
     for persona in bp.personas:
         if persona.character_id not in chars:
             errors.append(f"人设引用了不存在的人物：{persona.character_id}")
         if persona.character_id in personas:
             errors.append(f"重复的人设：{persona.character_id}")
         personas.add(persona.character_id)
+        errors += _aversion_errors(persona, places)
 
     facts: set[str] = set()
     for fact in bp.facts:
@@ -147,7 +229,6 @@ def lore_integrity_errors(bp: WorldBlueprint) -> list[str]:
         if fact.unlock is not None and not _lands(fact, fact.unlock, chars, items, arts, ties, personas):
             errors.append(f"{where} 的 unlock {fact.unlock.kind}→{fact.unlock.target_id} 落不到蓝图的边上")
 
-    places = {loc.id for loc in bp.locations}
     factions = {c.faction for c in chars.values() if c.faction}
     swarms: set[str] = set()
     for swarm in bp.swarms:
@@ -161,6 +242,29 @@ def lore_integrity_errors(bp: WorldBlueprint) -> list[str]:
             errors.append(f"{where} 落在不存在的地点：{swarm.location_id}")
         if swarm.faction and swarm.faction not in factions:
             errors.append(f"{where} 的门派「{swarm.faction}」在蓝图里没有一个人")
+    return errors
+
+
+def _aversion_errors(persona: Persona, places: set[str]) -> list[str]:
+    """排异区的闸门：只收可撰写的触发、basis 须是人设原文、擅入必带地点而其余（偷采除外）不带、地点须在蓝图里、同一触发同一地点不重复。"""
+    where = f"人设 {persona.character_id} 的排异区"
+    grounds = {*persona.dislikes, *([persona.worry] if persona.worry else [])}
+    errors: list[str] = []
+    seen: set[tuple[Trigger, str | None]] = set()
+    for a in persona.aversions:
+        if not a.trigger.authored:
+            errors.append(f"{where}：「{a.trigger}」由图谱推出，不可撰写")
+        if a.basis not in grounds:
+            errors.append(f"{where}：basis「{a.basis}」不是此人人设里的好恶或心事原文")
+        if a.trigger is Trigger.TRESPASS and a.location_id is None:
+            errors.append(f"{where}：擅入须写明是哪处禁地")
+        if a.location_id is not None and a.trigger not in PLACED:
+            errors.append(f"{where}：「{a.trigger}」不带地点")
+        if a.location_id is not None and a.location_id not in places:
+            errors.append(f"{where}：地点不存在：{a.location_id}")
+        if (a.trigger, a.location_id) in seen:
+            errors.append(f"{where}：重复的触发「{a.trigger}」")
+        seen.add((a.trigger, a.location_id))
     return errors
 
 

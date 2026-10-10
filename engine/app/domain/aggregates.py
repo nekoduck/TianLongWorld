@@ -12,6 +12,8 @@
           clocks 悬着的叙事时钟、emerged 推演出的微观事实（新者在前、至多 EMERGED_MAX 条）、renown 名望点数，
           tick 世界时间、motivation 此行所为、activities / traces / tokens 此世的活动、痕迹与消息，
           visited / heard 到过与问路得知的地方（去处的认知）、agendas / npc_at / npc_since / npc_wounds / agenda_tick / encounters 分层 NPC 生态的此世状态，
+          世界本份的 traits 命格特质 / hidden_items 藏在身上的东西 / sightings 谁见过你什么样子 / challenges 悬着的对峙 / collateral 被卷进的局势 / fronts 局势推进到哪里，
+          编剧代理的 karma 未了的因果线 / arc_marks 弧光标记 / chapter 当下这一章，
           mastery / vitality / inventory 现算）、FOCUS_SIZE、RECENT_SIZE、EMERGED_MAX、EmergedFact、
           evolve(state, event) 纯函数折叠、Player 聚合根（apply / from_history / replay / spawn / ensure_alive / mastery / decide）
 [POS]: domain 的一致性边界：一位玩家的平行世界就是一条事件流，世界在这条流上相对原著的全部偏离（位置、行囊、武学火候、气血、
@@ -31,6 +33,11 @@
        空间认知与 NPC 生态同样只做折叠：投胎之地与每个去处进 visited、问路得知进 heard；议程按 NPC 挂上（启程之刻进 npc_since：立议程之刻与驻足到之刻取较晚者，
        同一批里裁决之后再立的新议程不抹掉驻足）、了结即摘下；
        NPC 每走一跳改 npc_at 与 npc_since；中断挂进 encounters、裁决之后摘下并让当事 NPC 驻足到 resume_tick；受伤记到 npc_wounds。
+       世界本份同样只做折叠：投胎即定命格（PlayerSpawned.traits，旧账由 id 现算），刀疤后来添上；东西到手时 concealed 即藏起、亮出（ItemShown）或交出去即不再藏；
+       PlayerNoticed 记下他看见的样子；ThreatDeclared 挂上对峙（每人一条，新覆盖旧）、ChallengeEnded 摘下；局势按 FrontAdvanced 推进、FrontEnded 留下了结的标记；
+       CollateralStruck / CollateralEnded 挂上与摘下被卷进的局势。
+       编剧代理只记伏笔与潜台词：每条事件经 screenplay.mark 折成弧光标记（至多 ARC_WINDOW 枚）；因果线新者在前、至多 KARMA_MAX 条，
+       议程带着 karma_id 立下即把那条线转为回响，了结即摘下；ChapterOpened 换上新的一章。
        内存图谱投影（infrastructure/persistence/memory_graph.py）复用同一个 evolve，投影与真相因此同构
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
@@ -51,6 +58,7 @@ from app.domain.ambient import (
     with_token,
     with_trace,
 )
+from app.domain.arc import ARC_WINDOW, PROLOGUE, ArcPhase, Chapter
 from app.domain.clocks import NarrativeClock, advanced, retired, started
 from app.domain.combat import CombatOutcome, CombatProposal
 from app.domain.commands import SPAWN_TICK
@@ -60,10 +68,14 @@ from app.domain.events import (
     AgendaConcluded,
     AgendaIssued,
     AgendaPlanned,
+    ChallengeEnded,
+    ChapterOpened,
     ClockAdvanced,
     ClockCleared,
     ClockCollapsed,
     ClockStarted,
+    CollateralEnded,
+    CollateralStruck,
     Conversed,
     DomainEvent,
     EncounterBegan,
@@ -72,11 +84,16 @@ from app.domain.events import (
     FactEmerged,
     FactLearned,
     FactTokenSpawned,
+    FrontAdvanced,
+    FrontEnded,
     HealthChanged,
     ItemConsumed,
     ItemDecayed,
     ItemPilfered,
+    ItemShown,
     ItemTransferred,
+    KarmaThreadOpened,
+    KarmaThreadResolved,
     Maneuvered,
     Moved,
     NpcMoved,
@@ -84,16 +101,20 @@ from app.domain.events import (
     Parleyed,
     PlacesLearned,
     PlayerDied,
+    PlayerNoticed,
     PlayerSpawned,
     RelationChanged,
     RenownChanged,
     RumorSpread,
     SkillExecuted,
     SkillPracticed,
+    ThreatDeclared,
     TimePassed,
     TraceLeft,
+    TraitAcquired,
 )
 from app.domain.intent import Approach, PlayerIntent
+from app.domain.karma import KARMA_MAX, KarmaStatus, KarmaThread
 from app.domain.models import Attitude
 from app.domain.progression import (
     MAX_HP,
@@ -107,7 +128,10 @@ from app.domain.progression import (
     vitality,
 )
 from app.domain.resolution import ResolutionOutput
+from app.domain.screenplay import mark
+from app.domain.signature import fated
 from app.domain.snapshot import LocalSnapshot
+from app.domain.stage import Challenge, Collateral, FrontProgress, Sighting
 from app.domain.stakes import Proposal
 from app.domain.threads import Thread
 from app.domain.threads import fold as fold_threads
@@ -168,6 +192,17 @@ class PlayerState:
     npc_wounds: Mapping[str, int] = field(default_factory=dict)  # NPC → 伤到哪一刻为止
     agenda_tick: int | None = None  # 上一轮宏观议程规划之刻（None：还没规划过）
     encounters: tuple[Encounter, ...] = ()  # 待裁决的中断（EncounterBegan 之后、EncounterResolved 之前）
+    # 世界本份：命格与外显、被谁看见过、悬着的对峙、被卷进的局势、局势推进到哪里
+    traits: tuple[str, ...] = ()  # 命格特质（相貌 / 口音 / 装束 / 印记）与后来添上的（刀疤）
+    hidden_items: frozenset[str] = frozenset()  # 藏在身上的东西：旁人看不见，亮出来（ItemShown）之后才外露
+    sightings: Mapping[str, Sighting] = field(default_factory=dict)  # NPC → 他最近一次看见你的样子
+    challenges: tuple[Challenge, ...] = ()  # 悬着的对峙（每位 NPC 至多一条）：盘问、喝止、敌意
+    collateral: tuple[Collateral, ...] = ()  # 被卷进的局势（每股局势至多一条）
+    fronts: Mapping[str, FrontProgress] = field(default_factory=dict)  # 局势 → 此世推进到哪一站（了结的留着，免得重起）
+    # 编剧代理：悬着的因果线与命运弧光
+    karma: tuple[KarmaThread, ...] = ()  # 未了的因果线，新者在前、至多 KARMA_MAX 条
+    arc_marks: tuple[ArcPhase, ...] = ()  # 弧光标记，新者在前、至多 ARC_WINDOW 枚（screenplay.mark）
+    chapter: Chapter = PROLOGUE  # 当下这一章：主题、基调、意象、潜台词
 
     @property
     def skills(self) -> frozenset[str]:
@@ -269,6 +304,7 @@ def evolve(state: PlayerState | None, event: DomainEvent) -> PlayerState:
         return PlayerState(
             player_id=event.player_id, name=event.name, location_id=event.location_id, aptitude=event.aptitude,
             visited=frozenset({event.location_id}),
+            traits=event.traits if event.traits is not None else fated(event.player_id),
         )
     if state is None:
         raise ValueError(f"事件流必须以 PlayerSpawned 开头，却遇到 {type(event).__name__}")
@@ -278,6 +314,8 @@ def evolve(state: PlayerState | None, event: DomainEvent) -> PlayerState:
         state = replace(state, focus_fresh=False)
     if (threads := fold_threads(state.threads, event, state.player_id, state.attitudes)) != state.threads:
         state = replace(state, threads=threads)
+    if (marked := mark(event, state.player_id)) is not None:
+        state = replace(state, arc_marks=(marked, *state.arc_marks)[:ARC_WINDOW])
     if attempt := _attempt(event):
         target, approach = attempt
         state = replace(
@@ -291,11 +329,16 @@ def evolve(state: PlayerState | None, event: DomainEvent) -> PlayerState:
             fled = state.fled_from | {origin} if fleeing else state.fled_from
             return replace(state, location_id=destination, came_from=origin, fled_from=fled, motivation=motivation,
                            visited=state.visited | {destination})
-        case ItemTransferred(item_id=item, from_holder=giver, to_holder=holder):
+        case ItemTransferred(item_id=item, from_holder=giver, to_holder=holder, concealed=concealed):
             provenance = state.taken_from
             if holder == state.player_id and item not in provenance:  # 只记最初的来路：转手第三人再拿回来，洗不掉偷来的底子
                 provenance = {**provenance, item: giver}
-            return replace(state, item_holders={**state.item_holders, item: holder}, taken_from=provenance)
+            hidden = state.hidden_items
+            if holder == state.player_id:
+                hidden = hidden | {item} if concealed else hidden - {item}
+            elif giver == state.player_id:
+                hidden = hidden - {item}
+            return replace(state, item_holders={**state.item_holders, item: holder}, taken_from=provenance, hidden_items=hidden)
         case SkillPracticed(skill_id=skill, proficiency_gained=gained):
             return replace(state, practice={**state.practice, skill: state.practice.get(skill, 0) + gained})
         case HealthChanged(delta=delta):
@@ -351,6 +394,7 @@ def evolve(state: PlayerState | None, event: DomainEvent) -> PlayerState:
                 state,
                 agendas={**state.agendas, agenda.npc_id: agenda},
                 npc_since={**state.npc_since, agenda.npc_id: start},
+                karma=_echoed(state.karma, agenda.karma_id, agenda.npc_id),
             )
         case AgendaConcluded(npc_id=npc):
             return replace(state, agendas={k: v for k, v in state.agendas.items() if k != npc})
@@ -363,9 +407,52 @@ def evolve(state: PlayerState | None, event: DomainEvent) -> PlayerState:
             return replace(state, encounters=tuple(e for e in state.encounters if e.id != done), npc_since=since)
         case NpcWounded(npc_id=npc, until_tick=until):
             return replace(state, npc_wounds={**state.npc_wounds, npc: until})
+        case TraitAcquired(trait=trait):
+            return state if trait in state.traits else replace(state, traits=(*state.traits, trait))
+        case ItemShown(item_id=item):
+            return replace(state, hidden_items=state.hidden_items - {item})
+        case PlayerNoticed(npc_id=npc, location_id=where, tick=tick, traits=traits, items=items, digest=digest):
+            seen = Sighting(location_id=where, tick=tick, traits=traits, items=items, digest=digest)
+            return replace(state, sightings={**state.sightings, npc: seen})
+        case ThreatDeclared(npc_id=npc, stance=stance, trigger=trigger, location_id=where, tick=tick, clock_id=clock):
+            challenge = Challenge(npc_id=npc, stance=stance, trigger=trigger, location_id=where, tick=tick, clock_id=clock)
+            return replace(state, challenges=(*(c for c in state.challenges if c.npc_id != npc), challenge))
+        case ChallengeEnded(npc_id=npc):
+            return replace(state, challenges=tuple(c for c in state.challenges if c.npc_id != npc))
+        case FrontAdvanced(front_id=front, kind=kind, name=name, actors=actors, rivals=rivals, stop=stop, location_id=where,
+                           tick=tick):
+            advanced_to = FrontProgress(front_id=front, kind=kind, name=name, actors=actors, rivals=rivals, stop=stop,
+                                        location_id=where, since=tick)
+            return replace(state, fronts={**state.fronts, front: advanced_to})
+        case FrontEnded(front_id=front, how=how):
+            if (current := state.fronts.get(front)) is None:
+                return state
+            return replace(state, fronts={**state.fronts, front: current.model_copy(update={"ended": how})})
+        case CollateralStruck(source_id=source, kind=kind, location_id=where, tick=tick, clock_id=clock):
+            caught = Collateral(source_id=source, kind=kind, location_id=where, tick=tick, clock_id=clock)
+            return replace(state, collateral=(*(c for c in state.collateral if c.source_id != source), caught))
+        case CollateralEnded(source_id=source):
+            return replace(state, collateral=tuple(c for c in state.collateral if c.source_id != source))
+        case KarmaThreadOpened(thread=thread):
+            return replace(state, karma=(thread, *(t for t in state.karma if t.id != thread.id))[:KARMA_MAX])
+        case KarmaThreadResolved(thread_id=done):
+            return replace(state, karma=tuple(t for t in state.karma if t.id != done))
+        case ChapterOpened(chapter=chapter):
+            return replace(state, chapter=chapter)
         case SkillExecuted() | Conversed() | ActionFailed() | Parleyed() | Maneuvered():
             return state  # 只是历史（线索、焦点、手段、尝试次数已在上面折叠），不改变世界
     raise TypeError(f"未知的领域事件：{type(event).__name__}")
+
+
+def _echoed(karma: tuple[KarmaThread, ...], thread_id: str | None, npc: str) -> tuple[KarmaThread, ...]:
+    """一条议程出于某条因果线：那条线从未决转为回响，记下领了它的人（不重复）。"""
+    if thread_id is None:
+        return karma
+    return tuple(
+        t.model_copy(update={"status": KarmaStatus.ECHOED, "echoes": tuple(dict.fromkeys((*t.echoes, npc)))})
+        if t.id == thread_id else t
+        for t in karma
+    )
 
 
 # ============================================================
